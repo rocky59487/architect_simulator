@@ -1,0 +1,38 @@
+# Unreal Engine generated artifacts (patterns have no leading slash, so they match
+# at any depth -- this also covers Plugins/*/Binaries, Plugins/*/Intermediate, etc.)
+Binaries/
+DerivedDataCache/
+Intermediate/
+Saved/
+
+# IDE / build
+.vs/
+.vscode/
+.idea/
+*.sln
+*.suo
+*.user
+*.VC.db
+*.opensdf
+*.opendb
+*.sdf
+
+# Standalone C++ console-gate build artifacts (FrameCore frame_cli/frametest/frame_perf)
+*.exe
+*.obj
+obj/
+obj_cli/
+obj_perf/
+
+# Python
+__pycache__/
+*.pyc
+
+# OS cruft
+Desktop.ini
+Thumbs.db
+.DS_Store
+
+# Note: ArchSim.uproject's EngineAssociation is the absolute path of this local
+# source/unregistered UE build (E:/project/UE_5.7). That is expected for a local
+# engine; to make the project portable, register the engine and use its GUID.

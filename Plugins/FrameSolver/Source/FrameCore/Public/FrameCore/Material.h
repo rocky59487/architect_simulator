@@ -1,0 +1,38 @@
+#pragma once
+#include "FrameCore/FrameTypes.h"
+#include <algorithm>
+
+namespace frame {
+
+// ALLOWABLE / ELASTIC capacities (MPa). This is the screening layer — it is
+// NOT RC ultimate strength (P-M interaction + concrete nonlinearity). The real
+// RC strength belongs to a future fiber-section precision layer; do not conflate.
+struct Capacity {
+    real comp  = 0;   // allowable compressive stress
+    real tens  = 0;   // allowable tensile stress
+    real shear = 0;   // allowable shear stress
+    real bend  = 0;   // elastic proxy = min(comp, tens)  (NOT a real Mn)
+    real tors  = 0;   // elastic proxy = shear
+
+    static Capacity make(real comp_, real tens_, real shear_) {
+        Capacity c;
+        c.comp  = comp_;
+        c.tens  = tens_;
+        c.shear = shear_;
+        c.bend  = std::min(comp_, tens_);
+        c.tors  = shear_;
+        return c;
+    }
+};
+
+struct Material {
+    real     E   = 0;     // Young's modulus (MPa)
+    real     G   = 0;     // shear modulus (MPa)
+    real     rho = 0;     // density (kg/m^3) — informational this milestone
+    Capacity cap;
+
+    Material() = default;
+    Material(real E_, real G_, real rho_ = 0) : E(E_), G(G_), rho(rho_) {}
+};
+
+} // namespace frame

@@ -1,0 +1,301 @@
+#!/usr/bin/env python
+# -*- coding: utf-8 -*-
+"""
+#14 OpenSees offline cross-validation harness (NOT shipped in the game; licensing).
+
+Solves the SAME reference structures three ways and reports the numeric differences:
+  (1) our engine  -> frame_cli.exe (stdin/stdout driver around frame::solve)
+  (2) OpenSees    -> openseespy (the independent reference solver)
+  (3) analytic    -> closed-form oracle, where one exists
+
+Both solvers are linear-elastic Euler-Bernoulli, so they must agree to a tight
+tolerance. We compare GLOBAL node displacements (frame-invariant, so independent of
+each solver's local-axis / Iy-Iz convention) plus the axial force and resultant end
+moment (also convention-free). Reference models use SQUARE sections (Iy == Iz) so the
+3D geomTransf vecxz / Iy-Iz ambiguity cannot bias the comparison.
+
+Reference set includes the Taiwan RC code modulus E_c = 4700*sqrt(f'c) (MPa), matching
+the 112-year concrete design code (ACI 318-19 basis).
+
+Usage:  python Tools/opensees_compare.py        (exit 0 iff every diff is within tol)
+"""
+import os, sys, math, subprocess
+
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+CLI  = os.path.join(ROOT, "Plugins", "FrameSolver", "Standalone", "frame_cli.exe")
+BUILD_CLI = os.path.join(ROOT, "Plugins", "FrameSolver", "Standalone", "build_cli.bat")
+
+try:
+    import openseespy.opensees as ops
+except Exception as e:  # pragma: no cover
+    print("[FAIL] openseespy not importable:", e)
+    print("       install with:  python -m pip install openseespy")
+    sys.exit(2)
+
+
+# ----------------------------------------------------------------- section helpers
+def square_section(side):
+    """A, Iy, Iz, J, cy, cz, Asy, Asz for a solid square (Iy == Iz; St-Venant J)."""
+    A = side * side
+    I = side ** 4 / 12.0
+    J = 0.1406 * side ** 4            # St-Venant torsion constant of a square
+    return dict(A=A, Iy=I, Iz=I, J=J, cy=side / 2, cz=side / 2, Asy=0.0, Asz=0.0)
+
+
+def rect_section(b, d):
+    """Rectangular section, b = width (local z), d = depth (local y): Iz = b d^3/12
+    (x-y bending), Iy = d b^3/12 (x-z bending). Iy != Iz so it actually exercises the
+    local-axis convention."""
+    A = b * d
+    Iz = b * d ** 3 / 12.0
+    Iy = d * b ** 3 / 12.0
+    bb, tt = max(b, d), min(b, d)            # St-Venant J of a rectangle (approx series)
+    J = bb * tt ** 3 * (1.0 / 3.0 - 0.21 * (tt / bb) * (1.0 - (tt ** 4) / (12.0 * bb ** 4)))
+    return dict(A=A, Iy=Iy, Iz=Iz, J=J, cy=d / 2, cz=b / 2, Asy=0.0, Asz=0.0)
+
+
+def refvec_for(pi, pj):
+    """(1,0,0) for a vertical member else (0,0,1) — dodges the local-axis degeneracy."""
+    vertical = abs(pi[0] - pj[0]) < 1e-9 and abs(pi[1] - pj[1]) < 1e-9
+    return (1.0, 0.0, 0.0) if vertical else (0.0, 0.0, 1.0)
+
+
+# ----------------------------------------------------------------- our engine (frame_cli)
+def run_frame_cli(model):
+    lines = []
+    for m in model["materials"]:
+        lines.append(f"MAT {m['E']} {m['G']} {m.get('rho', 7850.0)}")
+    for s in model["sections"]:
+        lines.append("SEC {A} {Iy} {Iz} {J} {cy} {cz} {Asy} {Asz}".format(**s))
+    for n in model["nodes"]:
+        f = n["fix"]
+        lines.append("NODE {id} {x} {y} {z} {0} {1} {2} {3} {4} {5}".format(*f, **n))
+    for e in model["members"]:
+        rv = e["refvec"]
+        lines.append(f"MEMBER {e['id']} {e['i']} {e['j']} {e['mat']} {e['sec']} {rv[0]} {rv[1]} {rv[2]}")
+    for l in model.get("nloads", []):
+        c = l["comp"]
+        lines.append(f"NLOAD {l['node']} {c[0]} {c[1]} {c[2]} {c[3]} {c[4]} {c[5]}")
+    lines.append("END")
+    text = "\n".join(lines) + "\n"
+
+    p = subprocess.run([CLI], input=text, capture_output=True, text=True)
+    if p.returncode != 0:
+        raise RuntimeError("frame_cli failed: " + p.stderr)
+    disp, mf, singular = {}, {}, None
+    for ln in p.stdout.splitlines():
+        t = ln.split()
+        if not t:
+            continue
+        if t[0] == "SINGULAR":
+            singular = int(t[1])
+        elif t[0] == "DISP":
+            disp[int(t[1])] = [float(x) for x in t[2:8]]
+        elif t[0] == "MF":
+            mf[int(t[1])] = [float(x) for x in t[2:14]]
+    return singular, disp, mf
+
+
+# ----------------------------------------------------------------- OpenSees
+def run_opensees(model):
+    ops.wipe()
+    ops.model("basic", "-ndm", 3, "-ndf", 6)
+    for n in model["nodes"]:
+        ops.node(n["id"], float(n["x"]), float(n["y"]), float(n["z"]))
+        f = n["fix"]
+        ops.fix(n["id"], int(f[0]), int(f[1]), int(f[2]), int(f[3]), int(f[4]), int(f[5]))
+
+    for e in model["members"]:
+        pi = next(nn for nn in model["nodes"] if nn["id"] == e["i"])
+        pj = next(nn for nn in model["nodes"] if nn["id"] == e["j"])
+        axis = (pj["x"] - pi["x"], pj["y"] - pi["y"], pj["z"] - pi["z"])
+        # vecxz: any vector not parallel to the member axis (mirror our refVec rule).
+        vert = abs(axis[0]) < 1e-9 and abs(axis[1]) < 1e-9
+        vecxz = (1.0, 0.0, 0.0) if vert else (0.0, 0.0, 1.0)
+        ops.geomTransf("Linear", e["id"] + 1, *vecxz)
+        m = model["materials"][e["mat"]]
+        s = model["sections"][e["sec"]]
+        # CONVENTION BRIDGE: our refVec defines the local x-y plane (local y toward refVec),
+        # whereas OpenSees geomTransf vecxz gives local y = vecxz x axis (perpendicular to
+        # the x-vecxz plane). Using the SAME vector for both therefore swaps the roles of
+        # the two bending axes, so our Iz (x-y bending) is OpenSees' Iy and vice versa.
+        # We pass (Iy_os, Iz_os) = (our Iz, our Iy). For square sections this is a no-op;
+        # the rectangular cantilever below positively verifies the mapping is correct.
+        # element elasticBeamColumn $tag $i $j $A $E $G $Jx $Iy $Iz $transfTag
+        ops.element("elasticBeamColumn", e["id"] + 1, e["i"], e["j"],
+                    s["A"], m["E"], m["G"], s["J"], s["Iz"], s["Iy"], e["id"] + 1)
+
+    ops.timeSeries("Linear", 1)
+    ops.pattern("Plain", 1, 1)
+    for l in model.get("nloads", []):
+        c = l["comp"]
+        ops.load(l["node"], c[0], c[1], c[2], c[3], c[4], c[5])
+
+    ops.constraints("Transformation")
+    ops.numberer("RCM")
+    ops.system("BandGeneral")
+    ops.test("NormDispIncr", 1.0e-10, 20)
+    ops.algorithm("Linear")
+    ops.integrator("LoadControl", 1.0)
+    ops.analysis("Static")
+    ok = ops.analyze(1)
+
+    disp = {}
+    for n in model["nodes"]:
+        disp[n["id"]] = [ops.nodeDisp(n["id"], k) for k in range(1, 7)]
+    mf = {}
+    for e in model["members"]:
+        # localForce (NOT eleForce, which is GLOBAL) -> axial along local x + local moments,
+        # directly comparable to our compression-positive local end forces (abs / resultant).
+        mf[e["id"]] = ops.eleResponse(e["id"] + 1, "localForce")
+    return ok, disp, mf
+
+
+# ----------------------------------------------------------------- comparison
+def max_disp_norm(disp):
+    return max((max(abs(v) for v in d) for d in disp.values()), default=1.0) or 1.0
+
+
+def compare_disp(d_mine, d_os):
+    scale = max(max_disp_norm(d_mine), max_disp_norm(d_os), 1e-30)
+    worst = 0.0
+    for nid in d_mine:
+        for k in range(6):
+            worst = max(worst, abs(d_mine[nid][k] - d_os[nid][k]) / scale)
+    return worst
+
+
+def resultant_moment(mf12, end):  # end 0 -> i (My,Mz at idx 4,5), end 1 -> j (idx 10,11)
+    base = 0 if end == 0 else 6
+    return math.hypot(mf12[base + 4], mf12[base + 5])
+
+
+def compare_forces(mf_mine, mf_os):
+    worstN, worstM = 0.0, 0.0
+    Nscale = max((max(abs(mf_mine[e][0]), abs(mf_mine[e][6])) for e in mf_mine), default=1.0) or 1.0
+    Mscale = max((max(resultant_moment(mf_mine[e], 0), resultant_moment(mf_mine[e], 1)) for e in mf_mine), default=1.0) or 1.0
+    for e in mf_mine:
+        worstN = max(worstN, abs(abs(mf_mine[e][0]) - abs(mf_os[e][0])) / Nscale)
+        for end in (0, 1):
+            worstM = max(worstM, abs(resultant_moment(mf_mine[e], end) - resultant_moment(mf_os[e], end)) / Mscale)
+    return worstN, worstM
+
+
+# ----------------------------------------------------------------- reference models
+def model_cantilever3d():
+    sec = square_section(100.0)
+    nodes = [
+        dict(id=0, x=0.0, y=0.0, z=0.0, fix=[1, 1, 1, 1, 1, 1]),
+        dict(id=1, x=2000.0, y=0.0, z=0.0, fix=[0, 0, 0, 0, 0, 0]),
+    ]
+    members = [dict(id=0, i=0, j=1, mat=0, sec=0, refvec=refvec_for((0, 0, 0), (2000, 0, 0)))]
+    P = 1000.0
+    nloads = [dict(node=1, comp=[0, 0, -P, 0, 0, 0])]
+    mats = [dict(E=210000.0, G=80769.0, rho=7850.0)]
+    analytic = dict(node=1, dof=2, value=-P * 2000.0 ** 3 / (3.0 * 210000.0 * sec["Iz"]))
+    return dict(name="cantilever3d (steel, tip load)", materials=mats, sections=[sec],
+                nodes=nodes, members=members, nloads=nloads, analytic=analytic)
+
+
+def model_cantilever_rect():
+    # rectangular section (Iy != Iz) loaded transversely in BOTH global Y and Z, so the
+    # two distinct inertias are both exercised -> positively verifies the refVec / Iy-Iz
+    # convention bridge (not just masked by a square section).
+    sec = rect_section(100.0, 200.0)          # b=100 (z), d=200 (y)
+    L, E = 2000.0, 210000.0
+    nodes = [
+        dict(id=0, x=0.0, y=0.0, z=0.0, fix=[1, 1, 1, 1, 1, 1]),
+        dict(id=1, x=L,   y=0.0, z=0.0, fix=[0, 0, 0, 0, 0, 0]),
+    ]
+    members = [dict(id=0, i=0, j=1, mat=0, sec=0, refvec=refvec_for((0, 0, 0), (L, 0, 0)))]
+    Py, Pz = -800.0, -1000.0
+    nloads = [dict(node=1, comp=[0, Py, Pz, 0, 0, 0])]
+    mats = [dict(E=E, G=80769.0, rho=7850.0)]
+    # global-Z deflection uses our Iz (x-y bending); checked analytically.
+    analytic = dict(node=1, dof=2, value=Pz * L ** 3 / (3.0 * E * sec["Iz"]))
+    return dict(name="cantilever rect (Iy!=Iz, biaxial tip load)", materials=mats, sections=[sec],
+                nodes=nodes, members=members, nloads=nloads, analytic=analytic)
+
+
+def model_portal_rc():
+    fc = 28.0
+    Ec = 4700.0 * math.sqrt(fc)              # Taiwan 112 / ACI 318-19, MPa  (~24870)
+    Gc = Ec / (2.0 * (1.0 + 0.2))            # concrete nu ~ 0.2
+    sec = square_section(500.0)
+    H, L = 3500.0, 6000.0
+    nodes = [
+        dict(id=0, x=0.0, y=0.0, z=0.0, fix=[1, 1, 1, 1, 1, 1]),
+        dict(id=1, x=L,   y=0.0, z=0.0, fix=[1, 1, 1, 1, 1, 1]),
+        dict(id=2, x=0.0, y=0.0, z=H,   fix=[0, 0, 0, 0, 0, 0]),
+        dict(id=3, x=L,   y=0.0, z=H,   fix=[0, 0, 0, 0, 0, 0]),
+    ]
+    members = [
+        dict(id=0, i=0, j=2, mat=0, sec=0, refvec=refvec_for((0, 0, 0), (0, 0, H))),
+        dict(id=1, i=1, j=3, mat=0, sec=0, refvec=refvec_for((L, 0, 0), (L, 0, H))),
+        dict(id=2, i=2, j=3, mat=0, sec=0, refvec=refvec_for((0, 0, H), (L, 0, H))),
+    ]
+    nloads = [
+        dict(node=2, comp=[50000.0, 0, -100000.0, 0, 0, 0]),   # lateral + gravity
+        dict(node=3, comp=[0, 0, -100000.0, 0, 0, 0]),
+    ]
+    mats = [dict(E=Ec, G=Gc, rho=2400.0)]
+    return dict(name=f"portal RC (f'c={fc}, Ec={Ec:.0f} MPa)", materials=mats, sections=[sec],
+                nodes=nodes, members=members, nloads=nloads, analytic=None)
+
+
+# ----------------------------------------------------------------- driver
+def main():
+    if not os.path.exists(CLI):
+        print("[build] frame_cli.exe missing -> building...")
+        rc = subprocess.run(["cmd", "/c", BUILD_CLI]).returncode
+        if rc != 0 or not os.path.exists(CLI):
+            print("[FAIL] could not build frame_cli.exe")
+            return 2
+
+    TOL_DISP_VS_OS = 1e-4      # our engine vs OpenSees (both linear EB)
+    TOL_FORCE_VS_OS = 1e-3
+    TOL_VS_ANALYTIC = 2e-3
+
+    models = [model_cantilever3d(), model_cantilever_rect(), model_portal_rc()]
+    failures = 0
+    print("=" * 64)
+    print(" #14 OpenSees offline cross-validation")
+    print("=" * 64)
+    for M in models:
+        sing, d_mine, mf_mine = run_frame_cli(M)
+        ok_os, d_os, mf_os = run_opensees(M)
+        print(f"\n[{M['name']}]")
+        if sing or ok_os != 0:
+            print(f"  [FAIL] solve flagged singular (ours={sing}, openseesAnalyze={ok_os})")
+            failures += 1
+            continue
+        wd = compare_disp(d_mine, d_os)
+        wN, wM = compare_forces(mf_mine, mf_os)
+        okd = wd < TOL_DISP_VS_OS
+        okf = wN < TOL_FORCE_VS_OS and wM < TOL_FORCE_VS_OS
+        print(f"  disp diff (ours vs OpenSees)     = {wd:.3e}   {'PASS' if okd else 'FAIL'} (tol {TOL_DISP_VS_OS:.0e})")
+        print(f"  axial diff (ours vs OpenSees)    = {wN:.3e}   {'PASS' if wN < TOL_FORCE_VS_OS else 'FAIL'}")
+        print(f"  moment diff (ours vs OpenSees)   = {wM:.3e}   {'PASS' if wM < TOL_FORCE_VS_OS else 'FAIL'}")
+        failures += (0 if okd else 1) + (0 if okf else 1)
+
+        a = M.get("analytic")
+        if a:
+            mine = d_mine[a["node"]][a["dof"]]
+            osv  = d_os[a["node"]][a["dof"]]
+            em = abs(mine - a["value"]) / max(abs(a["value"]), 1e-30)
+            eo = abs(osv - a["value"]) / max(abs(a["value"]), 1e-30)
+            oka = em < TOL_VS_ANALYTIC and eo < TOL_VS_ANALYTIC
+            print(f"  vs analytic: ours={mine:.6g} openSees={osv:.6g} exact={a['value']:.6g}")
+            print(f"               relerr ours={em:.3e} openSees={eo:.3e}   {'PASS' if oka else 'FAIL'} (tol {TOL_VS_ANALYTIC:.0e})")
+            failures += (0 if oka else 1)
+
+    print("\n" + "=" * 64)
+    if failures == 0:
+        print(" OPENSEES GATE: PASS  (engine matches OpenSees + analytic)")
+        return 0
+    print(f" OPENSEES GATE: FAIL  ({failures} check(s) out of tolerance)")
+    return 1
+
+
+if __name__ == "__main__":
+    sys.exit(main())
