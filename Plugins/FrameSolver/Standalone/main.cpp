@@ -650,6 +650,44 @@ int main() {
         }
     }
 
+    // ---------- F20: live-load PATTERN loading + result envelope (two-span continuous) ----------
+    {
+        const real L = 3000.0, w = 5.0;
+        std::printf("[F20] pattern loading + envelope (two-span continuous, w=%.1f L=%.0f)\n", w, L);
+        auto pattern = [&](bool left, bool right) -> SolveResult {
+            FrameModel m; fixtures::twoSpanContinuous(m, L, mat, sec);
+            auto addUDL = [&](int mem) { MemberUDL u; u.member = mem; u.w_local = { 0, -w, 0 }; m.memberUDLs.push_back(u); };
+            if (left)  { addUDL(0); addUDL(1); }
+            if (right) { addUDL(2); addUDL(3); }
+            return solve(m);
+        };
+        const SolveResult rL = pattern(true, false), rR = pattern(false, true), rAll = pattern(true, true);
+        auto Mres = [](const MemberEndForces& f) { return std::sqrt(f.My * f.My + f.Mz * f.Mz); };
+        // member 1 endJ is at the interior support B. Three-moment theory: full load -> wL^2/8,
+        // a single loaded span -> wL^2/16. The full-load pattern governs the support moment.
+        const real MB_full = Mres(rAll.memberForces[1].endJ);
+        const real MB_one  = Mres(rL.memberForces[1].endJ);
+        std::printf("   support moment: full=%.5g (wL^2/8=%.5g)  single-span=%.5g (wL^2/16=%.5g)\n",
+                    MB_full, w * L * L / 8.0, MB_one, w * L * L / 16.0);
+        checkClose("two-span support moment (full) = wL^2/8", MB_full, w * L * L / 8.0, 1e-4);
+        checkClose("two-span support moment (1 span) = wL^2/16", MB_one, w * L * L / 16.0, 1e-4);
+
+        const ResultEnvelope env = envelope({ rL, rR, rAll });
+        // envelope captures the worst (most hogging) support moment = the full-load case.
+        const real MB_envWorst = std::sqrt(env.endJMin[1].My * env.endJMin[1].My + env.endJMin[1].Mz * env.endJMin[1].Mz);
+        checkClose("envelope worst support moment = wL^2/8", MB_envWorst, w * L * L / 8.0, 1e-4);
+        // pattern matters for the SPAN: a single loaded span hogs the support less but bends
+        // its own span MORE than the full-load case (the chessboard rationale).
+        const real Mspan_one  = Mres(rL.memberForces[0].endJ);
+        const real Mspan_full = Mres(rAll.memberForces[0].endJ);
+        std::printf("   left-span moment at midL: single-left=%.5g  full=%.5g\n", Mspan_one, Mspan_full);
+        checkTrue("single-span pattern bends its span more than full load", Mspan_one > Mspan_full * 1.05,
+                  "one=" + std::to_string(Mspan_one) + " full=" + std::to_string(Mspan_full));
+        // envelope displacement plumbing: uMin equals the per-case minimum at the loaded midspan.
+        const real uminCase = std::min({ rL.disp(1, Uz), rR.disp(1, Uz), rAll.disp(1, Uz) });
+        checkClose("envelope uMin matches per-case min", env.uMin[gdof(1, Uz)], uminCase, 1e-12);
+    }
+
     std::printf("\n%s  (failures=%d)\n", g_fail == 0 ? "ALL PASS" : "FAILURES", g_fail);
     return g_fail == 0 ? 0 : 1;
 }

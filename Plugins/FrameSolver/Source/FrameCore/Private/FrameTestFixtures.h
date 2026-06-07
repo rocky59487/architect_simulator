@@ -154,6 +154,22 @@ inline void simplySupportedBare(FrameModel& m, real L, const Material& mat, cons
     m.members = { Member(0, 0, 1, pm, ps), Member(1, 1, 2, pm, ps) };
 }
 
+// Two-span continuous beam (A - midL - B - midR - C), equal spans L, NO loads (the caller
+// applies live-load PATTERNS via member UDLs). Members 0,1 = left span; 2,3 = right span.
+// Supports: A pin (Ux,Uy,Uz,Rx), interior B and end C restrain Uy,Uz (mirror of the F2
+// simply-supported convention). Node B (index 2) is the interior support.
+inline void twoSpanContinuous(FrameModel& m, real L, const Material& mat, const Section& sec) {
+    const Material* pm; const Section* ps; prepMatSec(m, mat, sec, pm, ps);
+    Node a (0, 0.0,         0, 0); a.fixed[Ux] = a.fixed[Uy] = a.fixed[Uz] = a.fixed[Rx] = true;
+    Node ml(1, L / 2.0,     0, 0);
+    Node b (2, L,           0, 0); b.fixed[Uy] = b.fixed[Uz] = true;
+    Node mr(3, 3.0 * L / 2, 0, 0);
+    Node c (4, 2.0 * L,     0, 0); c.fixed[Uy] = c.fixed[Uz] = true;
+    m.nodes   = { a, ml, b, mr, c };
+    m.members = { Member(0, 0, 1, pm, ps), Member(1, 1, 2, pm, ps),
+                  Member(2, 2, 3, pm, ps), Member(3, 3, 4, pm, ps) };
+}
+
 // Fixed-fixed beam with a prescribed SETTLEMENT delta (downward) imposed at the far end.
 // 3 nodes (free midspan node) so there ARE free DOFs to solve; the beam element is cubic-
 // exact for a load-free span, so the end forces are exact regardless of the mesh.

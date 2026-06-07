@@ -17,4 +17,16 @@ namespace frame {
 FRAMECORE_API SolveResult combine(const std::vector<SolveResult>& cases,
                                   const std::vector<real>& factors);
 
+// Component-wise ENVELOPE (max/min) of result quantities across many cases/combinations —
+// the standard way to capture the most-unfavourable live-load PATTERN (e.g. chessboard /
+// skip loading): solve each pattern, then take the worst value of each quantity. Pure
+// post-process. All results must come from the same model.
+struct ResultEnvelope {
+    std::vector<real>            uMax, uMin;            // per global DOF
+    std::vector<real>            reactMax, reactMin;    // per global DOF
+    std::vector<MemberEndForces> endIMax, endIMin;      // per member, component-wise
+    std::vector<MemberEndForces> endJMax, endJMin;
+};
+FRAMECORE_API ResultEnvelope envelope(const std::vector<SolveResult>& cases);
+
 }  // namespace frame

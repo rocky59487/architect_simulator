@@ -44,4 +44,37 @@ SolveResult combine(const std::vector<SolveResult>& cases, const std::vector<rea
     return out;
 }
 
+static void envEnd(MemberEndForces& hi, MemberEndForces& lo, const MemberEndForces& v) {
+    hi.N = std::max(hi.N, v.N); lo.N = std::min(lo.N, v.N);
+    hi.Vy = std::max(hi.Vy, v.Vy); lo.Vy = std::min(lo.Vy, v.Vy);
+    hi.Vz = std::max(hi.Vz, v.Vz); lo.Vz = std::min(lo.Vz, v.Vz);
+    hi.T = std::max(hi.T, v.T); lo.T = std::min(lo.T, v.T);
+    hi.My = std::max(hi.My, v.My); lo.My = std::min(lo.My, v.My);
+    hi.Mz = std::max(hi.Mz, v.Mz); lo.Mz = std::min(lo.Mz, v.Mz);
+}
+
+ResultEnvelope envelope(const std::vector<SolveResult>& cases) {
+    ResultEnvelope E;
+    if (cases.empty()) return E;
+    const SolveResult& b = cases[0];
+    E.uMax = b.u;        E.uMin = b.u;
+    E.reactMax = b.reactions; E.reactMin = b.reactions;
+    E.endIMax.resize(b.memberForces.size()); E.endIMin.resize(b.memberForces.size());
+    E.endJMax.resize(b.memberForces.size()); E.endJMin.resize(b.memberForces.size());
+    for (size_t e = 0; e < b.memberForces.size(); ++e) {
+        E.endIMax[e] = E.endIMin[e] = b.memberForces[e].endI;
+        E.endJMax[e] = E.endJMin[e] = b.memberForces[e].endJ;
+    }
+    for (size_t c = 1; c < cases.size(); ++c) {
+        const SolveResult& R = cases[c];
+        for (size_t k = 0; k < E.uMax.size() && k < R.u.size(); ++k) { E.uMax[k] = std::max(E.uMax[k], R.u[k]); E.uMin[k] = std::min(E.uMin[k], R.u[k]); }
+        for (size_t k = 0; k < E.reactMax.size() && k < R.reactions.size(); ++k) { E.reactMax[k] = std::max(E.reactMax[k], R.reactions[k]); E.reactMin[k] = std::min(E.reactMin[k], R.reactions[k]); }
+        for (size_t e = 0; e < E.endIMax.size() && e < R.memberForces.size(); ++e) {
+            envEnd(E.endIMax[e], E.endIMin[e], R.memberForces[e].endI);
+            envEnd(E.endJMax[e], E.endJMin[e], R.memberForces[e].endJ);
+        }
+    }
+    return E;
+}
+
 }  // namespace frame

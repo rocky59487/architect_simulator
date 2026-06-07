@@ -123,4 +123,33 @@ bool FFrameCoreSolverSettlementTest::RunTest(const FString&)
 	return true;
 }
 
+// ---- F20 mirror: live-load pattern loading + envelope ----
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FFrameCoreLoadPatternEnvelopeTest,
+	"FrameCore.Load.PatternEnvelope",
+	EAutomationTestFlags_ApplicationContextMask | EAutomationTestFlags::SmokeFilter)
+bool FFrameCoreLoadPatternEnvelopeTest::RunTest(const FString&)
+{
+	using namespace frame;
+	Section sec = Section::Rectangular(100.0, 100.0);
+	Material mat(210000.0, 80769.0, 7850.0);
+	const double L = 3000.0, w = 5.0;
+	auto pattern = [&](bool left, bool right) -> SolveResult {
+		FrameModel m; fixtures::twoSpanContinuous(m, L, mat, sec);
+		auto addUDL = [&](int mem) { MemberUDL u; u.member = mem; u.w_local = { 0, -w, 0 }; m.memberUDLs.push_back(u); };
+		if (left)  { addUDL(0); addUDL(1); }
+		if (right) { addUDL(2); addUDL(3); }
+		return solve(m);
+	};
+	const SolveResult rL = pattern(true, false), rR = pattern(false, true), rAll = pattern(true, true);
+	auto Mres = [](const MemberEndForces& f) { return FMath::Sqrt(f.My * f.My + f.Mz * f.Mz); };
+	TestTrue(TEXT("support moment (full) = wL^2/8"),
+		FMath::Abs(Mres(rAll.memberForces[1].endJ) - w * L * L / 8.0) < 1e-4 * w * L * L / 8.0);
+	const ResultEnvelope env = envelope({ rL, rR, rAll });
+	const double MBworst = FMath::Sqrt(env.endJMin[1].My * env.endJMin[1].My + env.endJMin[1].Mz * env.endJMin[1].Mz);
+	TestTrue(TEXT("envelope worst support moment = wL^2/8"), FMath::Abs(MBworst - w * L * L / 8.0) < 1e-4 * w * L * L / 8.0);
+	TestTrue(TEXT("single-span pattern bends its span more than full load"),
+		Mres(rL.memberForces[0].endJ) > Mres(rAll.memberForces[0].endJ) * 1.05);
+	return true;
+}
+
 #endif // WITH_DEV_AUTOMATION_TESTS
