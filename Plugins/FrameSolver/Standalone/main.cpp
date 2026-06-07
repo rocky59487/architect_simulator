@@ -8,6 +8,7 @@
 #include "FrameCore/InfluenceLine.h"
 #include "FrameCore/ModalAnalysis.h"
 #include "FrameCore/BucklingAnalysis.h"
+#include "FrameCore/ResponseSpectrum.h"
 #include "FrameTestFixtures.h"
 
 #include <vector>
@@ -796,6 +797,45 @@ int main() {
             const real PcrEx = kPi * kPi * E * sec.Iz / (4.0 * L * L);
             std::printf("   fixed-free: Pcr=%.6g (Euler %.6g, factor=%.4g)\n", Pcr, PcrEx, br.criticalFactor);
             checkClose("Euler Pcr = pi^2 EI/(2L)^2", Pcr, PcrEx, 0.01);
+        }
+    }
+
+    // ---------- F24: response spectrum / seismic (modal combination) ----------
+    {
+        const real kPi = 3.14159265358979323846;
+        std::printf("[F24] response spectrum (modal participation + SRSS)\n");
+        // rectangular section (Iy != Iz) so the two bending planes are NON-degenerate -- a
+        // square section's degenerate modes get arbitrarily mixed by the eigensolver, splitting
+        // the Uz participation across the pair.
+        Section secR = Section::Rectangular(80.0, 120.0);
+        Spectrum sp; sp.T = { 0.0, 10.0 }; sp.Sa = { 9810.0, 9810.0 };   // flat 1g (mm/s^2)
+        auto maxOf = [](const std::vector<real>& v) { real m = 0; for (real e : v) m = std::max(m, e); return m; };
+        auto sumOf = [](const std::vector<real>& v) { real s = 0; for (real e : v) s += e; return s; };
+        // (a) simply-supported beam: 1st-mode effective mass ratio = 8/pi^2 (textbook).
+        {
+            const int n = 10; const real L = 4000.0;
+            FrameModel m; fixtures::simplySupportedBeamN(m, n, L, mat, secR);
+            PreparedSystem ps = assembleAndFactor(m);
+            const ModalResult mr = solveModal(ps, ModalOptions{ 100 });   // all modes
+            const ResponseSpectrumResult rs = solveResponseSpectrum(ps, mr, sp, Uz, SpectrumCombo::SRSS, 0.05);
+            checkTrue("RS non-singular", !rs.singular, rs.diagnostic);
+            const real r1 = maxOf(rs.effMass) / rs.totalMass, rsum = sumOf(rs.effMass) / rs.totalMass;
+            std::printf("   SS: 1st-mode eff mass ratio=%.4f (8/pi^2=%.4f)  participating=%.1f%%  V=%.5g\n",
+                        r1, 8.0 / (kPi * kPi), 100 * rsum, rs.baseShear);
+            checkClose("SS 1st-mode eff mass = 8/pi^2", r1, 8.0 / (kPi * kPi), 0.02);
+            checkTrue("SS participating mass > 85%", rsum > 0.85, "rsum=" + std::to_string(rsum));
+            checkTrue("RS base shear > 0", rs.baseShear > 0, "");
+        }
+        // (b) cantilever: 1st-mode effective mass ratio ~ 0.6131 (textbook).
+        {
+            const int n = 10; const real L = 3000.0;
+            FrameModel m; fixtures::cantileverBeamN(m, n, L, mat, secR);
+            PreparedSystem ps = assembleAndFactor(m);
+            const ModalResult mr = solveModal(ps, ModalOptions{ 100 });
+            const ResponseSpectrumResult rs = solveResponseSpectrum(ps, mr, sp, Uz, SpectrumCombo::SRSS, 0.05);
+            const real r1 = maxOf(rs.effMass) / rs.totalMass;
+            std::printf("   cantilever: 1st-mode eff mass ratio=%.4f (0.6131)\n", r1);
+            checkClose("cantilever 1st-mode eff mass ~ 0.613", r1, 0.6131, 0.03);
         }
     }
 

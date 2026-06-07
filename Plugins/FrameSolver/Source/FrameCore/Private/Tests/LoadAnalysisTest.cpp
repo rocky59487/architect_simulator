@@ -9,6 +9,7 @@
 #include "FrameCore/InfluenceLine.h"
 #include "FrameCore/ModalAnalysis.h"
 #include "FrameCore/BucklingAnalysis.h"
+#include "FrameCore/ResponseSpectrum.h"
 #include "FrameCore/Material.h"
 #include "FrameCore/Section.h"
 #include "FrameTestFixtures.h"
@@ -247,6 +248,40 @@ bool FFrameCoreBucklingColumnTest::RunTest(const FString&)
 		const BucklingResult br = solveBuckling(ps, m);
 		const double PcrEx = kPi * kPi * E * sec.Iz / (4.0 * L * L);
 		TestTrue(TEXT("Euler Pcr = pi^2 EI/(2L)^2"), FMath::Abs(br.criticalFactor * Pref - PcrEx) < 0.01 * PcrEx);
+	}
+	return true;
+}
+
+// ---- F24 mirror: response spectrum (modal participation) ----
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FFrameCoreResponseSpectrumTest,
+	"FrameCore.ResponseSpectrum.Beam",
+	EAutomationTestFlags_ApplicationContextMask | EAutomationTestFlags::SmokeFilter)
+bool FFrameCoreResponseSpectrumTest::RunTest(const FString&)
+{
+	using namespace frame;
+	Section secR = Section::Rectangular(80.0, 120.0);   // Iy != Iz (non-degenerate planes)
+	Material mat(210000.0, 80769.0, 7850.0);
+	const double kPi = 3.14159265358979323846;
+	Spectrum sp; sp.T = { 0.0, 10.0 }; sp.Sa = { 9810.0, 9810.0 };
+	auto maxOf = [](const std::vector<double>& v) { double m = 0; for (double e : v) m = FMath::Max(m, e); return m; };
+
+	{   // simply-supported: 1st-mode effective mass ratio = 8/pi^2
+		const int n = 10; const double L = 4000.0;
+		FrameModel m; fixtures::simplySupportedBeamN(m, n, L, mat, secR);
+		PreparedSystem ps = assembleAndFactor(m);
+		const ModalResult mr = solveModal(ps, ModalOptions{ 100 });
+		const ResponseSpectrumResult rs = solveResponseSpectrum(ps, mr, sp, Uz, SpectrumCombo::SRSS, 0.05);
+		TestFalse(TEXT("RS non-singular"), rs.singular);
+		TestTrue(TEXT("SS 1st-mode eff mass = 8/pi^2"), FMath::Abs(maxOf(rs.effMass) / rs.totalMass - 8.0 / (kPi * kPi)) < 0.02);
+		TestTrue(TEXT("RS base shear > 0"), rs.baseShear > 0);
+	}
+	{   // cantilever: 1st-mode effective mass ratio ~ 0.6131
+		const int n = 10; const double L = 3000.0;
+		FrameModel m; fixtures::cantileverBeamN(m, n, L, mat, secR);
+		PreparedSystem ps = assembleAndFactor(m);
+		const ModalResult mr = solveModal(ps, ModalOptions{ 100 });
+		const ResponseSpectrumResult rs = solveResponseSpectrum(ps, mr, sp, Uz, SpectrumCombo::SRSS, 0.05);
+		TestTrue(TEXT("cantilever 1st-mode eff mass ~ 0.613"), FMath::Abs(maxOf(rs.effMass) / rs.totalMass - 0.6131) < 0.03);
 	}
 	return true;
 }
