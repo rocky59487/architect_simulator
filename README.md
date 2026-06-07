@@ -15,8 +15,10 @@ compiles as a standalone console gate *and* as an Unreal Engine module.
 
 > **Status:** clean, audited baseline + a full linear-analysis suite. Verification gate is green
 > (`standalone ALL PASS (F1–F25)` · `26 UE automation tests` · `OpenSees strict cross-validation
-> PASS`), including same-element agreement with OpenSees `ShellMITC4` (~1e-10) and natural
-> frequencies vs OpenSees `eigen` (~1e-11).
+> PASS`), including same-element agreement with OpenSees `ShellMITC4` (~1e-10 on flat/tilted
+> plates; ~1e-7–1e-8 on skewed + warped meshes) and natural frequencies vs OpenSees `eigen`
+> (~1e-11). Note: these are the *measured* agreements; the gate **tolerances** are looser on
+> purpose (shell `1e-7`, modal `1e-4`) to leave float / library-version headroom.
 
 ---
 
@@ -65,7 +67,11 @@ compiles as a standalone console gate *and* as an Unreal Engine module.
   regular/parallelogram meshes; general (non-parallelogram) quadrilaterals show an O(h) patch
   residual that converges away. The drilling DOF is a **Hughes–Brezzi** treatment (it makes a
   coplanar shell non-singular and vanishes in constant-strain states, so it does not pollute
-  the patch tests). It is **linear-elastic, small-deformation**.
+  the patch tests). It is **linear-elastic, small-deformation**. At the *element* level the
+  plate-bending block carries one inherent low-energy (near-zero, non-rigid) mode beyond the
+  six rigid-body modes — a known MITC4 trait, **not** a distortion artefact; adjacent elements
+  constrain it on assembly, so every benchmark above is non-singular. It is documented here
+  rather than hidden.
 - The dynamics, buckling and response-spectrum analyses are all **linear**: modal analysis and
   modal-superposition transients assume **linear-elastic** behaviour and **proportional** damping;
   linear buckling gives the **onset** eigenvalue (Euler), not a nonlinear post-buckling path;
@@ -117,7 +123,10 @@ Every capability is anchored to an **independent oracle**, not just a self-consi
   grillage center deflection vs Kirchhoff plate theory.
 - **Shell oracles** — the MITC4 **patch test** (constant curvature *and* constant membrane
   strain reproduced to machine precision on regular & parallelogram meshes); simply-supported
-  and clamped square plates vs Kirchhoff theory (~0.1–0.3 %); a thin-plate **no-shear-locking**
+  and clamped square plates vs Kirchhoff thin-plate theory (within ~0.1–0.3 %, but note the
+  Mindlin element converges to a slightly *softer* solution and **overshoots** the Kirchhoff
+  coefficient — the residual is the Kirchhoff-vs-Mindlin model gap, not a monotone convergence
+  error, so it does not shrink monotonically with mesh refinement); a thin-plate **no-shear-locking**
   check; and the two MacNeal–Harder curved-shell benchmarks — **Scordelis-Lo roof** (0.83 % at
   N=24) and **pinched cylinder** (98.8 % of the `1.8248e-5` reference at N=32, converging from
   below). A flat-plate-with-free-drilling case is the **coplanar non-singular** gate.
@@ -130,7 +139,9 @@ Every capability is anchored to an **independent oracle**, not just a self-consi
 - **OpenSees** offline cross-validation (`Tools/opensees_compare.py`) — strict `1e-8` agreement
   by default for the beam models, `--relaxed` for cross-platform float drift. The MITC4 shell is
   cross-checked against OpenSees' **own `ShellMITC4`** (the same element): node displacements
-  agree to **~1e-10**. OpenSees is a **validation tool only**; never shipped or linked.
+  agree to **~1e-10 on flat/tilted plates** (the `opensees_compare` gate case) and to
+  **~1e-7–1e-8 on skewed + warped meshes** (the `shell_mitc4_deep_audit` cross-check, gated at
+  `1e-7`). OpenSees is a **validation tool only**; never shipped or linked.
 
 See **[`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md)** for the data model, solve pipeline, sign
 / unit / DOF conventions, and the element abstraction.

@@ -7,6 +7,18 @@
 // local stiffness and rotated into 3D. The solver treats it exactly like a beam:
 // build -> prepare -> assemble -> addEquivalentNodalLoads -> recover.
 //
+// KNOWN ELEMENT-LEVEL TRAIT (documented, not a bug): the local 24x24 stiffness has the
+// 6 true rigid-body zero modes PLUS one inherent low-energy (near-zero, non-rigid) plate-
+// bending mode (a w-dominated mode, ~5e-10 relative to the largest eigenvalue, present even
+// on a regular square). This is a standard MITC4 plate-bending trait, NOT distortion-induced
+// and NOT the drilling DOF. Adjacent elements constrain it on assembly, so the drilling/patch/
+// benchmark gates are all non-singular; recover() and all results are unaffected. Disclosed
+// for honesty; eliminating it would need a different stabilization (high-risk, no present need).
+//
+// recover() samples stress resultants at the element CENTRE (single Gauss point 0,0): the
+// returned {Mxx,Myy,Mxy,Qx,Qy,Nxx,Nyy,Nxy} are centre values (the element average for a
+// linearly-varying field), NOT nodal/peak values. No nodal extrapolation is performed.
+//
 #include "IElement.h"
 #include "FrameEigen.h"
 

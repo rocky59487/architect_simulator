@@ -223,8 +223,11 @@ plates/shells directly and converges to the exact solution.
 - **`Private/Tests/*.cpp`** — UE automation mirrors (`FrameCore.*`), **26** tests (4 `Shell.*`,
   the load/solver/modal/buckling/response-spectrum/dynamics suite), same oracles.
 - **`Tools/`** — `opensees_compare.py` (OpenSees cross-validation: beams strict 1e-8; prescribed
-  settlement vs `sp()` to 0; the MITC4 shell vs OpenSees' own `ShellMITC4` to ~1e-10; natural
-  frequencies vs `eigen -cMass` to ~1e-11; `--relaxed` for cross-platform drift),
+  settlement vs `sp()` to 0; the MITC4 shell vs OpenSees' own `ShellMITC4` to ~1e-10 on the
+  flat/tilted plates gated here, ~1e-7–1e-8 on skewed/warped meshes in `shell_mitc4_deep_audit.py`;
+  natural frequencies vs `eigen -cMass` to ~1e-11; `--relaxed` for cross-platform drift) — note
+  these are *measured* agreements; the gate tolerances are looser on purpose (shell 1e-7, modal
+  1e-4) to leave float/library headroom,
   `independent_precision_audit.py`, `complex_structure_benchmark.py`, `grillage_curve_audit.py`
   — all black-box the engine through `frame_cli.exe`.
 - **`Scripts/run_gate.ps1`** — runs all three legs and prints a combined verdict + exit code

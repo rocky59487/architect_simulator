@@ -441,7 +441,9 @@ def main():
             print("[FAIL] could not build frame_cli.exe")
             return 2
 
-    # Gate tolerances are STRICT by default (the engine matches OpenSees to ~1e-12, so a
+    # Gate tolerances are STRICT by default (the beam models match OpenSees to ~1e-12, and the
+    # MITC4 shell to ~1e-10 on the flat/tilted plates exercised here — see TOL_SHELL_VS_OS below;
+    # skewed/warped meshes are ~1e-7-1e-8, cross-checked in shell_mitc4_deep_audit.py — so a
     # loose gate would not catch a precision regression). Pass --relaxed for a cross-platform
     # report run where floating-point/BLAS differences make sub-1e-8 agreement unrealistic.
     relaxed = ("--relaxed" in sys.argv)

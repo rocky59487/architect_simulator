@@ -13,8 +13,11 @@ namespace frame {
 // a shell's weight per area    p = rho*t*g*1e-12  [MPa]  (verified: tonne*mm/s^2 = N).
 //
 // Beams receive a MemberUDL with the global gravity rotated into the member's local axes
-// (so a sloped/vertical member is correct). Shells receive the body load lumped to their
-// four corner nodes as global -Z NodalLoads. Call this BEFORE solve(); it only appends.
+// (so a sloped/vertical member is handled correctly — the rotation is checked by the
+// linear_deep_audit "sloped member gravity rotation" + "inclined cantilever equilibrium
+// (sum Rz = rho*A*g*L)" oracles; the F18 main-gate fixtures themselves only exercise
+// horizontal members). Shells receive the body load lumped to their four corner nodes as
+// global -Z NodalLoads. Call this BEFORE solve(); it only appends.
 FRAMECORE_API void addSelfWeight(FrameModel& m, real g = 9810.0);
 
 }  // namespace frame

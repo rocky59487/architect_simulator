@@ -21,11 +21,18 @@ FRAMECORE_API SolveResult combine(const std::vector<SolveResult>& cases,
 // the standard way to capture the most-unfavourable live-load PATTERN (e.g. chessboard /
 // skip loading): solve each pattern, then take the worst value of each quantity. Pure
 // post-process. All results must come from the same model.
+//
+// CAUTION (component-wise): each component is enveloped INDEPENDENTLY, so a min/max of one
+// component need not come from the same load case as another. A RESULTANT magnitude formed
+// from envelope components (e.g. sqrt(My_min^2 + Mz_min^2)) therefore does NOT correspond to
+// any single real load case and can be non-conservative/meaningless under biaxial action.
+// Envelope per-component; do not combine enveloped components into a resultant.
 struct ResultEnvelope {
     std::vector<real>            uMax, uMin;            // per global DOF
     std::vector<real>            reactMax, reactMin;    // per global DOF
     std::vector<MemberEndForces> endIMax, endIMin;      // per member, component-wise
     std::vector<MemberEndForces> endJMax, endJMin;
+    std::vector<ShellElementForces> shellMax, shellMin; // per shell, component-wise
 };
 FRAMECORE_API ResultEnvelope envelope(const std::vector<SolveResult>& cases);
 

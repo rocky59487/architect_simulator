@@ -33,8 +33,16 @@ struct ResponseSpectrumResult {
     std::vector<real> u;                 // combined peak displacement (6N)
     real              baseShear = 0;     // combined base shear in the excitation direction
     std::vector<real> effMass;           // per-mode effective (participating) mass
-    real              totalMass = 0;     // total directional mass r^T M r
+    real              totalMass = 0;     // total directional mass r^T M r — NOTE: the influence
+                                         // vector r is set on ALL nodes (incl. constrained ones),
+                                         // so totalMass includes support-node tributary mass.
+                                         // Sum(effMass)/totalMass can therefore read <1 from BOTH
+                                         // modal truncation AND constrained mass (multi-support).
 };
+// COVERAGE NOTE: the CQC branch's correlation formula is unit-tested for correctness in
+// isolation, but the solveResponseSpectrum CQC *path* (combo = CQC) currently has NO numerical
+// oracle in the gate (all F24 fixtures use SRSS). Adding a closely-spaced-mode CQC-vs-SRSS
+// oracle is a known test-coverage gap. SRSS is fully gated.
 
 // Modal RESPONSE-SPECTRUM analysis. For excitation along global DOF `excDof` (0=Ux,1=Uy,2=Uz),
 // computes per-mode participation factors, peak modal responses scaled by Sa(T_n), and combines
