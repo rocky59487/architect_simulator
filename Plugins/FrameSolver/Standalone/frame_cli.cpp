@@ -35,6 +35,10 @@
 
 using namespace frame;
 
+#ifndef FRAMECORE_BUILD_SHA
+#define FRAMECORE_BUILD_SHA "unknown"   // overridden by the build script via /D (git short SHA)
+#endif
+
 namespace {
 struct RawMat { real E, G, rho, nu; };
 struct RawSec { real A, Iy, Iz, J, cy, cz, Asy, Asz; };
@@ -47,6 +51,9 @@ struct RawSP { int shell; real p; };
 }
 
 int main() {
+    // Provenance to stderr; stdout is parsed by the Python audit harness, so it stays clean.
+    std::fprintf(stderr, "# frame_cli | build %s | compiled %s %s\n",
+                 FRAMECORE_BUILD_SHA, __DATE__, __TIME__);
     std::vector<RawMat> mats; std::vector<RawSec> secs;
     std::vector<RawNode> nodes; std::vector<RawMem> mems;
     std::vector<RawShell> shes;

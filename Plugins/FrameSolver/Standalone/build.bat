@@ -20,7 +20,10 @@ if errorlevel 1 ( echo [build] vcvars64 failed & exit /b 1 )
 pushd "%ROOT%"
 if not exist "Standalone\obj" mkdir "Standalone\obj"
 
-cl /nologo /EHsc /std:c++17 /O2 /MD /utf-8 /DEIGEN_MPL2_ONLY ^
+set "GITSHA=unknown"
+for /f "usebackq tokens=*" %%g in (`git -C "%ROOT%" rev-parse --short HEAD 2^>nul`) do set "GITSHA=%%g"
+
+cl /nologo /EHsc /std:c++17 /O2 /MD /utf-8 /DEIGEN_MPL2_ONLY /DFRAMECORE_BUILD_SHA=\"!GITSHA!\" ^
    /Fe:Standalone\frametest.exe ^
    /Fo:Standalone\obj\ ^
    /I"%EIGEN%" ^

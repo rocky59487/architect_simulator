@@ -22,6 +22,10 @@
 
 using namespace frame;
 
+#ifndef FRAMECORE_BUILD_SHA
+#define FRAMECORE_BUILD_SHA "unknown"   // overridden by the build script via /D (git short SHA)
+#endif
+
 namespace {
 
 constexpr real kPi = 3.14159265358979323846;
@@ -644,6 +648,7 @@ void testSolveLoadFingerprint() {
 }  // namespace
 
 int main() {
+    std::cout << "# build " << FRAMECORE_BUILD_SHA << " | compiled " << __DATE__ << " " << __TIME__ << "\n";
     testShellCombinationEnvelope();
     testSlopedSelfWeight();
     testPreparedSystemReuse();

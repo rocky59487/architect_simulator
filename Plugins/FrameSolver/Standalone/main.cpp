@@ -22,6 +22,10 @@
 
 using namespace frame;
 
+#ifndef FRAMECORE_BUILD_SHA
+#define FRAMECORE_BUILD_SHA "unknown"   // overridden by the build script via /D (git short SHA)
+#endif
+
 static int g_fail = 0;
 
 static double relErr(double got, double expect) {
@@ -41,6 +45,8 @@ static void checkTrue(const char* tag, bool cond, const std::string& detail = ""
 
 int main() {
     std::setvbuf(stdout, nullptr, _IONBF, 0);  // unbuffered: output survives a crash
+    std::printf("# FrameCore standalone gate | build %s | compiled %s %s\n",
+                FRAMECORE_BUILD_SHA, __DATE__, __TIME__);
     const real E = 210000.0, G = 80769.0;     // steel, MPa
     const real side = 100.0;                   // mm, square section
     Section  sec = Section::Rectangular(side, side);
