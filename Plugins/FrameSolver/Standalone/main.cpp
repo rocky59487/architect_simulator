@@ -350,15 +350,24 @@ int main() {
             const SolveResult r = solve(m);
             checkTrue("plate builds non-singular", !r.singular, r.diagnostic);
         }
-        const real w4 = centerW(4), w8 = centerW(8), w16 = centerW(16);
-        const real e4 = relErr(w4, wc), e8 = relErr(w8, wc), e16 = relErr(w16, wc);
+        const real w4 = centerW(4), w8 = centerW(8), w16 = centerW(16), w24 = centerW(24);
+        const real e4 = relErr(w4, wc), e8 = relErr(w8, wc), e16 = relErr(w16, wc), e24 = relErr(w24, wc);
         std::printf("   simply-supported square  plate w_c=%.6g mm\n", wc);
-        std::printf("   N=4 w=%.5g (err %.2f%%)  N=8 w=%.5g (err %.2f%%)  N=16 w=%.5g (err %.2f%%)\n",
-                    w4, 100 * e4, w8, 100 * e8, w16, 100 * e16);
-        checkTrue("plate converges to Kirchhoff (N=16 within 2%)", e16 < 0.02,
-                  "e16=" + std::to_string(e16));
-        checkTrue("plate mesh-converging (e16 < e4)", e16 < e4,
-                  "e4=" + std::to_string(e4) + " e16=" + std::to_string(e16));
+        std::printf("   N=4 w=%.5g (err %.2f%%)  N=8 w=%.5g (err %.2f%%)  N=16 w=%.5g (err %.2f%%)  N=24 w=%.5g (err %.2f%%)\n",
+                    w4, 100 * e4, w8, 100 * e8, w16, 100 * e16, w24, 100 * e24);
+        // The MITC4 (Reissner-Mindlin) plate converges to a slightly SOFTER solution than
+        // Kirchhoff thin-plate theory: the centre deflection rises MONOTONICALLY with mesh
+        // refinement and OVERSHOOTS the Kirchhoff value. So |w-wc| does NOT shrink monotonically
+        // (it bottoms out near N=16 and grows again by N=24 as w climbs past wc toward the
+        // Mindlin answer) — the residual is the Kirchhoff-vs-Mindlin model gap, not a
+        // convergence error. Assert the true behaviour: close to Kirchhoff AND monotone-softening
+        // (the old "e16 < e4" check hid the overshoot by only comparing the coarsest to N=16).
+        checkTrue("plate near Kirchhoff (N=16 and N=24 within 2%)", e16 < 0.02 && e24 < 0.02,
+                  "e16=" + std::to_string(e16) + " e24=" + std::to_string(e24));
+        checkTrue("plate deflection monotone-increasing (Mindlin softening overshoots Kirchhoff)",
+                  w4 < w8 && w8 < w16 && w16 < w24,
+                  "w4=" + std::to_string(w4) + " w8=" + std::to_string(w8) +
+                  " w16=" + std::to_string(w16) + " w24=" + std::to_string(w24));
 
         // (b) no shear locking: a very thin plate (t/a = 0.001) must NOT lock (a locked
         // element would read far too stiff -> deflection far below theory).

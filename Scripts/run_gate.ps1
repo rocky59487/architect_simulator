@@ -1,7 +1,8 @@
 # One-click verification gate for the FrameSolver engine (FrameCore-only, post-cleanup).
-#   [1/3] standalone FrameCore fixtures (analytic golden oracles)
-#   [2/3] UE headless automation (FrameCore.*)
-#   [3/3] OpenSees offline cross-validation (skipped if openseespy absent)
+#   [1/4] standalone FrameCore fixtures (analytic golden oracles)
+#   [2/4] UE headless automation (FrameCore.*)
+#   [3/4] OpenSees offline cross-validation (skipped if openseespy absent)
+#   [4/4] linear-analysis deep audit (post F17-F25 strengthening; 31 independent checks)
 # Prints a combined PASS/FAIL summary and sets the exit code (0 = all green).
 #
 # Usage:  powershell -ExecutionPolicy Bypass -File E:\project\ArchSim\Scripts\run_gate.ps1
@@ -23,7 +24,7 @@ Write-Host '======================================================'
 
 # ---- [1/3] standalone gate ----
 Write-Host ''
-Write-Host '[1/3] standalone FrameCore gate (build.bat)...'
+Write-Host '[1/4] standalone FrameCore gate (build.bat)...'
 & (Join-Path $Root 'Plugins\FrameSolver\Standalone\build.bat') | Tee-Object -Variable StandaloneOut | Out-Null
 $StandaloneRC = $LASTEXITCODE
 $StandaloneLine = ($StandaloneOut | Select-String -Pattern 'ALL PASS|FAILURES' | Select-Object -Last 1)
@@ -31,7 +32,7 @@ Write-Host ("       standalone: {0} (exit {1})" -f $StandaloneLine, $StandaloneR
 
 # ---- [2/3] UE headless automation ----
 Write-Host ''
-Write-Host '[2/3] UE headless automation...'
+Write-Host '[2/4] UE headless automation...'
 $ExecCmds = 'Automation RunTests FrameCore; Quit'
 & $UeCmd $UProj "-ExecCmds=$ExecCmds" -unattended -nullrhi -nopause -nosplash -log | Out-Null
 $UeRC = $LASTEXITCODE
@@ -51,7 +52,7 @@ Write-Host ("       UE automation: {0} tests run, exit code {1} (process exit {2
 
 # ---- [3/3] OpenSees offline cross-validation (#14; skipped if openseespy absent) ----
 Write-Host ''
-Write-Host '[3/3] OpenSees offline cross-validation...'
+Write-Host '[3/4] OpenSees offline cross-validation...'
 $OsRC = 0; $OsState = 'skipped'
 & python (Join-Path $Root 'Tools\opensees_compare.py') | Tee-Object -Variable OsOut | Out-Null
 $OsRC = $LASTEXITCODE
@@ -59,6 +60,14 @@ if ($OsRC -eq 0)     { $OsState = 'PASS' }
 elseif ($OsRC -eq 2) { $OsState = 'skipped (openseespy not installed)' }
 else                 { $OsState = 'FAIL' }
 Write-Host ("       OpenSees compare: {0} (exit {1})" -f $OsState, $OsRC)
+
+# ---- [4/4] linear-analysis deep audit (post F17-F25 strengthening) ----
+Write-Host ''
+Write-Host '[4/4] linear-analysis deep audit...'
+& (Join-Path $Root 'Plugins\FrameSolver\Standalone\build_linear_audit.bat') | Tee-Object -Variable AuditOut | Out-Null
+$AuditRC = $LASTEXITCODE
+$AuditLine = ($AuditOut | Select-String -Pattern 'PASS failures=|FAIL failures=' | Select-Object -Last 1)
+Write-Host ("       linear deep audit: {0} (exit {1})" -f $AuditLine, $AuditRC)
 
 # ---- verdict ----
 Write-Host ''
@@ -71,11 +80,11 @@ if ($OsRC -eq 2) {
 }
 $OsOk = if ($RequireOpenSees) { $OsRC -eq 0 } else { $OsRC -ne 1 }
 $UeCountOk = ($Total -ge $ExpectedUeTests)
-$GateOk = ($StandaloneRC -eq 0) -and ($UeExit -eq 0) -and $UeCountOk -and $OsOk
+$GateOk = ($StandaloneRC -eq 0) -and ($UeExit -eq 0) -and $UeCountOk -and $OsOk -and ($AuditRC -eq 0)
 if ($GateOk) {
-    Write-Host (" GATE: PASS  (standalone OK, UE {0} tests green, OpenSees {1})" -f $Total, $OsState) -ForegroundColor Green
+    Write-Host (" GATE: PASS  (standalone OK, UE {0} tests green, OpenSees {1}, deep audit OK)" -f $Total, $OsState) -ForegroundColor Green
     exit 0
 } else {
-    Write-Host (" GATE: FAIL  (standalone exit {0}, UE exit {1}, {2}/{3} UE tests, OpenSees {4})" -f $StandaloneRC, $UeExit, $Total, $ExpectedUeTests, $OsState) -ForegroundColor Red
+    Write-Host (" GATE: FAIL  (standalone exit {0}, UE exit {1}, {2}/{3} UE tests, OpenSees {4}, audit exit {5})" -f $StandaloneRC, $UeExit, $Total, $ExpectedUeTests, $OsState, $AuditRC) -ForegroundColor Red
     exit 1
 }

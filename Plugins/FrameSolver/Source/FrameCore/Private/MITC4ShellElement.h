@@ -35,6 +35,12 @@ public:
     void addEquivalentNodalLoads(VecX& F) const override;
     void recover(const VecX& u, SolveResult& R) const override;
 
+    // Audit-only: the assembled local 24x24 stiffness (valid after prepare()). Lets an
+    // out-of-engine check verify the element-level eigen-spectrum (the 6 rigid-body zero
+    // modes + the inherent low-energy plate-bending mode disclosed above). This is a
+    // Private header, so it does NOT touch the POD public API.
+    const Eigen::Matrix<real, 24, 24>& localKForAudit() const { return kl_; }
+
 private:
     using Mat24 = Eigen::Matrix<real, 24, 24>;
     using Vec24 = Eigen::Matrix<real, 24, 1>;

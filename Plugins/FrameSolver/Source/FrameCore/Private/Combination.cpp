@@ -13,6 +13,23 @@ SolveResult combine(const std::vector<SolveResult>& cases, const std::vector<rea
     if (cases.empty()) return out;
 
     const SolveResult& base = cases[0];
+
+    // Size-consistency guard: results from DIFFERENT models (mismatched DOF / member / shell
+    // counts) would otherwise be silently combined into garbage by the min()-bounded loop
+    // below. Flag that explicitly instead. (Mismatched factor/case COUNTS stay allowed — the
+    // header documents "extra entries in either are ignored".)
+    for (size_t c = 1; c < cases.size(); ++c) {
+        if (cases[c].u.size() != base.u.size() ||
+            cases[c].reactions.size() != base.reactions.size() ||
+            cases[c].memberForces.size() != base.memberForces.size() ||
+            cases[c].shellForces.size() != base.shellForces.size()) {
+            out.singular = true;
+            out.diagnostic = "combine: result size mismatch at case " + std::to_string(c) +
+                             " (cases from different models?)";
+            return out;
+        }
+    }
+
     out.u.assign(base.u.size(), 0.0);
     out.reactions.assign(base.reactions.size(), 0.0);
     out.memberForces.resize(base.memberForces.size());

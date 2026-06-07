@@ -6,7 +6,9 @@
 #include "FrameCore/ModalDynamics.h"
 #include "FrameCore/ResponseSpectrum.h"
 #include "FrameCore/SelfWeight.h"
+#include "FrameCore/ElasticAllowable.h"
 #include "FrameTestFixtures.h"
+#include "MITC4ShellElement.h"   // Private seam: element + Eigen types for the element-level audit
 
 #include <algorithm>
 #include <array>
@@ -16,6 +18,7 @@
 #include <sstream>
 #include <string>
 #include <vector>
+#include <Eigen/Eigenvalues>
 
 using namespace frame;
 
@@ -419,6 +422,184 @@ void testModalDynamics() {
            "unexpected non-singular flag", badTh.singular ? 0.0 : 1.0, 0.0, badTh.singular);
 }
 
+void testAxialTorsionalModes() {
+    // Closes the localMass12 axial/torsional coverage gap: F22 only checks BENDING modes.
+    // A clamped-free rod restrained to a SINGLE dof family has the continuous-bar natural
+    // frequency omega_1 = (pi/2L) * c, with c = sqrt(E/rho) (axial) or c = sqrt(G/rho)
+    // (torsion of a CIRCULAR bar, where J = Ip = Iy+Iz so the torsional wave speed
+    // sqrt(G*J/(rho*Ip)) reduces to sqrt(G/rho)). rho uses the kg/m^3 -> tonne/mm^3 bridge
+    // (x1e-12), the same one the mass matrix applies. This validates the lumped/consistent
+    // axial (ma) and torsional (mt = rho*Ip*L/6) terms of localMass12, never exercised by F22.
+    const real E = 210000.0, nu = 0.30, rho = 7850.0;
+    const real G = E / (2.0 * (1.0 + nu));
+    const real L = 4000.0;
+    const int n = 32;
+    const Section sec = Section::Circular(80.0);
+    const Material mat(E, G, rho);
+
+    {   // axial: leave only Ux free
+        FrameModel m;
+        fixtures::cantileverBeamN(m, n, L, mat, sec);
+        for (Node& nd : m.nodes) { nd.fixed[Uy] = nd.fixed[Uz] = nd.fixed[Rx] = nd.fixed[Ry] = nd.fixed[Rz] = true; }
+        const ModalResult mr = solveModal(assembleAndFactor(m), ModalOptions{ 1 });
+        const real wExact = (kPi / (2.0 * L)) * std::sqrt(E / (rho * 1e-12));
+        const real err = (!mr.singular && !mr.modes.empty()) ? relErr(mr.modes[0].omega, wExact) : 1.0;
+        addRow("Modal (axial)", "axial consistent mass (localMass12 ma term)",
+               "clamped-free bar omega_1 = (pi/2L) sqrt(E/rho)",
+               "relative omega_1 error", err, 5e-3, err < 5e-3);
+    }
+    {   // torsion: leave only Rx free (circular section -> J = Ip)
+        FrameModel m;
+        fixtures::cantileverBeamN(m, n, L, mat, sec);
+        for (Node& nd : m.nodes) { nd.fixed[Ux] = nd.fixed[Uy] = nd.fixed[Uz] = nd.fixed[Ry] = nd.fixed[Rz] = true; }
+        const ModalResult mr = solveModal(assembleAndFactor(m), ModalOptions{ 1 });
+        const real wExact = (kPi / (2.0 * L)) * std::sqrt(G / (rho * 1e-12));
+        const real err = (!mr.singular && !mr.modes.empty()) ? relErr(mr.modes[0].omega, wExact) : 1.0;
+        addRow("Modal (torsion)", "torsional consistent mass (localMass12 mt = rho*Ip*L/6)",
+               "clamped-free circular bar omega_1 = (pi/2L) sqrt(G/rho)",
+               "relative omega_1 error", err, 5e-3, err < 5e-3);
+    }
+}
+
+void testCQC() {
+    // Closes the CQC-path coverage gap (every F24 fixture uses SRSS). The correlation
+    // coefficient is re-implemented INDEPENDENTLY here and the engine's CQC base shear is
+    // checked against sqrt(sum_ij rho_ij V_i V_j) with V_i = effMass_i * Sa(T_i). This runs
+    // the engine's CQC double-loop (never touched by the SRSS gate); a wrong rho or a wrong
+    // combination loop would mismatch. Also checks the bound SRSS <= CQC <= sum|V_i|.
+    const Material mat(210000.0, 80769.230769, 7850.0);
+    const Section sec = Section::Rectangular(90.0, 150.0);
+    FrameModel m;
+    fixtures::cantileverBeamN(m, 16, 4000.0, mat, sec);
+    PreparedSystem ps = assembleAndFactor(m);
+    const ModalResult mr = solveModal(ps, ModalOptions{ 8 });
+    Spectrum sp; sp.T = { 0.0, 10.0 }; sp.Sa = { 9810.0, 9810.0 };
+    const real zeta = 0.05;
+
+    const ResponseSpectrumResult cqc  = solveResponseSpectrum(ps, mr, sp, Uz, SpectrumCombo::CQC, zeta);
+    const ResponseSpectrumResult srss = solveResponseSpectrum(ps, mr, sp, Uz, SpectrumCombo::SRSS, zeta);
+    if (cqc.singular || srss.singular || mr.modes.empty()) {
+        addRow("Response spectrum (CQC)", "setup", "CQC result + modes available", "setup flag", 1.0, 0.0, false);
+        return;
+    }
+
+    auto rhoIndep = [zeta](real wi, real wj) -> real {
+        if (wi <= 0 || wj <= 0) return (wi == wj) ? 1.0 : 0.0;
+        const real b = wi / wj;
+        const real num = 8.0 * zeta * zeta * (1.0 + b) * std::pow(b, 1.5);
+        const real den = (1.0 - b * b) * (1.0 - b * b) + 4.0 * zeta * zeta * b * (1.0 + b) * (1.0 + b);
+        return den > 0 ? num / den : (wi == wj ? 1.0 : 0.0);
+    };
+    const int nm = static_cast<int>(mr.modes.size());
+    std::vector<real> V(static_cast<size_t>(nm), 0.0);
+    real srssSq = 0.0, absSum = 0.0;
+    for (int i = 0; i < nm; ++i) {
+        const real Ti = 2.0 * kPi / mr.modes[i].omega;
+        V[static_cast<size_t>(i)] = cqc.effMass[static_cast<size_t>(i)] * sp.at(Ti);
+        srssSq += V[i] * V[i];
+        absSum += std::fabs(V[i]);
+    }
+    real cqcSq = 0.0;
+    for (int i = 0; i < nm; ++i)
+        for (int j = 0; j < nm; ++j)
+            cqcSq += rhoIndep(mr.modes[i].omega, mr.modes[j].omega) * V[i] * V[j];
+    const real expected = std::sqrt(std::max(cqcSq, 0.0));
+    const real beErr = (expected > 0) ? relErr(cqc.baseShear, expected) : 1.0;
+    addRow("Response spectrum (CQC)", "CQC double-loop combination path",
+           "independent recompute sqrt(sum_ij rho_ij V_i V_j), V_i = effMass_i*Sa(T_i)",
+           "relative base-shear error", beErr, 1e-8, beErr < 1e-8);
+
+    const real srssBe = std::sqrt(std::max(srssSq, 0.0));
+    const bool boundOk = cqc.baseShear >= srssBe * (1.0 - 1e-9) && cqc.baseShear <= absSum * (1.0 + 1e-9);
+    addRow("Response spectrum (CQC)", "physical bound SRSS <= CQC <= sum|V|",
+           "positively-correlated modes: cross terms raise CQC above SRSS",
+           "CQC / SRSS base-shear ratio", srssBe > 0 ? cqc.baseShear / srssBe : 0.0, 1.0, boundOk);
+}
+
+void testRectBiaxialDC() {
+    // Closes the rectangular biaxial-bending D/C gap (F9 only checks the circular resultant).
+    // For a rectangle ElasticAllowable uses the worst-corner sum |My|/Wy + |Mz|/Wz, which is
+    // the EXACT peak fibre stress at a corner AND a conservative upper bound on the SRSS-style
+    // resultant sqrt((My/Wy)^2 + (Mz/Wz)^2). With N=0, sComp == sM (the bending stress).
+    const Section sec = Section::Rectangular(220.0, 360.0);
+    const Capacity cap = Capacity::make(300.0, 300.0, 180.0);
+    const ElasticAllowable screen;
+
+    {   // uniaxial: corner sum degenerates to |My|/Wy exactly
+        MemberEndForces f; f.My = 5.0e7;
+        const DemandResult d = screen.checkSection(f, sec, cap);
+        const real expect = std::fabs(f.My) / sec.Wy();
+        const real err = relErr(d.sComp, expect);
+        addRow("D/C screen (rect)", "uniaxial bending exactness",
+               "sComp (N=0) == |My|/Wy",
+               "relative stress error", err, 1e-9, err < 1e-9);
+    }
+    {   // biaxial: exact worst-corner sum + conservatism vs the resultant
+        MemberEndForces f; f.My = 5.0e7; f.Mz = 3.0e7;
+        const DemandResult d = screen.checkSection(f, sec, cap);
+        const real cornerSum = std::fabs(f.My) / sec.Wy() + std::fabs(f.Mz) / sec.Wz();
+        const real err = relErr(d.sComp, cornerSum);
+        addRow("D/C screen (rect)", "biaxial worst-corner sum",
+               "sComp (N=0) == |My|/Wy + |Mz|/Wz",
+               "relative stress error", err, 1e-9, err < 1e-9);
+
+        const real sy = std::fabs(f.My) / sec.Wy(), sz = std::fabs(f.Mz) / sec.Wz();
+        const real resultant = std::sqrt(sy * sy + sz * sz);
+        const bool conservative = d.sComp >= resultant * (1.0 - 1e-12);
+        addRow("D/C screen (rect)", "corner sum is a conservative upper bound",
+               "|a|+|b| >= sqrt(a^2+b^2): rectangle screen >= resultant",
+               "corner-sum / resultant ratio", resultant > 0 ? d.sComp / resultant : 0.0, 1.0, conservative);
+    }
+}
+
+void testMITC4SoftMode() {
+    // Pins down the disclosed MITC4 element-level trait (see MITC4ShellElement.h header):
+    // the local 24x24 stiffness has EXACTLY 6 rigid-body zero modes PLUS one inherent
+    // low-energy (near-zero, non-rigid) plate-bending mode, well separated from the first
+    // true deformation mode. Built on a REGULAR square facet, so it is not distortion-induced.
+    Material mat(30000.0, 0.0, 2500.0);
+    mat.nu = 0.30;
+    mat.G  = mat.E / (2.0 * (1.0 + mat.nu));
+    const real a = 1000.0, t = 100.0;
+    FrameModel m;
+    m.materials.push_back(mat);
+    const Material* pm = &m.materials.back();
+    m.nodes.push_back(Node(0, 0, 0, 0));
+    m.nodes.push_back(Node(1, a, 0, 0));
+    m.nodes.push_back(Node(2, a, a, 0));
+    m.nodes.push_back(Node(3, 0, a, 0));
+    m.shells.push_back(ShellQuad(0, 0, 1, 2, 3, pm, t));
+
+    MITC4ShellElement el(0);
+    std::string why;
+    if (!el.prepare(m, SolveOptions{}, why)) {
+        addRow("MITC4 element", "local stiffness spectrum", "prepare() must succeed", "prepare flag", 1.0, 0.0, false);
+        return;
+    }
+    const auto& K = el.localKForAudit();
+    Eigen::MatrixXd Kd(24, 24);
+    for (int i = 0; i < 24; ++i)
+        for (int j = 0; j < 24; ++j) Kd(i, j) = K(i, j);
+    const Eigen::VectorXd ev = Eigen::SelfAdjointEigenSolver<Eigen::MatrixXd>(Kd).eigenvalues();  // ascending
+    const real emax = ev(23);
+
+    int nRigid = 0;
+    for (int i = 0; i < 24; ++i) if (ev(i) / emax < 1e-8) ++nRigid;
+    addRow("MITC4 element", "exactly 6 rigid-body zero modes",
+           "local 24x24 K spectrum: count of eig/eigmax < 1e-8",
+           "rigid-mode count", static_cast<real>(nRigid), 0.0, nRigid == 6);
+
+    const real softRel = ev(6) / emax;                        // first non-rigid mode, relative
+    const real sep = (ev(7) > 0) ? ev(6) / ev(7) : 1.0;       // soft mode vs first true deformation mode
+    // Non-rigid (not one of the 6 zero modes) yet markedly softer than the first true mode.
+    // The exact ratio depends on t/a (this thick 0.1 facet shows ~100x; thin plates show far
+    // more), so the gate asserts the qualitative separation, not a geometry-specific magnitude.
+    const bool softOk = softRel > 1e-12 && sep < 0.1;
+    addRow("MITC4 element", "inherent low-energy plate mode (disclosed, monitored)",
+           "mode-7 non-rigid (eig7/eigmax > 1e-12) yet >=10x softer than mode-8",
+           "mode-7 / mode-8 ratio", sep, 1e-1, softOk);
+}
+
 }  // namespace
 
 int main() {
@@ -430,6 +611,10 @@ int main() {
     testBucklingScaling();
     testResponseSpectrum();
     testModalDynamics();
+    testAxialTorsionalModes();
+    testCQC();
+    testRectBiaxialDC();
+    testMITC4SoftMode();
 
     int failures = 0;
     std::cout << "Linear-analysis deep audit (post F17-F25 strengthening)\n\n";
