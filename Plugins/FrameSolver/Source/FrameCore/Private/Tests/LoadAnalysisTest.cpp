@@ -81,4 +81,46 @@ bool FFrameCoreLoadSelfWeightTest::RunTest(const FString&)
 	return true;
 }
 
+// ---- F19 mirror (a): factorize-once-solve-many reuse ----
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FFrameCoreSolverFactorizeOnceTest,
+	"FrameCore.Solver.FactorizeOnce",
+	EAutomationTestFlags_ApplicationContextMask | EAutomationTestFlags::SmokeFilter)
+bool FFrameCoreSolverFactorizeOnceTest::RunTest(const FString&)
+{
+	using namespace frame;
+	Section sec = Section::Rectangular(100.0, 100.0);
+	Material mat(210000.0, 80769.0, 7850.0);
+
+	FrameModel m; fixtures::cantileverBare(m, 2000.0, mat, sec);
+	PreparedSystem ps = assembleAndFactor(m);
+	auto maxDiff = [](const SolveResult& a, const SolveResult& b) {
+		double d = 0; for (size_t k = 0; k < a.u.size(); ++k) d = FMath::Max(d, FMath::Abs(a.u[k] - b.u[k])); return d;
+	};
+	m.nodalLoads = { [] { NodalLoad n; n.node = 1; n.comp[Uz] = 1000.0; return n; }() };
+	TestTrue(TEXT("solveLoad(A) == fresh solve(A)"), maxDiff(solveLoad(ps, m), solve(m)) < 1e-12);
+	m.nodalLoads = { [] { NodalLoad n; n.node = 1; n.comp[Uy] = 700.0; n.comp[Ry] = 1.0e6; return n; }() };
+	TestTrue(TEXT("solveLoad(B) reuses same factorization == fresh"), maxDiff(solveLoad(ps, m), solve(m)) < 1e-12);
+	return true;
+}
+
+// ---- F19 mirror (b): prescribed support settlement ----
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FFrameCoreSolverSettlementTest,
+	"FrameCore.Solver.Settlement",
+	EAutomationTestFlags_ApplicationContextMask | EAutomationTestFlags::SmokeFilter)
+bool FFrameCoreSolverSettlementTest::RunTest(const FString&)
+{
+	using namespace frame;
+	Section sec = Section::Rectangular(100.0, 100.0);
+	Material mat(210000.0, 80769.0, 7850.0);
+	const double L = 2000.0, delta = 1.0, E = 210000.0;
+	FrameModel m; fixtures::clampedSettlement(m, L, delta, mat, sec);
+	const SolveResult r = solve(m);
+	TestFalse(TEXT("settlement non-singular"), r.singular);
+	const auto& mf = r.memberForces[0].endI;
+	const double Mend = FMath::Sqrt(mf.My * mf.My + mf.Mz * mf.Mz);
+	TestTrue(TEXT("end moment 6EI d/L^2"),   FMath::Abs(Mend - 6.0 * E * sec.Iz * delta / (L * L)) < 1e-6 * 6.0 * E * sec.Iz * delta / (L * L));
+	TestTrue(TEXT("reaction 12EI d/L^3"), FMath::Abs(FMath::Abs(r.reaction(0, Uz)) - 12.0 * E * sec.Iz * delta / (L * L * L)) < 1e-6 * 12.0 * E * sec.Iz * delta / (L * L * L));
+	return true;
+}
+
 #endif // WITH_DEV_AUTOMATION_TESTS

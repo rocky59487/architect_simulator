@@ -154,6 +154,19 @@ inline void simplySupportedBare(FrameModel& m, real L, const Material& mat, cons
     m.members = { Member(0, 0, 1, pm, ps), Member(1, 1, 2, pm, ps) };
 }
 
+// Fixed-fixed beam with a prescribed SETTLEMENT delta (downward) imposed at the far end.
+// 3 nodes (free midspan node) so there ARE free DOFs to solve; the beam element is cubic-
+// exact for a load-free span, so the end forces are exact regardless of the mesh.
+// Support-settlement oracle: end moment 6*E*I*delta/L^2, reaction 12*E*I*delta/L^3.
+inline void clampedSettlement(FrameModel& m, real L, real delta, const Material& mat, const Section& sec) {
+    const Material* pm; const Section* ps; prepMatSec(m, mat, sec, pm, ps);
+    Node n0(0, 0,     0, 0); n0.fixAll();
+    Node n1(1, L / 2, 0, 0);                                   // free midspan node
+    Node n2(2, L,     0, 0); n2.fixAll(); n2.prescribed[Uz] = -delta;
+    m.nodes   = { n0, n1, n2 };
+    m.members = { Member(0, 0, 1, pm, ps), Member(1, 1, 2, pm, ps) };
+}
+
 // ---------------------------------------------------------------------------
 // Shell (MITC4) fixtures. Geometry in the global X-Y plane (facet normal +Z), so
 // at milestone 2 (plate bending only) the in-plane DOFs (Ux,Uy,Rz) are restrained

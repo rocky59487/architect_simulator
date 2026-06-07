@@ -68,8 +68,9 @@ def run_frame_cli(model):
     for s in model["sections"]:
         lines.append("SEC {A} {Iy} {Iz} {J} {cy} {cz} {Asy} {Asz}".format(**s))
     for n in model["nodes"]:
-        f = n["fix"]
-        lines.append("NODE {id} {x} {y} {z} {0} {1} {2} {3} {4} {5}".format(*f, **n))
+        fp = list(n["fix"]) + list(n.get("presc", [0, 0, 0, 0, 0, 0]))
+        lines.append("NODE {} {} {} {} {}".format(n["id"], n["x"], n["y"], n["z"],
+                                                  " ".join(str(v) for v in fp)))
     for e in model["members"]:
         rv = e["refvec"]
         lines.append(f"MEMBER {e['id']} {e['i']} {e['j']} {e['mat']} {e['sec']} {rv[0]} {rv[1]} {rv[2]}")
@@ -102,8 +103,10 @@ def run_opensees(model):
     ops.model("basic", "-ndm", 3, "-ndf", 6)
     for n in model["nodes"]:
         ops.node(n["id"], float(n["x"]), float(n["y"]), float(n["z"]))
-        f = n["fix"]
-        ops.fix(n["id"], int(f[0]), int(f[1]), int(f[2]), int(f[3]), int(f[4]), int(f[5]))
+        f = n["fix"]; p = n.get("presc", [0, 0, 0, 0, 0, 0])
+        # A prescribed (nonzero) DOF is imposed via sp() below, NOT fixed to 0 here.
+        mask = [int(f[d]) if (f[d] and p[d] == 0.0) else 0 for d in range(6)]
+        ops.fix(n["id"], *mask)
 
     for e in model["members"]:
         pi = next(nn for nn in model["nodes"] if nn["id"] == e["i"])
@@ -130,6 +133,12 @@ def run_opensees(model):
     for l in model.get("nloads", []):
         c = l["comp"]
         ops.load(l["node"], c[0], c[1], c[2], c[3], c[4], c[5])
+    # prescribed (imposed) support displacements -> single-point constraints in the pattern
+    for n in model["nodes"]:
+        f = n["fix"]; p = n.get("presc", [0, 0, 0, 0, 0, 0])
+        for d in range(6):
+            if f[d] and p[d] != 0.0:
+                ops.sp(n["id"], d + 1, float(p[d]))
 
     ops.constraints("Transformation")
     ops.numberer("RCM")
@@ -241,6 +250,24 @@ def model_portal_rc():
     mats = [dict(E=Ec, G=Gc, rho=2400.0)]
     return dict(name=f"portal RC (f'c={fc}, Ec={Ec:.0f} MPa)", materials=mats, sections=[sec],
                 nodes=nodes, members=members, nloads=nloads, analytic=None)
+
+
+def model_settlement():
+    # Fixed-fixed beam whose far end settles by delta (Uz); free midspan node so the reduced
+    # system is non-empty. Cross-checks our prescribed-displacement path against OpenSees sp().
+    # Analytic: end moment 6*E*I*delta/L^2, reaction 12*E*I*delta/L^3.
+    sec = square_section(100.0)
+    L, delta = 2000.0, 1.0
+    nodes = [
+        dict(id=0, x=0.0,     y=0.0, z=0.0, fix=[1, 1, 1, 1, 1, 1]),
+        dict(id=1, x=L / 2.0, y=0.0, z=0.0, fix=[0, 0, 0, 0, 0, 0]),
+        dict(id=2, x=L,       y=0.0, z=0.0, fix=[1, 1, 1, 1, 1, 1], presc=[0, 0, -delta, 0, 0, 0]),
+    ]
+    members = [dict(id=0, i=0, j=1, mat=0, sec=0, refvec=(0, 0, 1)),
+               dict(id=1, i=1, j=2, mat=0, sec=0, refvec=(0, 0, 1))]
+    mats = [dict(E=210000.0, G=80769.0, rho=7850.0)]
+    return dict(name="prescribed settlement (fixed-fixed, end settles)", materials=mats,
+                sections=[sec], nodes=nodes, members=members, nloads=[], analytic=None)
 
 
 # ----------------------------------------------------------------- shells (MITC4)
@@ -367,7 +394,7 @@ def main():
     print(f"  tolerances: {'RELAXED (report)' if relaxed else 'STRICT (gate)'}  "
           f"disp={TOL_DISP_VS_OS:.0e} force={TOL_FORCE_VS_OS:.0e} analytic={TOL_VS_ANALYTIC:.0e}")
 
-    models = [model_cantilever3d(), model_cantilever_rect(), model_portal_rc()]
+    models = [model_cantilever3d(), model_cantilever_rect(), model_portal_rc(), model_settlement()]
     failures = 0
     print("=" * 64)
     print(" #14 OpenSees offline cross-validation")

@@ -616,6 +616,40 @@ int main() {
         }
     }
 
+    // ---------- F19: factorize-once-solve-many + prescribed settlement ----------
+    {
+        std::printf("[F19] factorize-once reuse + prescribed settlement\n");
+        // (a) reuse ONE factorization for two different nodal loads; each must equal a
+        //     fresh full solve (proves solveLoad reuse is exact, not an approximation).
+        {
+            FrameModel m; fixtures::cantileverBare(m, 2000.0, mat, sec);
+            PreparedSystem ps = assembleAndFactor(m);
+            auto maxDiff = [](const SolveResult& a, const SolveResult& b) {
+                real d = 0; for (size_t k = 0; k < a.u.size(); ++k) d = std::max(d, std::fabs(a.u[k] - b.u[k])); return d;
+            };
+            m.nodalLoads = { [] { NodalLoad n; n.node = 1; n.comp[Uz] = 1000.0; return n; }() };
+            const real dA = maxDiff(solveLoad(ps, m), solve(m));
+            m.nodalLoads = { [] { NodalLoad n; n.node = 1; n.comp[Uy] = 700.0; n.comp[Ry] = 1.0e6; return n; }() };
+            const real dB = maxDiff(solveLoad(ps, m), solve(m));   // SAME ps, different load
+            std::printf("   reuse vs fresh: max|du| load A=%.2e  load B=%.2e\n", dA, dB);
+            checkTrue("solveLoad(A) == fresh solve(A)", dA < 1e-12, "dA=" + std::to_string(dA));
+            checkTrue("solveLoad(B) reuses same factorization == fresh", dB < 1e-12, "dB=" + std::to_string(dB));
+        }
+        // (b) prescribed support settlement oracle (closes the long-standing gap):
+        //     fixed-fixed beam, one end settles delta -> end moment 6EI*delta/L^2, reaction 12EI*delta/L^3.
+        {
+            const real L = 2000.0, delta = 1.0;
+            FrameModel m; fixtures::clampedSettlement(m, L, delta, mat, sec);
+            const SolveResult r = solve(m);
+            checkTrue("settlement non-singular", !r.singular, r.diagnostic);
+            const auto& mf = r.memberForces[0].endI;
+            const real Mend  = std::sqrt(mf.My * mf.My + mf.Mz * mf.Mz);
+            const real Rvert = std::fabs(r.reaction(0, Uz));
+            checkClose("settlement end moment 6EI d/L^2", Mend,  6.0 * E * sec.Iz * delta / (L * L), 1e-6);
+            checkClose("settlement reaction 12EI d/L^3",  Rvert, 12.0 * E * sec.Iz * delta / (L * L * L), 1e-6);
+        }
+    }
+
     std::printf("\n%s  (failures=%d)\n", g_fail == 0 ? "ALL PASS" : "FAILURES", g_fail);
     return g_fail == 0 ? 0 : 1;
 }

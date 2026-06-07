@@ -8,7 +8,8 @@
 //   MAT    E G rho                                    (beam material; nu unused -> 0)
 //   SMAT   E nu G                                     (shell material; carries nu)
 //   SEC    A Iy Iz J cy cz Asy Asz
-//   NODE   id x y z  fUx fUy fUz fRx fRy fRz          (fixed flags 0/1)
+//   NODE   id x y z  fUx fUy fUz fRx fRy fRz  [pUx pUy pUz pRx pRy pRz]
+//          (6 fixed flags 0/1; optional 6 prescribed displacement values, default 0)
 //   MEMBER id i j matIdx secIdx  refx refy refz
 //   SHELL  id n0 n1 n2 n3 matIdx t                    (MITC4 flat-shell facet)
 //   NLOAD  node Fx Fy Fz Mx My Mz
@@ -36,7 +37,7 @@ using namespace frame;
 namespace {
 struct RawMat { real E, G, rho, nu; };
 struct RawSec { real A, Iy, Iz, J, cy, cz, Asy, Asz; };
-struct RawNode { int id; real x, y, z; int f[6]; };
+struct RawNode { int id; real x, y, z; int f[6]; real p[6]; };
 struct RawMem { int id, i, j, mat, sec; real rx, ry, rz; };
 struct RawShell { int id, n[4], mat; real t; };
 struct RawNL { int node; real c[6]; };
@@ -58,7 +59,7 @@ int main() {
         if (tag == "MAT") { RawMat m{}; ss >> m.E >> m.G >> m.rho; m.nu = 0; mats.push_back(m); }
         else if (tag == "SMAT") { RawMat m{}; ss >> m.E >> m.nu >> m.G; m.rho = 0; mats.push_back(m); }
         else if (tag == "SEC") { RawSec s{}; ss >> s.A >> s.Iy >> s.Iz >> s.J >> s.cy >> s.cz >> s.Asy >> s.Asz; secs.push_back(s); }
-        else if (tag == "NODE") { RawNode n{}; ss >> n.id >> n.x >> n.y >> n.z; for (int k=0;k<6;++k) ss >> n.f[k]; nodes.push_back(n); }
+        else if (tag == "NODE") { RawNode n{}; ss >> n.id >> n.x >> n.y >> n.z; for (int k=0;k<6;++k) ss >> n.f[k]; for (int k=0;k<6;++k) ss >> n.p[k]; nodes.push_back(n); }
         else if (tag == "MEMBER") { RawMem mm{}; ss >> mm.id >> mm.i >> mm.j >> mm.mat >> mm.sec >> mm.rx >> mm.ry >> mm.rz; mems.push_back(mm); }
         else if (tag == "SHELL") { RawShell s{}; ss >> s.id >> s.n[0] >> s.n[1] >> s.n[2] >> s.n[3] >> s.mat >> s.t; shes.push_back(s); }
         else if (tag == "NLOAD") { RawNL l{}; ss >> l.node; for (int k=0;k<6;++k) ss >> l.c[k]; nls.push_back(l); }
@@ -79,7 +80,7 @@ int main() {
     model.nodes.reserve(nodes.size());
     for (const auto& n : nodes) {
         Node fn(n.id, n.x, n.y, n.z);
-        for (int k=0;k<6;++k) fn.fixed[k] = (n.f[k]!=0);
+        for (int k=0;k<6;++k) { fn.fixed[k] = (n.f[k]!=0); fn.prescribed[k] = n.p[k]; }
         model.nodes.push_back(fn);
     }
     model.members.reserve(mems.size());
