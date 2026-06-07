@@ -7,14 +7,15 @@
 namespace frame {
 
 // ============================================================================
-// MITC4 Reissner-Mindlin flat-shell facet.
+// MITC4 Reissner-Mindlin flat-shell facet (24 DOF = 4 nodes x 6). The local stiffness
+// is three blocks mapped into the nodal DOFs [Ux,Uy,Uz,Rx,Ry,Rz]:
+//   * plate BENDING (Uz,Rx,Ry) with the MITC4 assumed transverse shear (below),
+//   * plane-stress MEMBRANE (Ux,Uy)        -- see membraneK / membraneToShellMap,
+//   * Hughes-Brezzi DRILLING (Rz)          -- see Bdrill (gamma = G*t).
+// The facet's local frame is built from the corner geometry and the whole 24x24 block
+// is rotated into 3-D by T = blockdiag(R) (the solver then treats it like any element).
 //
-// MILESTONE 2 scope: PLATE BENDING only. Each node's bending DOFs (w, Rx, Ry) get
-// the MITC4 stiffness; the membrane (Ux,Uy) and drilling (Rz) blocks are still zero
-// (filled in milestone 3). So a horizontal plate works if the in-plane DOFs are
-// restrained by the caller (the square-plate / patch fixtures do exactly that).
-//
-// Internally the plate is formulated in FIBER ROTATIONS (w, bx, by) with
+// The BENDING block is formulated in FIBER ROTATIONS (w, bx, by) with
 //   u = z*bx,  v = z*by,  w = w(x,y)
 //   curvatures  kappa = [ bx,x ; by,y ; bx,y + by,x ]
 //   shear       gamma = [ w,x + bx ; w,y + by ]
