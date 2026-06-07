@@ -126,6 +126,44 @@ return `SINGULAR` rather than silent garbage.
 
 ---
 
+## 4b. Analysis suite (factorize-once + the analysis modules)
+
+`solve(model, opts)` is now a thin wrapper over a two-phase split that is the basis of every
+analysis beyond one-shot static:
+
+```
+PreparedSystem assembleAndFactor(model, opts)   // EXPENSIVE, once: build K, reduce, LDLᵀ factor,
+                                                //   mechanism check, bake distributed loads + geometry
+SolveResult    solveLoad(prepared, model)       // CHEAP, many: rebuild RHS (nodal + prescribed) -> back-substitute
+```
+
+`PreparedSystem` is an opaque PIMPL (`Public/FrameCore/FrameSolver.h`); its Eigen-carrying body
+(`Impl`: `K`, the free-DOF map, the LDLᵀ factorization, the prepared elements) lives in
+`Private/PreparedSystemImpl.h`, shared by the analysis modules. Reusing the factorization makes
+interactive (UE5) re-solves and multi-load-case work near-free; it is valid while geometry,
+topology, support FLAGS and distributed loads are unchanged (nodal loads and prescribed VALUES
+may vary — that is the interactive / settlement path). `solve()` stays **bit-for-bit identical**
+to the previous monolithic solver (regression-checked, F19).
+
+Two new `IElement` hooks feed the dynamic/stability analyses (default-empty, so existing elements
+are unaffected): `assembleMass` (consistent mass `localMass12` / shell `shellMass24`) and
+`assembleGeometric` (geometric stiffness `localGeometric12` from the prior solve's axial forces).
+The analysis modules (each a free function + POD result, **no `solve()` flag bloat**):
+
+| Module | Entry point | Math |
+|---|---|---|
+| Load combination / envelope | `combine`, `envelope` (`Combination.h`) | linear superposition; component-wise max/min |
+| Self-weight | `addSelfWeight` (`SelfWeight.h`) | `w=ρgA` / `p=ρgt`; unit bridge ρ·1e-12 |
+| Influence line | `reactionInfluenceLine` (`InfluenceLine.h`) | unit load marched, reusing the factorization |
+| Modal | `solveModal` (`ModalAnalysis.h`) | generalized eigenproblem `Kφ=ω²Mφ` (dense) |
+| Buckling | `solveBuckling` (`BucklingAnalysis.h`) | `(-Kg_ff)φ = γ K_ff φ`, λ_cr = 1/γ_max |
+| Response spectrum | `solveResponseSpectrum` (`ResponseSpectrum.h`) | modal participation + SRSS/CQC |
+| Transient | `solveModalStepResponse` (`ModalDynamics.h`) | Newmark-β per modal coordinate |
+
+Units for mass/self-weight: the engine is consistent **N-mm-tonne-s**, so `Material.rho` (kg/m³)
+is bridged by `×1e-12` (→ tonne/mm³). All seven oracles validate this conversion implicitly
+(`wL²/8`, `ωₙ=(nπ/L)²√(EI/ρA)`, …).
+
 ## 5. Strength screen (`ISectionStrength` → `ElasticAllowable`)
 
 `checkSection(endForces, section, capacity) -> {risk, mode, sComp, sTens, tau, sTor}`:

@@ -13,9 +13,10 @@ The engine is deliberately small, **rigorously validated**, and **engine-agnosti
 public API uses only plain C++/POD types (no UE, no Eigen leakage), so the same source
 compiles as a standalone console gate *and* as an Unreal Engine module.
 
-> **Status:** clean, audited baseline. Verification gate is green
-> (`standalone ALL PASS` · `16 UE automation tests` · `OpenSees strict cross-validation PASS`,
-> including same-element agreement with OpenSees `ShellMITC4` to ~1e-10).
+> **Status:** clean, audited baseline + a full linear-analysis suite. Verification gate is green
+> (`standalone ALL PASS (F1–F25)` · `26 UE automation tests` · `OpenSees strict cross-validation
+> PASS`), including same-element agreement with OpenSees `ShellMITC4` (~1e-10) and natural
+> frequencies vs OpenSees `eigen` (~1e-11).
 
 ---
 
@@ -34,6 +35,20 @@ compiles as a standalone console gate *and* as an Unreal Engine module.
 | **MITC4 flat-shell element** | 4-node Reissner–Mindlin facet: plane-stress membrane + plate bending with **MITC4 assumed transverse shear** (no shear locking) + Hughes–Brezzi **drilling**, assembled as 24 DOF and rotated into 3-D; recovers `{Mxx,Myy,Mxy,Qx,Qy,Nxx,Nyy,Nxy}` |
 | **Grillage plate idealization** | a simply-supported isotropic plate → ν-inflated woven beam grid; a cheaper beam-grid approximation kept alongside the shell |
 
+### Analysis types (beyond one-shot static)
+
+| Analysis | Notes |
+|---|---|
+| **Load cases + combinations** | `LoadCase` containers; `combine(cases, factors)` linear superposition (e.g. 1.2D+1.6L); self-weight `addSelfWeight` derived from `Material.rho` |
+| **factorize-once-solve-many** | `assembleAndFactor` → opaque `PreparedSystem`; `solveLoad` reuses the LDLᵀ factorization for each load / settlement change (interactive UE5 re-solves) |
+| **Prescribed support settlement** | non-zero imposed support displacements (closed the long-standing oracle gap; matches OpenSees `sp` to 0) |
+| **Pattern loading + envelopes** | `envelope(cases)` component-wise max/min for the most-unfavourable live-load arrangement |
+| **Influence lines / moving loads** | `reactionInfluenceLine` marches a unit load reusing the factorization; cross-checked by Müller-Breslau |
+| **Modal analysis** | consistent mass; `solveModal` generalized eigenproblem `Kφ=ω²Mφ` → natural frequencies + mode shapes |
+| **Linear buckling / P-Δ** | geometric stiffness `Kg` from axial force; `solveBuckling` → critical load factor (Euler) |
+| **Response spectrum (seismic)** | `solveResponseSpectrum` modal participation + SRSS/CQC; the spectrum curve is a caller-supplied input (not tied to one code) |
+| **Real-time transient** | `solveModalStepResponse` modal superposition + Newmark-β; O(nModes)/step for UE5 sway/vibration |
+
 ### Scope boundaries (read this — the engine is honest about what it is *not*)
 
 - The D/C check is an **elastic / allowable-stress screen**, **not** RC ultimate strength.
@@ -51,9 +66,17 @@ compiles as a standalone console gate *and* as an Unreal Engine module.
   residual that converges away. The drilling DOF is a **Hughes–Brezzi** treatment (it makes a
   coplanar shell non-singular and vanishes in constant-strain states, so it does not pollute
   the patch tests). It is **linear-elastic, small-deformation**.
-- **No** dynamics, modal analysis, geometric nonlinearity (P-Δ / buckling), RC fiber-section
-  precision, or plastic-collapse pushover. (Earlier experimental layers for these were removed
-  in the cleanup to keep a small, fully-verified core.)
+- The dynamics, buckling and response-spectrum analyses are all **linear**: modal analysis and
+  modal-superposition transients assume **linear-elastic** behaviour and **proportional** damping;
+  linear buckling gives the **onset** eigenvalue (Euler), not a nonlinear post-buckling path;
+  P-Δ is a geometric-stiffness correction, not large displacement. The modal eigensolver is
+  **dense** (suited to the modest models of an interactive sim; a sparse Lanczos path is the
+  scale-up). The response spectrum does the modal combination only — the **code spectrum curve
+  is an input**, not built in.
+- **No material nonlinearity** (RC fiber sections, plastic hinges, pushover / plastic collapse).
+  This is deliberately out of scope: it is the most failure-prone, easiest-to-over-claim layer
+  and the furthest from the live-load / interactive goal. (Earlier experimental versions were
+  removed in the cleanup.)
 
 ---
 
@@ -174,13 +197,16 @@ docs/ARCHITECTURE.md                    data model, solve pipeline, conventions
 
 ## Roadmap
 
-The continuous-surface goal is met: a **MITC4 Reissner–Mindlin flat-shell element** sits behind
-the existing `IElement` seam, so the engine computes plates and shells directly (cross-validated
-against OpenSees `ShellMITC4`). Possible next steps, in rough order of value: a **prescribed
-support-settlement** oracle (the math path exists but is not yet independently checked); a
-warping-aware / higher-order shell to cut the flat-facet error on strongly curved surfaces; and,
-further out, geometric nonlinearity (P-Δ / buckling), dynamics / modal analysis, or an RC
-fiber-section precision layer — each gated by its own independent oracle before being claimed.
+The continuous-surface goal (MITC4 shell) and the full **linear-analysis suite** are done: load
+cases + combinations + self-weight, factorize-once-solve-many, prescribed settlement, pattern
+loading + envelopes, influence lines / moving loads, modal analysis, linear buckling / P-Δ,
+response-spectrum (seismic), and modal-superposition real-time dynamics — each behind the
+existing `IElement` / `PreparedSystem` seams and gated by its own independent oracle (closed-form
++ OpenSees cross-checks). Possible next steps, in rough order of value: a warping-aware /
+higher-order shell to cut the flat-facet error on strongly curved surfaces; a sparse Lanczos
+eigensolver for larger modal models; and — only if a clear need appears, and with its own
+adversarial verification — a **material-nonlinearity** layer (RC fiber sections / plastic hinges),
+which is deliberately excluded for now as the most over-claim-prone and goal-distant addition.
 
 ## License / use
 
