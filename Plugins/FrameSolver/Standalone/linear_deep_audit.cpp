@@ -686,6 +686,32 @@ void testShellCornerMoments() {
     }
 }
 
+void testSparseModal() {
+    // E2 sparse subspace-iteration eigensolver: the opt-in sparse path must reproduce the dense
+    // generalized-eigensolver frequencies (same M-normalized modes), on a model big enough that
+    // it is a meaningful cross-check of the iteration.
+    Section sec = Section::Rectangular(120.0, 240.0);
+    FrameModel m;
+    buildPureBendingSS(m, 40, 6000.0, 7850.0, sec);   // 41-node SS beam (vertical bending DOFs)
+    PreparedSystem ps = assembleAndFactor(m);
+
+    ModalOptions od; od.numModes = 6; od.useSparseSolver = false;
+    ModalOptions os; os.numModes = 6; os.useSparseSolver = true;
+    const ModalResult md  = solveModal(ps, od);
+    const ModalResult msp = solveModal(ps, os);
+    const bool ok = !md.singular && !msp.singular && md.modes.size() >= 6 && msp.modes.size() >= 6;
+    if (!ok) {
+        addRow("Sparse eigensolver", "setup", "dense + sparse modal both available", "flag", 1.0, 0.0, false);
+        return;
+    }
+    real maxRel = 0.0;
+    for (int i = 0; i < 6; ++i)
+        maxRel = std::max(maxRel, relErr(msp.modes[i].omega, md.modes[i].omega));
+    addRow("Sparse eigensolver", "subspace iteration matches the dense modal solve",
+           "first 6 omega: sparse subspace (reusing LDLT) vs dense GeneralizedSelfAdjointEigenSolver",
+           "max relative omega error", maxRel, 1e-6, maxRel < 1e-6);
+}
+
 }  // namespace
 
 int main() {
@@ -704,6 +730,7 @@ int main() {
     testMITC4SoftMode();
     testSolveLoadFingerprint();
     testShellCornerMoments();
+    testSparseModal();
 
     int failures = 0;
     std::cout << "Linear-analysis deep audit (post F17-F25 strengthening)\n\n";

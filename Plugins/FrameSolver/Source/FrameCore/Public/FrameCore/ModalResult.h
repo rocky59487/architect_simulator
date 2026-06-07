@@ -6,7 +6,13 @@
 namespace frame {
 
 struct ModalOptions {
-    int numModes = 3;   // number of lowest modes to extract
+    int  numModes = 3;          // number of lowest modes to extract
+    // Scale-up path: solve the generalized eigenproblem with a sparse SUBSPACE ITERATION
+    // (pure-Eigen, reuses the LDLT) instead of the dense solver. OFF by default — the dense
+    // solver is exact and fast for the modest interactive models here; turn it on for large
+    // models. It produces the same M-normalized modes, and falls back to the dense path if it
+    // fails to converge.
+    bool useSparseSolver = false;
 };
 
 struct ModeShape {
