@@ -8,8 +8,55 @@
 #include <cmath>
 #include <algorithm>
 #include <memory>
+#include <cstring>
+#include <cstdint>
 
 namespace frame {
+
+namespace {
+// Structural fingerprint: hashes everything solveLoad() must NOT change between an
+// assembleAndFactor() and its reuse — node count/positions/support FLAGS, member
+// connectivity/refVec/releases, shell connectivity/thickness, and the baked distributed
+// loads (member UDLs, shell pressures). It deliberately EXCLUDES nodal loads and prescribed
+// VALUES, which solveLoad is allowed to vary (the interactive / settlement path).
+inline uint64_t fpMix(uint64_t h, uint64_t v) {
+    return h ^ (v + 0x9e3779b97f4a7c15ULL + (h << 6) + (h >> 2));
+}
+inline uint64_t fpBits(real d) {
+    uint64_t u = 0; std::memcpy(&u, &d, sizeof(real)); return u;
+}
+uint64_t modelFingerprint(const FrameModel& m) {
+    uint64_t h = 1469598103934665603ULL;
+    h = fpMix(h, m.nodes.size());
+    h = fpMix(h, m.members.size());
+    h = fpMix(h, m.shells.size());
+    h = fpMix(h, m.memberUDLs.size());
+    h = fpMix(h, m.shellPressures.size());
+    for (const auto& n : m.nodes) {
+        h = fpMix(h, fpBits(n.pos.x)); h = fpMix(h, fpBits(n.pos.y)); h = fpMix(h, fpBits(n.pos.z));
+        uint64_t fb = 0; for (int d = 0; d < 6; ++d) if (n.fixed[d]) fb |= (1ull << d);
+        h = fpMix(h, fb);
+    }
+    for (const auto& mem : m.members) {
+        h = fpMix(h, static_cast<uint64_t>(mem.i)); h = fpMix(h, static_cast<uint64_t>(mem.j));
+        h = fpMix(h, fpBits(mem.refVec.x)); h = fpMix(h, fpBits(mem.refVec.y)); h = fpMix(h, fpBits(mem.refVec.z));
+        uint64_t rb = 0; for (int d = 0; d < 12; ++d) if (mem.release[d]) rb |= (1ull << d);
+        h = fpMix(h, rb);
+    }
+    for (const auto& sh : m.shells) {
+        for (int k = 0; k < 4; ++k) h = fpMix(h, static_cast<uint64_t>(sh.n[k]));
+        h = fpMix(h, fpBits(sh.t));
+    }
+    for (const auto& u : m.memberUDLs) {
+        h = fpMix(h, static_cast<uint64_t>(u.member));
+        h = fpMix(h, fpBits(u.w_local.x)); h = fpMix(h, fpBits(u.w_local.y)); h = fpMix(h, fpBits(u.w_local.z));
+    }
+    for (const auto& sp : m.shellPressures) {
+        h = fpMix(h, static_cast<uint64_t>(sp.shell)); h = fpMix(h, fpBits(sp.p));
+    }
+    return h;
+}
+}  // namespace
 
 PreparedSystem::PreparedSystem() : impl(std::make_unique<Impl>()) {}
 PreparedSystem::~PreparedSystem() = default;
@@ -107,6 +154,7 @@ PreparedSystem assembleAndFactor(const FrameModel& model, const SolveOptions& op
             return ps;
         }
     }
+    S.fingerprint = modelFingerprint(model);   // baseline for the solveLoad reuse-validity guard
     return ps;
 }
 
@@ -121,6 +169,18 @@ SolveResult solveLoad(const PreparedSystem& prepared, const FrameModel& model) {
     R.u.assign((size_t)std::max(0, N), 0.0);
     R.reactions.assign((size_t)std::max(0, N), 0.0);
     if (S.singular) { R.singular = true; R.diagnostic = S.diagnostic; return R; }
+
+    // Reuse-validity guard: the factorization + baked distributed loads are only valid while the
+    // structural model is unchanged. Reject a model whose fingerprint differs (geometry / topology /
+    // support flags / member UDLs / shell pressures changed since assembleAndFactor) instead of
+    // silently returning a stale-load solve. Nodal loads and prescribed VALUES may still vary
+    // freely — they are excluded from the fingerprint (the interactive / settlement path).
+    if (modelFingerprint(model) != S.fingerprint) {
+        R.singular = true;
+        R.diagnostic = "solveLoad: model changed since assembleAndFactor (geometry/topology/"
+                       "support flags/distributed loads). Re-run assembleAndFactor.";
+        return R;
+    }
 
     // global load vector: current nodal loads + baked distributed equivalent loads
     VecX F = VecX::Zero(N);

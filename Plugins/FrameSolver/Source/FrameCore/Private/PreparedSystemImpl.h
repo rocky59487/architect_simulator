@@ -12,6 +12,7 @@
 #include <vector>
 #include <string>
 #include <memory>
+#include <cstdint>
 
 namespace frame {
 
@@ -24,6 +25,9 @@ struct PreparedSystem::Impl {
     std::vector<std::unique_ptr<IElement>> elems;      // prepared elements (stiffness/mass/recovery)
     bool                                   singular = false;
     std::string                            diagnostic;
+    uint64_t                               fingerprint = 0;   // structural/geometry/UDL hash baseline;
+                                                              // solveLoad rejects a model whose
+                                                              // fingerprint changed (see FrameSolver.cpp)
 };
 
 }  // namespace frame

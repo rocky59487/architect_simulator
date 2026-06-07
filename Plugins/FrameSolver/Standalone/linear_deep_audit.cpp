@@ -600,6 +600,47 @@ void testMITC4SoftMode() {
            "mode-7 / mode-8 ratio", sep, 1e-1, softOk);
 }
 
+void testSolveLoadFingerprint() {
+    // B1 reuse-validity guard: solveLoad must ACCEPT changed nodal loads / prescribed values
+    // (the interactive path) but REJECT a structurally changed model (geometry / UDL / support)
+    // instead of silently reusing the stale factorization + baked distributed loads.
+    Material mat(200000.0, 76923.076923, 7850.0);
+    Section sec = Section::Rectangular(200.0, 300.0);
+    FrameModel m;
+    fixtures::cantileverBeamN(m, 4, 4000.0, mat, sec);
+    NodalLoad nl; nl.node = 4; nl.comp[Uz] = -500.0; m.nodalLoads = { nl };
+    PreparedSystem ps = assembleAndFactor(m);
+
+    {   // (a) nodal-load change is allowed (excluded from the fingerprint)
+        FrameModel m2 = m; m2.nodalLoads[0].comp[Uz] = -1000.0;
+        const SolveResult r = solveLoad(ps, m2);
+        addRow("solveLoad guard", "nodal-load change accepted",
+               "fingerprint excludes nodal loads (interactive path)",
+               "singular flag (want 0)", r.singular ? 1.0 : 0.0, 0.0, !r.singular);
+    }
+    {   // (b) prescribed-value (settlement) change is allowed
+        FrameModel m2 = m; m2.nodes[0].prescribed[Uz] = -0.5;
+        const SolveResult r = solveLoad(ps, m2);
+        addRow("solveLoad guard", "prescribed-value change accepted",
+               "fingerprint excludes prescribed values (settlement path)",
+               "singular flag (want 0)", r.singular ? 1.0 : 0.0, 0.0, !r.singular);
+    }
+    {   // (c) geometry change must be rejected (stale factorization)
+        FrameModel m2 = m; m2.nodes[2].pos.x += 100.0;
+        const SolveResult r = solveLoad(ps, m2);
+        addRow("solveLoad guard", "geometry change rejected",
+               "stale factorization must not be reused silently",
+               "singular flag (want 1)", r.singular ? 1.0 : 0.0, 0.0, r.singular);
+    }
+    {   // (d) distributed-load change must be rejected (baked UDL would be stale)
+        FrameModel m2 = m; MemberUDL u; u.member = 0; u.w_local = { 0.0, -1.0, 0.0 }; m2.memberUDLs.push_back(u);
+        const SolveResult r = solveLoad(ps, m2);
+        addRow("solveLoad guard", "distributed-load change rejected",
+               "baked UDL would be stale under factorization reuse",
+               "singular flag (want 1)", r.singular ? 1.0 : 0.0, 0.0, r.singular);
+    }
+}
+
 }  // namespace
 
 int main() {
@@ -615,6 +656,7 @@ int main() {
     testCQC();
     testRectBiaxialDC();
     testMITC4SoftMode();
+    testSolveLoadFingerprint();
 
     int failures = 0;
     std::cout << "Linear-analysis deep audit (post F17-F25 strengthening)\n\n";
