@@ -52,4 +52,38 @@ DemandResult ElasticAllowable::checkSection(const MemberEndForces& f, const Sect
     return d;
 }
 
+// C3: worst Demand/Capacity over all ACTIVE members (both ends) + the elastic safety factor.
+// Inactive members (element removal) are skipped; members with an out-of-range material/section
+// index are skipped (validate() should have caught those, but be defensive). Pure post-process.
+DemandSummary worstUtilization(const FrameModel& model, const SolveResult& r) {
+    DemandSummary out;
+    const ElasticAllowable screen;
+    const size_t nM = std::min(model.members.size(), r.memberForces.size());
+    bool any = false;
+    real maxDC = 0;
+    for (size_t e = 0; e < nM; ++e) {
+        const Member& mem = model.members[e];
+        if (!mem.active) continue;
+        if (mem.matIdx < 0 || mem.matIdx >= (int)model.materials.size()) continue;
+        if (mem.secIdx < 0 || mem.secIdx >= (int)model.sections.size())  continue;
+        const Section&  s = model.sections[mem.secIdx];
+        const Capacity& c = model.materials[mem.matIdx].cap;
+        const MemberForcePair& mf = r.memberForces[e];
+        const DemandResult di = screen.checkSection(mf.endI, s, c);
+        const DemandResult dj = screen.checkSection(mf.endJ, s, c);
+        const DemandResult& d = (di.risk >= dj.risk) ? di : dj;   // worse of the two ends
+        if (!any || d.risk > maxDC) {
+            maxDC = d.risk;
+            out.governingMember = mem.id;
+            out.mode = d.mode;
+        }
+        any = true;
+    }
+    out.valid = any;
+    out.maxDC = any ? maxDC : real(0);
+    out.safetyFactor = any ? ((maxDC > 0) ? real(1) / maxDC : std::numeric_limits<real>::infinity())
+                           : real(0);
+    return out;
+}
+
 } // namespace frame

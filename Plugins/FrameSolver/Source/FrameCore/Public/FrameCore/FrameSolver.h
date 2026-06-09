@@ -19,6 +19,10 @@ struct FRAMECORE_API PreparedSystem {
     PreparedSystem& operator=(const PreparedSystem&) = delete;
     struct Impl;
     std::unique_ptr<Impl> impl;
+
+    // Criticality margin = min/max |LDLT pivot| of K_ff (see SolveResult::pivotMargin). Available
+    // straight after assembleAndFactor without a solve. 0 if singular / not yet factored.
+    real pivotMargin() const;
 };
 
 // Phase 1 (once per fixed model): build K, apply the support pattern, factorize (LDLᵀ),

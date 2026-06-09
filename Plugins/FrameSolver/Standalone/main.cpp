@@ -940,6 +940,81 @@ int main() {
         checkTrue("isolated node after removal -> mechanism", rMech.singular, "expected singular");
     }
 
+    // ---------- F27: safety factor (C3) + criticality / pivot margin (C4) ----------
+    {
+        // C3: a cantilever (tip load P, root moment M=PL) has a closed-form worst utilization:
+        //   sigma = M/W, D/C = sigma/cap.bend, safetyFactor = 1/(D/C). Square 100x100, cap.bend=300:
+        //   M=PL=2e6, W=1.6667e5 -> sigma=12 MPa -> D/C=0.04 -> SF=25.
+        Section  csec = Section::Rectangular(100.0, 100.0);
+        Material cmat(210000.0, 80769.0, 7850.0);
+        cmat.cap = Capacity::make(300.0, 300.0, 180.0);
+        const real L = 2000.0, P = 1000.0;
+        const real dcExact = (P * L / csec.Wz()) / cmat.cap.bend;   // = 0.04
+
+        FrameModel m; fixtures::prepMatSec(m, cmat, csec);
+        Node cn0(0, 0.0, 0.0, 0.0); cn0.fixAll();
+        Node cn1(1,   L, 0.0, 0.0);
+        m.nodes = { cn0, cn1 };
+        m.members = { Member(0, 0, 1, 0, 0) };
+        NodalLoad cp; cp.node = 1; cp.comp[Uz] = -P; m.nodalLoads = { cp };
+        const SolveResult r = solve(m);
+        const DemandSummary ds = worstUtilization(m, r);
+        std::printf("[F27] safety factor + criticality margin  D/C=%.5g SF=%.5g pivotMargin=%.5g\n",
+                    ds.maxDC, ds.safetyFactor, r.pivotMargin);
+        checkTrue("worstUtilization valid", ds.valid, "");
+        checkClose("max D/C = (PL/W)/cap (closed form)", ds.maxDC, dcExact, 1e-9);
+        checkClose("safety factor = 1/maxDC", ds.safetyFactor, 1.0 / dcExact, 1e-9);
+        checkTrue("governing member id = 0", ds.governingMember == 0, "");
+
+        // C3 linearity: double the load -> D/C doubles, SF halves.
+        FrameModel m2 = m; m2.nodalLoads[0].comp[Uz] = -2.0 * P;
+        const DemandSummary ds2 = worstUtilization(m2, solve(m2));
+        checkClose("D/C scales linearly with load", ds2.maxDC, 2.0 * dcExact, 1e-9);
+        checkClose("SF scales inversely with load", ds2.safetyFactor, 0.5 / dcExact, 1e-9);
+
+        // C3 x C1: deactivating the only member -> nothing screenable -> invalid summary.
+        FrameModel m0 = m; m0.members[0].active = false;
+        const DemandSummary ds0 = worstUtilization(m0, solve(m0));
+        checkTrue("no active member -> invalid summary", !ds0.valid, "");
+
+        // C4 exact anchor: a single free DOF (axial bar) has ONE pivot -> pivotMargin == 1.
+        {
+            FrameModel ma; fixtures::prepMatSec(ma, cmat, csec);
+            Node a0(0, 0.0, 0.0, 0.0); a0.fixAll();
+            Node a1(1, 1000.0, 0.0, 0.0);
+            a1.fixed[Uy] = a1.fixed[Uz] = a1.fixed[Rx] = a1.fixed[Ry] = a1.fixed[Rz] = true;  // free: Ux only
+            ma.nodes = { a0, a1 };
+            ma.members = { Member(0, 0, 1, 0, 0) };
+            NodalLoad p; p.node = 1; p.comp[Ux] = 1000.0; ma.nodalLoads = { p };
+            const SolveResult ra = solve(ma);
+            checkTrue("single-DOF non-singular", !ra.singular, ra.diagnostic);
+            checkClose("single-DOF axial pivotMargin = 1", ra.pivotMargin, 1.0, 1e-12);
+        }
+
+        // C4 bound: a healthy structure's margin is in (0,1].
+        checkTrue("healthy pivotMargin in (0,1]", r.pivotMargin > 0.0 && r.pivotMargin <= 1.0 + 1e-12, "");
+
+        // C4 scale-invariance: pivotMargin is a min/max pivot RATIO, so scaling ALL stiffness
+        // (E and G x1000) leaves it unchanged -> a dimensionless conditioning proxy, not an absolute.
+        // (It is deliberately NOT asserted monotone in a single member's stiffness: min/max over
+        // pivots is not monotone that way. Its mechanism link is the singular threshold below, plus
+        // F26: an actual mechanism is flagged singular, i.e. the margin has crossed pivotTol.)
+        FrameModel mE = m; mE.materials[0].E *= 1000.0; mE.materials[0].G *= 1000.0;
+        checkClose("pivotMargin invariant under uniform stiffness scale", solve(mE).pivotMargin, r.pivotMargin, 1e-12);
+
+        // C4 mechanism link: a one-step-from-mechanism model (the F26 prop+cantilever with both
+        // members removed) is singular -> margin is 0 (the warning has hit the floor).
+        FrameModel mSing; fixtures::prepMatSec(mSing, cmat, csec);
+        Node s0(0, 0.0, 0.0, 0.0); s0.fixAll();
+        Node s1n(1, L, 0.0, 0.0);
+        mSing.nodes = { s0, s1n };
+        mSing.members = { Member(0, 0, 1, 0, 0) };
+        mSing.members[0].active = false;                 // remove the only member -> mechanism
+        NodalLoad sp; sp.node = 1; sp.comp[Uz] = -P; mSing.nodalLoads = { sp };
+        const SolveResult rSing = solve(mSing);
+        checkTrue("mechanism -> singular & pivotMargin 0", rSing.singular && rSing.pivotMargin == 0.0, "");
+    }
+
     std::printf("\n%s  (failures=%d)\n", g_fail == 0 ? "ALL PASS" : "FAILURES", g_fail);
     return g_fail == 0 ? 0 : 1;
 }

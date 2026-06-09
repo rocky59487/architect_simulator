@@ -38,6 +38,14 @@ struct SolveResult {
     std::vector<MemberForcePair>    memberForces;
     std::vector<ShellElementForces> shellForces;        // parallel to model.shells
 
+    // Criticality / proximity-to-singular indicator (C4): min|LDLT pivot| / max|LDLT pivot| of the
+    // reduced stiffness K_ff, in (0,1]. The solver flags a mechanism when this falls below pivotTol,
+    // so a value COLLAPSING toward pivotTol is the early warning. NOT a normalized 0..1 health score
+    // and NOT the condition number: well-conditioned frames are already <<1 (axial pivots dominate
+    // bending pivots). Read it RELATIVELY (vs the same structure) or as distance above pivotTol.
+    // It is a dimensionless ratio (scale-invariant). 0 when singular / not factored.
+    real pivotMargin = 0;
+
     real disp(int nodeIndex, int dof) const { return u[static_cast<size_t>(gdof(nodeIndex, dof))]; }
     real reaction(int nodeIndex, int dof) const { return reactions[static_cast<size_t>(gdof(nodeIndex, dof))]; }
 };

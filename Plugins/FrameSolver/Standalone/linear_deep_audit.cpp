@@ -781,6 +781,58 @@ void testElementRemoval() {
            "singular flag (want 1)", rMech.singular ? 1.0 : 0.0, 0.0, rMech.singular);
 }
 
+void testSafetyAndMargin() {
+    // C3 safety factor + C4 criticality (pivot) margin. A cantilever (root moment PL) has the
+    // closed-form worst utilization D/C = (PL/W)/cap.bend and safety factor 1/(D/C). pivotMargin
+    // = min/max LDLT pivot ratio: exactly 1 for a single DOF, scale-invariant, 0 for a mechanism.
+    Section  sec = Section::Rectangular(100.0, 100.0);
+    Material mat(210000.0, 80769.0, 7850.0);
+    mat.cap = Capacity::make(300.0, 300.0, 180.0);
+    const real L = 2000.0, P = 1000.0;
+    const real dcExact = (P * L / sec.Wz()) / mat.cap.bend;
+
+    FrameModel m;
+    m.materials = { mat }; m.sections = { sec };
+    Node n0(0, 0, 0, 0); n0.fixAll();
+    Node n1(1, L, 0, 0);
+    m.nodes = { n0, n1 };
+    m.members = { Member(0, 0, 1, 0, 0) };
+    NodalLoad p; p.node = 1; p.comp[Uz] = -P; m.nodalLoads = { p };
+    const SolveResult r = solve(m);
+    const DemandSummary ds = worstUtilization(m, r);
+    addRow("Safety factor", "structural worst Demand/Capacity (C3)",
+           "cantilever closed form D/C = (PL/W)/cap.bend = 0.04",
+           "relative D/C error", relErr(ds.maxDC, dcExact), 1e-9, ds.valid && relErr(ds.maxDC, dcExact) < 1e-9);
+    addRow("Safety factor", "safety factor = 1/maxDC (C3)",
+           "elastic load multiplier to first allowable-stress failure",
+           "relative SF error", relErr(ds.safetyFactor, 1.0 / dcExact), 1e-9, relErr(ds.safetyFactor, 1.0 / dcExact) < 1e-9);
+
+    FrameModel ma; ma.materials = { mat }; ma.sections = { sec };
+    Node a0(0, 0, 0, 0); a0.fixAll();
+    Node a1(1, 1000, 0, 0);
+    a1.fixed[Uy] = a1.fixed[Uz] = a1.fixed[Rx] = a1.fixed[Ry] = a1.fixed[Rz] = true;  // free: Ux only
+    ma.nodes = { a0, a1 };
+    ma.members = { Member(0, 0, 1, 0, 0) };
+    NodalLoad pa; pa.node = 1; pa.comp[Ux] = 1000.0; ma.nodalLoads = { pa };
+    const real m1 = solve(ma).pivotMargin;
+    addRow("Criticality margin", "single-DOF pivotMargin = 1 (C4)",
+           "one free DOF -> one LDLT pivot -> min/max ratio is exactly 1",
+           "|pivotMargin - 1|", std::fabs(m1 - 1.0), 1e-12, std::fabs(m1 - 1.0) < 1e-12);
+
+    FrameModel mE = m; mE.materials[0].E *= 1000.0; mE.materials[0].G *= 1000.0;
+    const real mScaled = solve(mE).pivotMargin;
+    addRow("Criticality margin", "pivotMargin scale-invariant (C4)",
+           "min/max pivot RATIO unchanged when all stiffness x1000",
+           "relative margin change", relErr(mScaled, r.pivotMargin), 1e-12, relErr(mScaled, r.pivotMargin) < 1e-12);
+
+    FrameModel mS = m; mS.members[0].active = false;
+    const SolveResult rS = solve(mS);
+    addRow("Criticality margin", "mechanism -> pivotMargin 0 (C4)",
+           "removing the only member -> singular -> margin floored at 0",
+           "singular & margin==0 (want 1)", (rS.singular && rS.pivotMargin == 0.0) ? 1.0 : 0.0, 0.0,
+           rS.singular && rS.pivotMargin == 0.0);
+}
+
 }  // namespace
 
 int main() {
@@ -801,6 +853,7 @@ int main() {
     testShellCornerMoments();
     testSparseModal();
     testElementRemoval();
+    testSafetyAndMargin();
 
     int failures = 0;
     std::cout << "Linear-analysis deep audit (post F17-F25 strengthening)\n\n";

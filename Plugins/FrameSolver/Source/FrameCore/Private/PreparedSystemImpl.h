@@ -21,6 +21,7 @@ struct PreparedSystem::Impl {
     SpMat                                  K;          // full global K (reactions, K_ff, M reduction)
     std::vector<int>                       fmap;       // free-DOF map (-1 = constrained)
     int                                    nf = 0;
+    real                                   pivotMargin = 0;   // min/max |LDLT pivot| of K_ff (C4 criticality margin)
     LDLTSolver                             ldlt;       // factorization of K_ff
     std::vector<std::unique_ptr<IElement>> elems;      // prepared elements (stiffness/mass/recovery)
     bool                                   singular = false;

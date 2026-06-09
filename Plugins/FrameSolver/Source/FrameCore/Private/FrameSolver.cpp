@@ -164,8 +164,12 @@ PreparedSystem assembleAndFactor(const FrameModel& model, const SolveOptions& op
         return ps;
     }
     const VecX D = S.ldlt.vectorD();
-    real maxAbs = 0;
-    for (int i = 0; i < D.size(); ++i) maxAbs = std::max(maxAbs, std::abs(D(i)));
+    real maxAbs = 0, minAbs = 0; bool firstPivot = true;
+    for (int i = 0; i < D.size(); ++i) {
+        const real a = std::abs(D(i));
+        maxAbs = std::max(maxAbs, a);
+        if (firstPivot || a < minAbs) { minAbs = a; firstPivot = false; }
+    }
     const real tol = opts.pivotTol * std::max(real(1), maxAbs);
     for (int i = 0; i < D.size(); ++i) {
         if (std::abs(D(i)) < tol) {
@@ -179,9 +183,12 @@ PreparedSystem assembleAndFactor(const FrameModel& model, const SolveOptions& op
             return ps;
         }
     }
+    S.pivotMargin = (maxAbs > 0) ? minAbs / maxAbs : 0;   // C4: proximity-to-singular (min/max pivot)
     S.fingerprint = modelFingerprint(model);   // baseline for the solveLoad reuse-validity guard
     return ps;
 }
+
+real PreparedSystem::pivotMargin() const { return impl ? impl->pivotMargin : real(0); }
 
 // ============================================================================
 // Phase 2: cheap re-solve. Reuses the factorization; only re-builds the RHS from the
@@ -250,6 +257,7 @@ SolveResult solveLoad(const PreparedSystem& prepared, const FrameModel& model) {
     R.memberForces.resize(model.members.size());
     R.shellForces.resize(model.shells.size());
     for (const auto& el : S.elems) el->recover(u, R);
+    R.pivotMargin = S.pivotMargin;   // C4: report the factorization's criticality margin
     return R;
 }
 
