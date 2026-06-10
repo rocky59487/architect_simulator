@@ -19,6 +19,14 @@ struct ShellQuad {
     int    matIdx = -1;          // index into FrameModel::materials (needs E, nu, G = E/[2(1+nu)])
     real   t   = 0;              // thickness (mm)
 
+    // When false, the facet is excluded from assembly: it contributes nothing to the global
+    // stiffness K, its baked pressure loads are not applied (a ShellPressure on an inactive
+    // facet is dropped, mirroring a UDL on an inactive member), and its recovered forces stay
+    // zero. This is the element-removal hook for progressive-collapse driving and for handing
+    // detached debris clusters to the physics layer. Toggling it is a STRUCTURAL change, so it
+    // is part of the solveLoad reuse fingerprint (a flipped flag rejects a stale factor).
+    bool active = true;
+
     ShellQuad() = default;
     ShellQuad(int id_, NodeId a, NodeId b, NodeId c, NodeId d, int matIdx_, real t_)
         : id(id_), n{ a, b, c, d }, matIdx(matIdx_), t(t_) {}

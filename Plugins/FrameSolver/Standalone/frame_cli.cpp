@@ -10,8 +10,8 @@
 //   SEC    A Iy Iz J cy cz Asy Asz
 //   NODE   id x y z  fUx fUy fUz fRx fRy fRz  [pUx pUy pUz pRx pRy pRz]
 //          (6 fixed flags 0/1; optional 6 prescribed displacement values, default 0)
-//   MEMBER id i j matIdx secIdx  refx refy refz
-//   SHELL  id n0 n1 n2 n3 matIdx t                    (MITC4 flat-shell facet)
+//   MEMBER id i j matIdx secIdx  refx refy refz  [active]   (optional 0/1, default 1)
+//   SHELL  id n0 n1 n2 n3 matIdx t  [active]          (MITC4 flat-shell facet; optional 0/1, default 1)
 //   NLOAD  node Fx Fy Fz Mx My Mz
 //   UDL    member wx wy wz                            (local)
 //   SPRESS shellId p                                  (transverse pressure)
@@ -43,8 +43,8 @@ namespace {
 struct RawMat { real E, G, rho, nu; };
 struct RawSec { real A, Iy, Iz, J, cy, cz, Asy, Asz; };
 struct RawNode { int id; real x, y, z; int f[6]; real p[6]; };
-struct RawMem { int id, i, j, mat, sec; real rx, ry, rz; };
-struct RawShell { int id, n[4], mat; real t; };
+struct RawMem { int id, i, j, mat, sec; real rx, ry, rz; int active; };
+struct RawShell { int id, n[4], mat; real t; int active; };
 struct RawNL { int node; real c[6]; };
 struct RawUDL { int member; real wx, wy, wz; };
 struct RawSP { int shell; real p; };
@@ -69,8 +69,12 @@ int main() {
         else if (tag == "SMAT") { RawMat m{}; ss >> m.E >> m.nu >> m.G; m.rho = 0; mats.push_back(m); }
         else if (tag == "SEC") { RawSec s{}; ss >> s.A >> s.Iy >> s.Iz >> s.J >> s.cy >> s.cz >> s.Asy >> s.Asz; secs.push_back(s); }
         else if (tag == "NODE") { RawNode n{}; ss >> n.id >> n.x >> n.y >> n.z; for (int k=0;k<6;++k) ss >> n.f[k]; for (int k=0;k<6;++k) ss >> n.p[k]; nodes.push_back(n); }
-        else if (tag == "MEMBER") { RawMem mm{}; ss >> mm.id >> mm.i >> mm.j >> mm.mat >> mm.sec >> mm.rx >> mm.ry >> mm.rz; mems.push_back(mm); }
-        else if (tag == "SHELL") { RawShell s{}; ss >> s.id >> s.n[0] >> s.n[1] >> s.n[2] >> s.n[3] >> s.mat >> s.t; shes.push_back(s); }
+        else if (tag == "MEMBER") { RawMem mm{}; mm.active = 1; ss >> mm.id >> mm.i >> mm.j >> mm.mat >> mm.sec >> mm.rx >> mm.ry >> mm.rz;
+                                    int act; if (ss >> act) mm.active = act;   // optional token (a FAILED >> writes 0, so guard it)
+                                    mems.push_back(mm); }
+        else if (tag == "SHELL") { RawShell s{}; s.active = 1; ss >> s.id >> s.n[0] >> s.n[1] >> s.n[2] >> s.n[3] >> s.mat >> s.t;
+                                   int act; if (ss >> act) s.active = act;     // optional token (a FAILED >> writes 0, so guard it)
+                                   shes.push_back(s); }
         else if (tag == "NLOAD") { RawNL l{}; ss >> l.node; for (int k=0;k<6;++k) ss >> l.c[k]; nls.push_back(l); }
         else if (tag == "UDL") { RawUDL u{}; ss >> u.member >> u.wx >> u.wy >> u.wz; udls.push_back(u); }
         else if (tag == "SPRESS") { RawSP s{}; ss >> s.shell >> s.p; sps.push_back(s); }
@@ -97,11 +101,14 @@ int main() {
     for (const auto& mm : mems) {
         Member fmem(mm.id, mm.i, mm.j, mm.mat, mm.sec);   // mat/sec are already pool indices
         fmem.refVec = Vec3(mm.rx, mm.ry, mm.rz);
+        fmem.active = (mm.active != 0);
         model.members.push_back(fmem);
     }
     model.shells.reserve(shes.size());
     for (const auto& s : shes) {
-        model.shells.push_back(ShellQuad(s.id, s.n[0], s.n[1], s.n[2], s.n[3], s.mat, s.t));
+        ShellQuad sq(s.id, s.n[0], s.n[1], s.n[2], s.n[3], s.mat, s.t);
+        sq.active = (s.active != 0);
+        model.shells.push_back(sq);
     }
     for (const auto& l : nls) { NodalLoad nl; nl.node=l.node; for (int k=0;k<6;++k) nl.comp[k]=l.c[k]; model.nodalLoads.push_back(nl); }
     for (const auto& u : udls) { MemberUDL mu; mu.member=u.member; mu.w_local=Vec3(u.wx,u.wy,u.wz); model.memberUDLs.push_back(mu); }

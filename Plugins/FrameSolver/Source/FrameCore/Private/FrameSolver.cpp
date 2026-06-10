@@ -16,7 +16,7 @@ namespace frame {
 namespace {
 // Structural fingerprint: hashes everything solveLoad() must NOT change between an
 // assembleAndFactor() and its reuse — node id/positions/support FLAGS, member
-// id/connectivity/refVec/releases/matIdx/secIdx/active, shell id/connectivity/thickness/matIdx,
+// id/connectivity/refVec/releases/matIdx/secIdx/active, shell id/connectivity/thickness/matIdx/active,
 // the referenced material VALUES (E/G/nu/rho) and section VALUES (A/Iy/Iz/J/Asy/Asz), and
 // the baked distributed loads (member UDLs, shell pressures). The factorization bakes in the
 // stiffness those properties imply, so changing E, Iz, or which material/section an element
@@ -58,6 +58,7 @@ uint64_t modelFingerprint(const FrameModel& m) {
         for (int k = 0; k < 4; ++k) h = fpMix(h, static_cast<uint64_t>(sh.n[k]));
         h = fpMix(h, static_cast<uint64_t>(static_cast<int64_t>(sh.matIdx)));
         h = fpMix(h, fpBits(sh.t));
+        h = fpMix(h, sh.active ? 1ull : 0ull);   // toggling active is a structural (remove/restore) change
     }
     // Material / section VALUES the elements reference by index. Changing E / Iz / etc. alters
     // the assembled K, so a reused factorization built on the OLD values is a stale solve. We
@@ -112,7 +113,8 @@ PreparedSystem assembleAndFactor(const FrameModel& model, const SolveOptions& op
         if (model.members[e].active)   // inactive members are excluded from assembly (element removal)
             S.elems.push_back(std::make_unique<BeamColumnElement>((int)e));
     for (size_t s = 0; s < model.shells.size(); ++s)
-        S.elems.push_back(std::make_unique<MITC4ShellElement>((int)s));
+        if (model.shells[s].active)   // inactive shells are excluded from assembly (element removal)
+            S.elems.push_back(std::make_unique<MITC4ShellElement>((int)s));
 
     for (auto& el : S.elems) {
         std::string ewhy;

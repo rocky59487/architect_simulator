@@ -781,6 +781,56 @@ void testElementRemoval() {
            "singular flag (want 1)", rMech.singular ? 1.0 : 0.0, 0.0, rMech.singular);
 }
 
+void testShellRemoval() {
+    // 3a shell element removal (ShellQuad::active), the facet mirror of C1. The strongest
+    // invariant is the MODAL one: deactivating a facet must equal physically omitting it on
+    // BOTH sides of the generalized eigenproblem (stiffness AND mass assembly skip it), so the
+    // frequencies of the two models must agree to round-off. Plus the reuse fingerprint must
+    // treat a flipped shell.active as a structural change (stale-factor rejection).
+    const real Es = 30000.0, nu = 0.3;
+    Material smat(Es, Es / (2.0 * (1.0 + nu)), 2500.0); smat.nu = nu;
+    const real e = 500.0, t = 10.0;
+
+    auto buildPlate = [&](FrameModel& m) {
+        m = FrameModel{};
+        m.materials = { smat };
+        for (int j = 0; j <= 2; ++j)
+            for (int i = 0; i <= 2; ++i) {
+                Node n(j * 3 + i, i * e, j * e, 0.0);
+                if (i == 0) n.fixAll();          // clamped edge x=0
+                m.nodes.push_back(n);
+            }
+        m.shells = { ShellQuad(0, 0, 1, 4, 3, 0, t), ShellQuad(1, 1, 2, 5, 4, 0, t),
+                     ShellQuad(2, 3, 4, 7, 6, 0, t), ShellQuad(3, 4, 5, 8, 7, 0, t) };
+    };
+
+    {   // (a) modal mirror: (q0 inactive) == (q0 absent) for the first 3 frequencies
+        FrameModel mCut; buildPlate(mCut); mCut.shells[0].active = false;
+        FrameModel mOmit; buildPlate(mOmit); mOmit.shells.erase(mOmit.shells.begin());
+        const PreparedSystem pc = assembleAndFactor(mCut);
+        const PreparedSystem po = assembleAndFactor(mOmit);
+        const ModalResult rc = solveModal(pc, ModalOptions{ 3 });
+        const ModalResult ro = solveModal(po, ModalOptions{ 3 });
+        const bool ok = !rc.singular && !ro.singular && rc.modes.size() >= 3 && ro.modes.size() >= 3;
+        real maxRel = ok ? 0.0 : 1.0;
+        if (ok)
+            for (int i = 0; i < 3; ++i)
+                maxRel = std::max(maxRel, relErr(rc.modes[i].omega, ro.modes[i].omega));
+        addRow("Shell removal", "inactive facet leaves K AND M (modal mirror of C1)",
+               "first 3 omega of (facet inactive) == (facet absent): both assemblies skip it",
+               "max relative omega diff", maxRel, 1e-14, ok && maxRel < 1e-14);
+    }
+    {   // (b) flipped shell.active must reject a stale factorization reuse
+        FrameModel m; buildPlate(m);
+        const PreparedSystem ps = assembleAndFactor(m);
+        m.shells[0].active = false;
+        const SolveResult r = solveLoad(ps, m);
+        addRow("solveLoad guard", "shell active change rejected",
+               "fingerprint must hash shell.active (silent stale solve otherwise)",
+               "singular flag (want 1)", r.singular ? 1.0 : 0.0, 0.0, r.singular);
+    }
+}
+
 void testSafetyAndMargin() {
     // C3 safety factor + C4 criticality (pivot) margin. A cantilever (root moment PL) has the
     // closed-form worst utilization D/C = (PL/W)/cap.bend and safety factor 1/(D/C). pivotMargin
@@ -853,6 +903,7 @@ int main() {
     testShellCornerMoments();
     testSparseModal();
     testElementRemoval();
+    testShellRemoval();
     testSafetyAndMargin();
 
     int failures = 0;

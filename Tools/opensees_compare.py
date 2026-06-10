@@ -280,7 +280,7 @@ def run_frame_cli_shell(model):
         lines.append("NODE {id} {x} {y} {z} {0} {1} {2} {3} {4} {5}".format(*f, **n))
     for s in model["shells"]:
         nn = s["n"]
-        lines.append(f"SHELL {s['id']} {nn[0]} {nn[1]} {nn[2]} {nn[3]} {s['mat']} {s['t']}")
+        lines.append(f"SHELL {s['id']} {nn[0]} {nn[1]} {nn[2]} {nn[3]} {s['mat']} {s['t']} {s.get('active', 1)}")
     for l in model.get("nloads", []):
         c = l["comp"]
         lines.append(f"NLOAD {l['node']} {c[0]} {c[1]} {c[2]} {c[3]} {c[4]} {c[5]}")
@@ -309,6 +309,8 @@ def run_opensees_shell(model):
         ops.node(n["id"], float(n["x"]), float(n["y"]), float(n["z"]))
         ops.fix(n["id"], *[int(x) for x in n["fix"]])
     for s in model["shells"]:
+        if not s.get("active", 1):
+            continue   # our side deactivates the facet; OpenSees simply never builds it
         m = model["smats"][s["mat"]]
         secTag = s["id"] + 1
         ops.section("ElasticMembranePlateSection", secTag, m["E"], m["nu"], s["t"], 0.0)
@@ -360,11 +362,19 @@ def shell_plate_model(name, nx, ny, Lx, Ly, t, E, nu, tilt_deg, Fz_total):
 
 
 def shell_models():
+    # Element-removal cross-check (collapse stage 3a): OUR side keeps the facet in the model but
+    # deactivated (ShellQuad::active=false); the OpenSees side simply never builds that element.
+    # The two must agree like any other plate — removal-by-flag == removal-by-omission. The
+    # deactivated facet is INTERIOR, so every node keeps at least one active facet (no mechanism).
+    holed = shell_plate_model("shell cantilever plate (interior facet deactivated)", 8, 4,
+                              1000.0, 500.0, 10.0, 30000.0, 0.3, 0.0, -100.0)
+    holed["shells"][11]["active"] = 0   # quad (i=3, j=1) — interior, all 4 nodes shared
     return [
         shell_plate_model("shell cantilever plate (flat)", 8, 4, 1000.0, 500.0, 10.0,
                           30000.0, 0.3, 0.0, -100.0),
         shell_plate_model("shell cantilever plate (tilted 30deg, 3D + membrane)", 8, 4,
                           1000.0, 500.0, 10.0, 30000.0, 0.3, 30.0, -100.0),
+        holed,
     ]
 
 

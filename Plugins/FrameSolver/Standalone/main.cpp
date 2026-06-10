@@ -1015,6 +1015,85 @@ int main() {
         checkTrue("mechanism -> singular & pivotMargin 0", rSing.singular && rSing.pivotMargin == 0.0, "");
     }
 
+    // ---------- F28: shell element removal (ShellQuad::active) — mirror of F26 for facets ----------
+    {
+        // 2x2-quad cantilever plate (9 nodes, 500x500 facets, t=10) clamped along the x=0 edge,
+        // uniform pressure on every facet. Deactivating a CLAMP-ADJACENT facet (q0) keeps every
+        // node attached to an active element, so the model stays solvable and the removal-by-flag
+        // invariant can be checked against physically omitting the facet. Deactivating the FAR
+        // CORNER facet (q3) isolates the corner node -> mechanism. A ShellPressure on an inactive
+        // facet is dropped (mirrors a UDL on an inactive member), proven via the reaction total.
+        const real Es = 30000.0, nu = 0.3, Gs = Es / (2.0 * (1.0 + nu));
+        Material smat(Es, Gs); smat.nu = nu;
+        const real e = 500.0, t = 10.0, p = 0.01;   // facet edge, thickness, pressure (N/mm^2)
+
+        auto buildPlate = [&](FrameModel& m) {
+            m = FrameModel{};
+            m.materials = { smat };
+            for (int j = 0; j <= 2; ++j)
+                for (int i = 0; i <= 2; ++i) {
+                    Node n(j * 3 + i, i * e, j * e, 0.0);
+                    if (i == 0) n.fixAll();          // clamped edge x=0
+                    m.nodes.push_back(n);
+                }
+            m.shells = { ShellQuad(0, 0, 1, 4, 3, 0, t),     // q0: clamp-adjacent (lower-left)
+                         ShellQuad(1, 1, 2, 5, 4, 0, t),     // q1
+                         ShellQuad(2, 3, 4, 7, 6, 0, t),     // q2
+                         ShellQuad(3, 4, 5, 8, 7, 0, t) };   // q3: far corner (sole owner of node 8)
+            for (int s = 0; s < 4; ++s) { ShellPressure sp; sp.shell = s; sp.p = p; m.shellPressures.push_back(sp); }
+        };
+
+        std::printf("[F28] shell element removal (ShellQuad::active) — 2x2 cantilever plate\n");
+
+        FrameModel mFull; buildPlate(mFull);
+        const SolveResult rFull = solve(mFull);
+        checkTrue("full plate non-singular", !rFull.singular, rFull.diagnostic);
+
+        // (a) removal-by-flag invariant: active=false MUST equal physically omitting the facet
+        FrameModel mCut = mFull; mCut.shells[0].active = false;
+        const SolveResult rCut = solve(mCut);
+        checkTrue("after removing q0: non-singular", !rCut.singular, rCut.diagnostic);
+        FrameModel mOmit; buildPlate(mOmit);
+        mOmit.shells.erase(mOmit.shells.begin());                  // drop q0 entirely...
+        mOmit.shellPressures.erase(mOmit.shellPressures.begin());  // ...and its pressure
+        const SolveResult rOmit = solve(mOmit);
+        real duMax = 0.0;
+        for (size_t k = 0; k < rCut.u.size() && k < rOmit.u.size(); ++k)
+            duMax = std::max(duMax, std::fabs(rCut.u[k] - rOmit.u[k]));
+        checkClose("shell active=false == omitted facet (disp)", duMax, 0.0, 1e-9);
+
+        // (b) inactive facet recovers zero forces (centre resultants AND corner moments)
+        real fMax = 0.0;
+        {
+            const ShellElementForces& sf = rCut.shellForces[0];
+            for (real v : { sf.Mxx, sf.Myy, sf.Mxy, sf.Qx, sf.Qy, sf.Nxx, sf.Nyy, sf.Nxy })
+                fMax = std::max(fMax, std::fabs(v));
+            for (int c = 0; c < 4; ++c)
+                fMax = std::max({ fMax, std::fabs(sf.MxxC[c]), std::fabs(sf.MyyC[c]), std::fabs(sf.MxyC[c]) });
+        }
+        checkClose("inactive facet forces stay 0", fMax, 0.0, 1e-12);
+
+        // (c) the dropped pressure does not leak: reactions balance ONLY the 3 active facets
+        const real Ftot = p * 3.0 * e * e;   // 0.01 * 3 * 250000 = 7500 N along +z
+        real sumRz = 0.0;
+        for (int k = 0; k < 9; ++k) sumRz += rCut.reaction(k, Uz);
+        checkClose("reactions balance active-facet pressure only", sumRz, -Ftot, 1e-9);
+
+        // (d) removing the far-corner facet isolates node 8 -> mechanism (singular)
+        FrameModel mMech = mFull; mMech.shells[3].active = false;
+        const SolveResult rMech = solve(mMech);
+        checkTrue("isolated node after facet removal -> mechanism", rMech.singular, "expected singular");
+
+        // (e) fingerprint guard: flipping shell.active after factoring must reject a stale reuse
+        FrameModel mFp; buildPlate(mFp);
+        const PreparedSystem ps = assembleAndFactor(mFp);
+        mFp.shells[0].active = false;
+        const SolveResult rStale = solveLoad(ps, mFp);
+        checkTrue("flipped shell.active rejects stale factor", rStale.singular, rStale.diagnostic);
+        checkTrue("stale-reuse diagnostic names the cause",
+                  rStale.diagnostic.find("model changed") != std::string::npos, rStale.diagnostic);
+    }
+
     std::printf("\n%s  (failures=%d)\n", g_fail == 0 ? "ALL PASS" : "FAILURES", g_fail);
     return g_fail == 0 ? 0 : 1;
 }
