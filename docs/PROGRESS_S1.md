@@ -44,20 +44,19 @@
 - **驗證**:standalone **F36**(portal,maxRank=5 逼單桿移除 rank6 進 Tier-2:**pcgIters=3、relResidual 1.4e-11、reRel 5.3e-15**)+ audit +1(Tier-2==fresh 7e-16)→ **66→67**。
 - **誠實標**:Tier-2 容差級(非逐位元、同輸入確定性可重現);stale 因子對單一變更是極佳預條件(3 迭代收斂)。`allowTier2=false` 可強制跳 Tier-3。
 
-## 待補(S1 里程碑重 gate 一次處理)
-- **UE automation**:加 `FrameCore.Buckling.SparseAgreesDense`(+ 之後 ReSolve 的 `FrameCore.Reanalysis.LadderAgreesFresh`/`MechanismDetection`)→ bump `run_gate.ps1` `$ExpectedUeTests`(34→實際數)→ 跑 headless UE 測試。
-- **OpenSees strict**:既有「移除態」逐位移場景改走 ReSolveSession 重跑一次(同容差)。
-- 理由:務實分層 gate 政策(額度受限),重 gate 集中里程碑跑。
+## ✅ S1 里程碑重 gate — 全綠完成(2026-06-11)
+- **UE automation**:新增 `FrameCore.Buckling.SparseAgreesDense`、`FrameCore.Reanalysis.LadderAgreesFresh`、`FrameCore.Reanalysis.MechanismDetection`(`Private/Tests/`,鏡像 F34/F35),`$ExpectedUeTests` 34→37。UE 模組 build `Result=Succeeded`(FrameCore+Reanalysis 在 UE dual-build 編譯/連結;先修 `FrameEigen.h` 把 `IterativeLinearSolvers` 納入 choke point=`989f704`)+ automation **TEST COMPLETE EXIT CODE 0、37 tests** 全綠,3 新測試 `Result={成功}`(commit `ca04fee`)。
+- **OpenSees strict**:`opensees_compare.py` → **OPENSEES GATE: PASS**——含「collapse state B: prop removed by flag vs OpenSees omission」disp 2.2e-13、「shell interior facet deactivated」2.2e-10,直接交叉驗證元素/殼移除態(ReSolve 與 fresh 逐位移一致,fresh 又對 OpenSees,故 ReSolve 傳遞性驗證)。
+- **四腿全綠定案**:standalone **F1–F36** / UE **37** / OpenSees **PASS** / audit **67**。
+- 後續增強(非阻塞,記 S6):直接 ReSolve-vs-OpenSees 需 `frame_cli` 加 ReSolve 模式(CLI 域)。
 
-## 下一個交付點:S1 里程碑重 gate(UE automation + OpenSees)— **S1 程式碼已全完成**
+## 下一個交付點:S2 動力倒塌 —— **S1 全四腿 gate 已完成結案**
 
-> ✅ **S1 程式碼全部落地、standalone 兩腿全綠**:R8 build_perf 修(`0e2e500`)、稀疏屈曲 F34(`a91b171`)、ReSolveSession 三層 F35/F36(`5d3ddfe` + 本次 commit B)、PERFORMANCE_BASELINE 正式化(`8e56195`)。build.bat = **F1–F36 ALL PASS**、build_linear_audit = **67 checks**。
-> **剩 = S1 完成里程碑的重 gate**(務實分層政策延後至此):
-> ① **UE automation**——新增 `FrameCore.Buckling.SparseAgreesDense`、`FrameCore.Reanalysis.LadderAgreesFresh`、`FrameCore.Reanalysis.MechanismDetection`(鏡像 F34/F35 邏輯,放 `Private/Tests/`),bump `Scripts/run_gate.ps1` 的 `$ExpectedUeTests`(34→37),跑 headless UE(`UnrealEditor-Cmd … Automation RunTests FrameCore`,讀 `Saved/Logs/ArchSim.log`)。UE build 耗時 10–30 分,屬里程碑批次。
-> ② **OpenSees strict**——既有「移除態」逐位移場景改走 ReSolveSession 路徑重跑一次(同容差)。
-> 之後 = **S2 動力倒塌**(讀 `docs/specs/S2_dynamic_collapse.md`,事件重解吃 ReSolveSession)。
+> ✅ **S1 完整結案(9 commits,`81639c1`→`ca04fee`)**:R8 build_perf(`0e2e500`)、稀疏屈曲 F34(`a91b171`)、ReSolveSession 三層 F35/F36(`5d3ddfe`/`dde71df`)、FrameEigen UE-safety(`989f704`)、PERFORMANCE_BASELINE(`8e56195`)、UE 自動化 3 測試 34→37(`ca04fee`)。**四腿全綠:standalone F1–F36 / UE 37 / OpenSees PASS / audit 67。**
+> **下一輪 = S2 動力倒塌**:讀 `docs/AGENT_PROMPT_S2_S4.md`(後續 agent 提示詞)+ `docs/specs/S2_dynamic_collapse.md`;事件重解吃 `ReSolveSession`。
+> ⚠️ **新政策(使用者 2026-06-11 定調,覆蓋 S1 夜間的務實分層)**:**S2 起,每次 commit 前跑完整四腿大型 gate `Scripts\run_gate.ps1 -RequireOpenSees` 並確認全綠**,不再延後重 gate。
 >
-> 以下為 ReSolveSession 的引擎接點筆記(實作時用,現存作參考 / S2 沿用)。
+> 以下為 ReSolveSession 的引擎接點筆記(S2 沿用參考)。
 
 **已確認的引擎接點(寫 Reanalysis.cpp 直接用)**:
 - 型別:`MemberId=int`、`gdof(nodeIdx,d)=6*nodeIdx+d`(`FrameTypes.h`,public,`DOF_PER_NODE=6`)。
