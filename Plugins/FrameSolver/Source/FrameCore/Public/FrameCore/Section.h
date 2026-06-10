@@ -28,6 +28,12 @@ struct Section {
     real Asy = 0;
     real Asz = 0;
 
+    // PLASTIC section moduli for the hinge moment Mp = fy * Z (stage 4a). Filled by the
+    // factories (rectangle: Zz = b*d^2/4, Zy = d*b^2/4; circle: 4r^3/3 both). 0 means "not
+    // provided" -> the member is not hinge-capable. Not part of K (not fingerprinted).
+    real Zy = 0;
+    real Zz = 0;
+
     Shape shape = Shape::Rectangular;
 
     real Wy() const { return cy > 0 ? Iy / cy : 0; }   // = d*b^2/6 for a rectangle

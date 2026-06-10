@@ -12,6 +12,7 @@
 #include "FrameCore/ModalDynamics.h"
 #include "FrameCore/Connectivity.h"
 #include "FrameCore/Collapse.h"
+#include "FrameCore/MemberGeometry.h"
 #include "FrameTestFixtures.h"
 
 #include <vector>
@@ -1413,6 +1414,150 @@ int main() {
                 checkClose("debris mass = rho*t*a^2", s1.detached[0].mass, 2500.0 * 1e-12 * t * e * e, 1e-12);
                 checkClose("debris com x = 750", s1.detached[0].com.x, 750.0, 1e-12);
             }
+        }
+    }
+
+    // ---------- F32: plastic hinge mechanics (stage 4a, solver layer) ----------
+    {
+        // Fixed-fixed beam L = 4000 as two members of 2000 (100x100, fy = 300 ->
+        // Mp = fy*Zz = 300 * 250000 = 7.5e7) under a uniform load. Closed forms:
+        //   elastic end moment   wL^2/12   (yield at w_y = 12 Mp / L^2 = 56.25 N/mm)
+        //   one support hinged with residual Mp: far-end moment  wL^2/8 - Mp/2
+        //   both support hinges: midspan moment                  wL^2/8 - Mp
+        // The DECISIVE check is yield-point continuity: with Mp set to the CURRENT elastic
+        // end moment, the hinged solution must equal the elastic one to round-off -- this
+        // pins the sign of BOTH channels (element-side Qf injection, node-side moment).
+        const real Lh = 2000.0, Ltot = 2.0 * Lh;
+        Material hmat(E, G, 7850.0);
+        hmat.fy = 300.0;
+        hmat.cap = Capacity::make(300.0, 300.0, 180.0);
+        const real Mp = hmat.fy * sec.Zz;                          // 7.5e7
+        checkClose("plastic modulus Zz = b d^2/4", sec.Zz, 250000.0, 1e-12);
+
+        auto buildBeam = [&](FrameModel& m, real w) {              // w > 0 = downward (global -z)
+            m = FrameModel{};
+            m.materials = { hmat }; m.sections = { sec };
+            Node n0(0, 0.0, 0.0, 0.0);  n0.fixAll();
+            Node n2(2, Ltot, 0.0, 0.0); n2.fixAll();
+            m.nodes = { n0, Node(1, Lh, 0.0, 0.0), n2 };
+            m.members = { Member(0, 0, 1, 0, 0), Member(1, 1, 2, 0, 0) };
+            MemberUDL u0; u0.member = 0; u0.w_local = { 0.0, -w, 0.0 };   // local y = global +z here
+            MemberUDL u1; u1.member = 1; u1.w_local = { 0.0, -w, 0.0 };
+            m.memberUDLs = { u0, u1 };
+        };
+        // Add a hinge PLUS its node-side moment (-Mp * local axis at the hinge node) -- the
+        // two-channel contract from Hinge.h, exactly what the 4b driver automates.
+        auto addHinge = [&](FrameModel& m, MemberId memId, int dof, real mp) {
+            m.hinges.push_back(PlasticHinge{ memId, dof, mp });
+            const Member* mem = nullptr;
+            for (const auto& mm : m.members) if (mm.id == memId) { mem = &mm; break; }
+            const Vec3 pi = m.nodes[(size_t)m.nodeIndex(mem->i)].pos;
+            const Vec3 pj = m.nodes[(size_t)m.nodeIndex(mem->j)].pos;
+            Vec3 ax, ay, az;
+            memberLocalAxes(pi, pj, mem->refVec, ax, ay, az);
+            const Vec3 e = (dof == 4 || dof == 10) ? ay : az;
+            NodalLoad nl; nl.node = (dof < 6) ? mem->i : mem->j;
+            nl.comp[Rx] = -mp * e.x; nl.comp[Ry] = -mp * e.y; nl.comp[Rz] = -mp * e.z;
+            m.nodalLoads.push_back(nl);
+        };
+
+        std::printf("[F32] plastic hinge mechanics (Mp=%.4g, w_y=%.4g)\n", Mp, 12.0 * Mp / (Ltot * Ltot));
+
+        // (1) fy/Z plumbing: at w_y the elastic end moment magnitude IS Mp
+        const real wy = 12.0 * Mp / (Ltot * Ltot);                 // 56.25
+        FrameModel mE; buildBeam(mE, wy);
+        const SolveResult rE = solve(mE);
+        checkTrue("elastic beam non-singular", !rE.singular, rE.diagnostic);
+        const real MzI0 = rE.memberForces[0].endI.Mz;              // signed local end-force value
+        checkClose("|elastic end moment| at w_y = fy*Zz", std::fabs(MzI0), Mp, 1e-9);
+
+        // (2) yield-point continuity at a SUPPORT hinge (pins the element-side sign)
+        {
+            FrameModel mH; buildBeam(mH, wy);
+            addHinge(mH, 0, 5, MzI0);                              // Mp = current elastic moment
+            const SolveResult rH = solve(mH);                      // NOTE: enableReleases stays false
+            checkTrue("hinged beam non-singular", !rH.singular, rH.diagnostic);
+            real duMax = 0.0, uMax = 1e-30;
+            for (size_t k = 0; k < rE.u.size(); ++k) {
+                duMax = std::max(duMax, std::fabs(rH.u[k] - rE.u[k]));
+                uMax  = std::max(uMax, std::fabs(rE.u[k]));
+            }
+            // the hinge changes the FP evaluation path, so "equal" means displacement-scale
+            // round-off (a sign error in either channel would read at the millimetre scale)
+            checkTrue("support hinge at yield == elastic (u rel < 1e-12)", duMax / uMax < 1e-12,
+                      "rel=" + std::to_string(duMax / uMax));
+            checkClose("hinged end recovers Mz = 0 (contract)", std::fabs(rH.memberForces[0].endI.Mz), 0.0, 1e-9);
+            checkClose("far member forces unchanged",
+                       rH.memberForces[1].endJ.Mz, rE.memberForces[1].endJ.Mz, 1e-9);
+        }
+
+        // (3) continuity at an INTERNAL joint hinge (pins the node-side sign: node 1 is free,
+        //     so a wrong node-side moment would corrupt the whole field)
+        {
+            const real w3 = 30.0;
+            FrameModel m3; buildBeam(m3, w3);
+            const SolveResult r3 = solve(m3);
+            FrameModel m3h = m3;
+            addHinge(m3h, 0, 11, r3.memberForces[0].endJ.Mz);      // hinge at member0's j end (node 1)
+            const SolveResult r3h = solve(m3h);
+            checkTrue("internal hinge non-singular", !r3h.singular, r3h.diagnostic);
+            real duMax = 0.0, uMax = 1e-30;
+            for (size_t k = 0; k < r3.u.size(); ++k) {
+                duMax = std::max(duMax, std::fabs(r3h.u[k] - r3.u[k]));
+                uMax  = std::max(uMax, std::fabs(r3.u[k]));
+            }
+            checkTrue("internal hinge at current moment == elastic (u rel < 1e-12)", duMax / uMax < 1e-12,
+                      "rel=" + std::to_string(duMax / uMax));
+        }
+
+        // (4) past yield, single support hinge: far-end moment = wL^2/8 - Mp/2
+        const real w = 60.0;
+        const real sgn = (MzI0 >= 0) ? 1.0 : -1.0;                 // hinge keeps the elastic moment's sign
+        {
+            FrameModel m1; buildBeam(m1, w);
+            addHinge(m1, 0, 5, sgn * Mp);
+            const SolveResult r1 = solve(m1);
+            checkTrue("propped state non-singular", !r1.singular, r1.diagnostic);
+            const real MB = std::fabs(r1.memberForces[1].endJ.Mz);
+            checkClose("one hinge: |M_far| = wL^2/8 - Mp/2", MB, w * Ltot * Ltot / 8.0 - Mp / 2.0, 1e-9);
+            // global force equilibrium (node-side moments are pure couples: no force leak)
+            real sumRz = 0.0;
+            for (int k = 0; k < 3; ++k) sumRz += r1.reaction(k, Uz);
+            checkClose("sum Rz balances the UDL", sumRz, w * Ltot, 1e-9);
+        }
+
+        // (5) both support hinges: midspan moment = wL^2/8 - Mp
+        {
+            FrameModel m2; buildBeam(m2, w);
+            addHinge(m2, 0, 5, sgn * Mp);
+            // by symmetry the j-end moment of member1 has the OPPOSITE local sign convention
+            FrameModel probe; buildBeam(probe, wy);
+            const real sgnJ = (solve(probe).memberForces[1].endJ.Mz >= 0) ? 1.0 : -1.0;
+            addHinge(m2, 1, 11, sgnJ * Mp);
+            const SolveResult r2 = solve(m2);
+            checkTrue("two-hinge state non-singular", !r2.singular, r2.diagnostic);
+            const real Mmid = std::fabs(r2.memberForces[0].endJ.Mz);
+            checkClose("two hinges: |M_mid| = wL^2/8 - Mp", Mmid, w * Ltot * Ltot / 8.0 - Mp, 1e-9);
+        }
+
+        // (6) fingerprint: forming a hinge after factoring must reject a stale reuse
+        {
+            FrameModel mF; buildBeam(mF, w);
+            const PreparedSystem ps = assembleAndFactor(mF);
+            mF.hinges.push_back(PlasticHinge{ 0, 5, sgn * Mp });
+            const SolveResult rStale = solveLoad(ps, mF);
+            checkTrue("new hinge rejects stale factor", rStale.singular, rStale.diagnostic);
+        }
+
+        // (7) validate: bad hinge dof / missing member are rejected
+        {
+            FrameModel mV; buildBeam(mV, w);
+            mV.hinges.push_back(PlasticHinge{ 0, 3, 0.0 });        // torsion dof: not a hinge
+            std::string why;
+            checkTrue("validate rejects non-bending hinge dof", !mV.validate(why), why);
+            FrameModel mV2; buildBeam(mV2, w);
+            mV2.hinges.push_back(PlasticHinge{ 99, 5, 0.0 });
+            checkTrue("validate rejects hinge on missing member", !mV2.validate(why), why);
         }
     }
 

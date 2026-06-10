@@ -77,6 +77,8 @@ def run_frame_cli(model):
     for l in model.get("nloads", []):
         c = l["comp"]
         lines.append(f"NLOAD {l['node']} {c[0]} {c[1]} {c[2]} {c[3]} {c[4]} {c[5]}")
+    for h in model.get("hinges", []):
+        lines.append(f"HINGE {h['member']} {h['dof']} {h['Mp']}")
     lines.append("END")
     text = "\n".join(lines) + "\n"
 
@@ -101,11 +103,14 @@ def run_frame_cli(model):
 def run_opensees(model):
     ops.wipe()
     ops.model("basic", "-ndm", 3, "-ndf", 6)
+    free_ry = set(model.get("os_free_ry", []))   # hinge-state twin: support Ry left free
     for n in model["nodes"]:
         ops.node(n["id"], float(n["x"]), float(n["y"]), float(n["z"]))
         f = n["fix"]; p = n.get("presc", [0, 0, 0, 0, 0, 0])
         # A prescribed (nonzero) DOF is imposed via sp() below, NOT fixed to 0 here.
         mask = [int(f[d]) if (f[d] and p[d] == 0.0) else 0 for d in range(6)]
+        if n["id"] in free_ry:
+            mask[4] = 0                          # global Ry freed (the hinge rotation)
         ops.fix(n["id"], *mask)
 
     for e in model["members"]:
@@ -135,6 +140,9 @@ def run_opensees(model):
     for l in model.get("nloads", []):
         c = l["comp"]
         ops.load(l["node"], c[0], c[1], c[2], c[3], c[4], c[5])
+    # hinge-state twin: the constant plastic moment acting at the freed support rotation
+    for hm in model.get("os_hinge_moments", []):
+        ops.load(hm["node"], 0.0, 0.0, 0.0, 0.0, float(hm["My"]), 0.0)
     # prescribed (imposed) support displacements -> single-point constraints in the pattern
     for n in model["nodes"]:
         f = n["fix"]; p = n.get("presc", [0, 0, 0, 0, 0, 0])
@@ -272,6 +280,45 @@ def model_settlement():
     mats = [dict(E=210000.0, G=80769.0, rho=7850.0)]
     return dict(name="prescribed settlement (fixed-fixed, end settles)", materials=mats,
                 sections=[sec], nodes=nodes, members=members, nloads=[], analytic=None)
+
+
+def model_hinge_states():
+    # Collapse stage 4a cross-check: a formed-hinge STATE solved by an independent solver.
+    # OUR side: HINGE token (release + residual Mp baked into the element condensation).
+    # OPENSEES side: there is no member-end release on elasticBeamColumn, so the same physics
+    # is modelled the textbook way -- free the support's Ry (the hinge rotation about global
+    # -y is our local z; the beam runs along +x with refVec (0,0,1)) and apply the constant
+    # hinge moment externally at that node. The interior node response must then match.
+    # Mp is read from OUR elastic run (50% of the current end moment -> a valid mid-history
+    # state); the support-node Ry differs BY CONSTRUCTION (ours: condensed inside the element,
+    # support stays fixed; OpenSees: a free dof reading the hinge rotation), so only the
+    # interior node is compared, and member forces are skipped (our hinged end recovers 0 by
+    # the condensation contract while OpenSees' element carries Mp there).
+    sec = square_section(100.0)
+    L, P = 4000.0, 40000.0
+    nodes = [
+        dict(id=0, x=0.0,     y=0.0, z=0.0, fix=[1, 1, 1, 1, 1, 1]),
+        dict(id=1, x=L / 2.0, y=0.0, z=0.0, fix=[0, 0, 0, 0, 0, 0]),
+        dict(id=2, x=L,       y=0.0, z=0.0, fix=[1, 1, 1, 1, 1, 1]),
+    ]
+    members = [dict(id=0, i=0, j=1, mat=0, sec=0, refvec=(0, 0, 1)),
+               dict(id=1, i=1, j=2, mat=0, sec=0, refvec=(0, 0, 1))]
+    nloads = [dict(node=1, comp=[0, 0, -P, 0, 0, 0])]
+    mats = [dict(E=210000.0, G=80769.0, rho=7850.0)]
+    elastic = dict(name="hinge probe (elastic)", materials=mats, sections=[sec],
+                   nodes=nodes, members=members, nloads=nloads)
+    sing, _d, mf = run_frame_cli(elastic)
+    if sing:
+        raise RuntimeError("hinge probe solve unexpectedly singular")
+    mp0 = 0.5 * mf[0][5]            # 50% of the elastic endI.Mz of member 0 (signed, local)
+    # Our local z = (0,-1,0) here, so an internal local moment Mz = Mp is a global moment
+    # -Mp about +y; the freed OpenSees support balances it with an external My = -Mp.
+    hinged = dict(name="hinge state: support hinge with residual Mp (vs OpenSees freed Ry + moment)",
+                  materials=mats, sections=[sec], nodes=nodes, members=members, nloads=nloads,
+                  hinges=[dict(member=0, dof=5, Mp=mp0)],
+                  os_free_ry=[0], os_hinge_moments=[dict(node=0, My=-mp0)],
+                  compare_nodes=[1], skip_forces=True, analytic=None)
+    return [hinged]
 
 
 def model_collapse_states():
@@ -508,7 +555,7 @@ def main():
           f"disp={TOL_DISP_VS_OS:.0e} force={TOL_FORCE_VS_OS:.0e} analytic={TOL_VS_ANALYTIC:.0e}")
 
     models = [model_cantilever3d(), model_cantilever_rect(), model_portal_rc(), model_settlement()] \
-             + model_collapse_states()
+             + model_collapse_states() + model_hinge_states()
     failures = 0
     print("=" * 64)
     print(" #14 OpenSees offline cross-validation")
@@ -521,14 +568,22 @@ def main():
             print(f"  [FAIL] solve flagged singular (ours={sing}, openseesAnalyze={ok_os})")
             failures += 1
             continue
+        cn = M.get("compare_nodes")
+        if cn:   # hinge-state models: the support's hinge rotation lives in different places
+            d_mine = {k: v for k, v in d_mine.items() if k in cn}
+            d_os   = {k: v for k, v in d_os.items()   if k in cn}
         wd = compare_disp(d_mine, d_os)
-        wN, wM = compare_forces(mf_mine, mf_os)
         okd = wd < TOL_DISP_VS_OS
-        okf = wN < TOL_FORCE_VS_OS and wM < TOL_FORCE_VS_OS
         print(f"  disp diff (ours vs OpenSees)     = {wd:.3e}   {'PASS' if okd else 'FAIL'} (tol {TOL_DISP_VS_OS:.0e})")
-        print(f"  axial diff (ours vs OpenSees)    = {wN:.3e}   {'PASS' if wN < TOL_FORCE_VS_OS else 'FAIL'}")
-        print(f"  moment diff (ours vs OpenSees)   = {wM:.3e}   {'PASS' if wM < TOL_FORCE_VS_OS else 'FAIL'}")
-        failures += (0 if okd else 1) + (0 if okf else 1)
+        failures += (0 if okd else 1)
+        if M.get("skip_forces"):   # hinged end recovers 0 by contract vs OpenSees carrying Mp
+            print("  member forces: skipped by design (hinged-end recovery convention differs)")
+        else:
+            wN, wM = compare_forces(mf_mine, mf_os)
+            okf = wN < TOL_FORCE_VS_OS and wM < TOL_FORCE_VS_OS
+            print(f"  axial diff (ours vs OpenSees)    = {wN:.3e}   {'PASS' if wN < TOL_FORCE_VS_OS else 'FAIL'}")
+            print(f"  moment diff (ours vs OpenSees)   = {wM:.3e}   {'PASS' if wM < TOL_FORCE_VS_OS else 'FAIL'}")
+            failures += (0 if okf else 1)
 
         a = M.get("analytic")
         if a:

@@ -40,6 +40,11 @@ struct Material {
     real     rho = 0;     // density (kg/m^3). Used by self-weight (addSelfWeight) and the
                           // mass matrix; both apply the unit bridge rho[tonne/mm^3] =
                           // rho[kg/m^3]*1e-12 to stay in the engine's N-mm-tonne-s system.
+    real     fy  = 0;     // yield strength (MPa) for the plastic-hinge moment Mp = fy * Z
+                          // (stage 4a). NOT the allowable cap.bend -- the allowable sits
+                          // BELOW fy by the safety factor; do not conflate. 0 means "not
+                          // hinge-capable": the collapse driver falls back to brittle
+                          // removal for such members. Does not affect K (not fingerprinted).
     Capacity cap;
 
     Material() = default;

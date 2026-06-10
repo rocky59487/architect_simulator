@@ -155,6 +155,18 @@ bool FrameModel::validate(std::string& why) const {
         if (!found) { why = "shell pressure references missing shell"; return false; }
         if (!std::isfinite(sp.p)) { why = "shell pressure has non-finite value"; return false; }
     }
+    // Plastic hinges (stage 4a): must name an existing member, release a bending rotation
+    // (local dof 4/5 at end i, 10/11 at end j -- never axial/torsion), and carry a finite Mp.
+    // A hinge on an INACTIVE member is allowed (inert): the collapse driver may remove a
+    // member that yielded earlier without scrubbing its hinge records.
+    for (const auto& h : hinges) {
+        bool found = false;
+        for (const auto& m : members) { if (m.id == h.member) { found = true; break; } }
+        if (!found) { why = "plastic hinge references missing member"; return false; }
+        if (h.dof != 4 && h.dof != 5 && h.dof != 10 && h.dof != 11)
+                                  { why = "plastic hinge dof must be a bending rotation (4/5/10/11)"; return false; }
+        if (!std::isfinite(h.Mp)) { why = "plastic hinge has non-finite Mp"; return false; }
+    }
     return true;
 }
 

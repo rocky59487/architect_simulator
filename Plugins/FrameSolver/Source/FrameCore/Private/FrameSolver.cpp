@@ -17,13 +17,15 @@ namespace {
 // Structural fingerprint: hashes everything solveLoad() must NOT change between an
 // assembleAndFactor() and its reuse — node id/positions/support FLAGS, member
 // id/connectivity/refVec/releases/matIdx/secIdx/active, shell id/connectivity/thickness/matIdx/active,
-// the referenced material VALUES (E/G/nu/rho) and section VALUES (A/Iy/Iz/J/Asy/Asz), and
-// the baked distributed loads (member UDLs, shell pressures). The factorization bakes in the
-// stiffness those properties imply, so changing E, Iz, or which material/section an element
-// points to would make a reused factorization a SILENT STALE SOLVE — they must be fingerprinted
-// (the section/material values were the gap; see PROJECT.txt P1). It deliberately EXCLUDES nodal
-// loads and prescribed VALUES, which solveLoad is allowed to vary (the interactive / settlement
-// path).
+// the referenced material VALUES (E/G/nu/rho) and section VALUES (A/Iy/Iz/J/Asy/Asz), the
+// baked distributed loads (member UDLs, shell pressures), and the plastic hinges (a hinge
+// changes BOTH the condensed stiffness and the baked fixed-end forces). The factorization
+// bakes in the stiffness those properties imply, so changing E, Iz, or which material/section
+// an element points to would make a reused factorization a SILENT STALE SOLVE — they must be
+// fingerprinted (the section/material values were the gap; see PROJECT.txt P1). It deliberately
+// EXCLUDES nodal loads and prescribed VALUES, which solveLoad is allowed to vary (the
+// interactive / settlement path), and the capacity-side fields fy/Zy/Zz/cap (post-processing
+// screens only — they never enter K or the baked loads).
 inline uint64_t fpMix(uint64_t h, uint64_t v) {
     return h ^ (v + 0x9e3779b97f4a7c15ULL + (h << 6) + (h >> 2));
 }
@@ -78,6 +80,11 @@ uint64_t modelFingerprint(const FrameModel& m) {
     }
     for (const auto& sp : m.shellPressures) {
         h = fpMix(h, static_cast<uint64_t>(sp.shell)); h = fpMix(h, fpBits(sp.p));
+    }
+    for (const auto& ph : m.hinges) {   // a hinge alters K (release) AND the baked Qf (Mp)
+        h = fpMix(h, static_cast<uint64_t>(ph.member));
+        h = fpMix(h, static_cast<uint64_t>(static_cast<int64_t>(ph.dof)));
+        h = fpMix(h, fpBits(ph.Mp));
     }
     return h;
 }

@@ -1084,6 +1084,58 @@ void testShellFailureScreen() {
     }
 }
 
+void testPlasticHingeMechanics() {
+    // 4a hinge condensation edge cases beyond the F32 closed-form oracles:
+    // (a) FOUR hinges on one member (both ends, both bending axes) is a legal condensation
+    //     (each bending plane's released block is (EI/L)[[4,2],[2,4]], non-singular) while
+    //     the both-end TORSION release stays rejected by the conditioning gate (regression);
+    // (b) a hinge on an INACTIVE member is inert: the element is not assembled, so the model
+    //     must solve bit-identically to one without the hinge record.
+    Material mat(210000.0, 80769.0, 7850.0);
+    Section sec = Section::Rectangular(100.0, 100.0);
+
+    auto buildTwoSpan = [&](FrameModel& m) {
+        m = FrameModel{};
+        m.materials = { mat }; m.sections = { sec };
+        Node n0(0, 0, 0, 0); n0.fixAll();
+        Node n2(2, 4000, 0, 0); n2.fixAll();
+        m.nodes = { n0, Node(1, 2000, 0, 0), n2 };
+        m.members = { Member(0, 0, 1, 0, 0), Member(1, 1, 2, 0, 0) };
+        NodalLoad p; p.node = 1; p.comp[Uz] = -1000.0; m.nodalLoads = { p };
+    };
+
+    {   // (a) four-hinge member solvable; both-end torsion release still gated
+        FrameModel m; buildTwoSpan(m);
+        for (int dof : { 4, 5, 10, 11 }) m.hinges.push_back(PlasticHinge{ 0, dof, 0.0 });
+        const SolveResult r = solve(m);   // member1 still clamps node 1 -> stable
+        bool ok = !r.singular;
+
+        FrameModel mT; buildTwoSpan(mT);
+        mT.members[0].release[3] = mT.members[0].release[9] = true;   // both torsional ends
+        SolveOptions so; so.enableReleases = true;
+        const SolveResult rT = solve(mT, so);
+        ok = ok && rT.singular;           // the conditioning gate must still reject this
+        addRow("Plastic hinge", "4-hinge member condenses; torsion gate intact",
+               "both-end bi-axial bending releases are non-singular blocks; both-end torsion is not",
+               "solvable & gated (want 1)", ok ? 1.0 : 0.0, 0.0, ok);
+    }
+    {   // (b) hinge on an inactive member is inert (bit-identical solve)
+        FrameModel mA; buildTwoSpan(mA);
+        mA.members.push_back(Member(7, 0, 2, 0, 0));   // an extra member that gets removed
+        mA.members.back().active = false;
+        FrameModel mB = mA;
+        mB.hinges.push_back(PlasticHinge{ 7, 5, 1.0e7 });   // hinge on the removed member
+        const SolveResult rA = solve(mA);
+        const SolveResult rB = solve(mB);
+        real duMax = (rA.singular || rB.singular) ? 1.0 : 0.0;
+        for (size_t k = 0; k < rA.u.size() && k < rB.u.size(); ++k)
+            duMax = std::max(duMax, std::fabs(rA.u[k] - rB.u[k]));
+        addRow("Plastic hinge", "hinge on an inactive member is inert",
+               "removed member is never assembled -> its hinge record changes nothing",
+               "max |du| (want exact 0)", duMax, 0.0, duMax == 0.0);
+    }
+}
+
 void testSafetyAndMargin() {
     // C3 safety factor + C4 criticality (pivot) margin. A cantilever (root moment PL) has the
     // closed-form worst utilization D/C = (PL/W)/cap.bend and safety factor 1/(D/C). pivotMargin
@@ -1160,6 +1212,7 @@ int main() {
     testConnectivity();
     testCollapseDriver();
     testShellFailureScreen();
+    testPlasticHingeMechanics();
     testSafetyAndMargin();
 
     int failures = 0;

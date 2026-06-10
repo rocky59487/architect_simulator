@@ -19,6 +19,9 @@ Section Section::Rectangular(real b, real d) {
     s.J = a * t * t * t * (1.0 / 3.0 - 0.21 * r * (1.0 - (r * r * r * r) / 12.0));
     // Timoshenko shear coefficient for a rectangle: k = 5/6 -> A_s = 5/6 * A.
     s.Asy = s.Asz = (5.0 / 6.0) * s.A;
+    // Plastic section moduli (full-section plastic moment Mp = fy * Z).
+    s.Zz = b * d * d / 4.0;
+    s.Zy = d * b * b / 4.0;
     s.shape = Shape::Rectangular;
     return s;
 }
@@ -34,6 +37,8 @@ Section Section::Circular(real r) {
     s.cy = s.cz = r;                    // extreme fibre at radius r -> Wy = Wz = pi r^3 / 4
     // Timoshenko shear coefficient for a solid circle ~ 0.9 -> A_s = 0.9 * A.
     s.Asy = s.Asz = 0.9 * s.A;
+    // Plastic section modulus of a solid circle: Z = 4 r^3 / 3 (both axes).
+    s.Zy = s.Zz = 4.0 * r * r2 / 3.0;
     s.shape = Shape::Circular;
     return s;
 }

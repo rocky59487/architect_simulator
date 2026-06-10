@@ -15,6 +15,8 @@
 //   NLOAD  node Fx Fy Fz Mx My Mz
 //   UDL    member wx wy wz                            (local)
 //   SPRESS shellId p                                  (transverse pressure)
+//   HINGE  member dof Mp                              (plastic hinge: dof 4/5/10/11, signed Mp;
+//                                                      the node-side moment is the caller's NLOAD)
 //   OPT    enableReleases useTimoshenko pivotTol
 //   END
 // MAT and SMAT append to ONE material pool in input order; matIdx indexes that pool.
@@ -48,6 +50,7 @@ struct RawShell { int id, n[4], mat; real t; int active; };
 struct RawNL { int node; real c[6]; };
 struct RawUDL { int member; real wx, wy, wz; };
 struct RawSP { int shell; real p; };
+struct RawHinge { int member, dof; real Mp; };
 }
 
 int main() {
@@ -58,6 +61,7 @@ int main() {
     std::vector<RawNode> nodes; std::vector<RawMem> mems;
     std::vector<RawShell> shes;
     std::vector<RawNL> nls; std::vector<RawUDL> udls; std::vector<RawSP> sps;
+    std::vector<RawHinge> hins;
     SolveOptions opt;
     int nModes = 0;
 
@@ -78,6 +82,7 @@ int main() {
         else if (tag == "NLOAD") { RawNL l{}; ss >> l.node; for (int k=0;k<6;++k) ss >> l.c[k]; nls.push_back(l); }
         else if (tag == "UDL") { RawUDL u{}; ss >> u.member >> u.wx >> u.wy >> u.wz; udls.push_back(u); }
         else if (tag == "SPRESS") { RawSP s{}; ss >> s.shell >> s.p; sps.push_back(s); }
+        else if (tag == "HINGE") { RawHinge h{}; ss >> h.member >> h.dof >> h.Mp; hins.push_back(h); }
         else if (tag == "OPT") { int er=0, ut=0; real pt=1e-12; ss >> er >> ut >> pt; opt.enableReleases=er!=0; opt.useTimoshenko=ut!=0; opt.pivotTol=pt; }
         else if (tag == "EIGEN") { ss >> nModes; }
         else if (tag == "END") break;
@@ -113,6 +118,7 @@ int main() {
     for (const auto& l : nls) { NodalLoad nl; nl.node=l.node; for (int k=0;k<6;++k) nl.comp[k]=l.c[k]; model.nodalLoads.push_back(nl); }
     for (const auto& u : udls) { MemberUDL mu; mu.member=u.member; mu.w_local=Vec3(u.wx,u.wy,u.wz); model.memberUDLs.push_back(mu); }
     for (const auto& s : sps) { ShellPressure sp; sp.shell=s.shell; sp.p=s.p; model.shellPressures.push_back(sp); }
+    for (const auto& h : hins) { model.hinges.push_back(PlasticHinge{ h.member, h.dof, h.Mp }); }
 
     const SolveResult r = solve(model, opt);
 

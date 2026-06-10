@@ -5,6 +5,7 @@
 #include "FrameCore/Section.h"
 #include "FrameCore/Load.h"
 #include "FrameCore/Shell.h"
+#include "FrameCore/Hinge.h"
 #include <vector>
 #include <string>
 
@@ -22,6 +23,9 @@ struct FrameModel {
     std::vector<NodalLoad>       nodalLoads;
     std::vector<MemberUDL>       memberUDLs;
     std::vector<ShellPressure>   shellPressures;
+    std::vector<PlasticHinge>    hinges;        // formed plastic hinges (stage 4a) -- model
+                                                // STATE, honoured regardless of enableReleases;
+                                                // a hinge on an INACTIVE member is inert
 
     int dofCount() const { return DOF_PER_NODE * static_cast<int>(nodes.size()); }
 

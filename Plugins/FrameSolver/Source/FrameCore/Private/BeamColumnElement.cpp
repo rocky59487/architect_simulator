@@ -55,16 +55,34 @@ bool BeamColumnElement::prepare(const FrameModel& model, const SolveOptions& opt
         Qf_ += q;
     }
 
+    // ---- plastic hinges (stage 4a): explicit model state, NOT gated by enableReleases ----
+    // A formed hinge releases its bending rotation and keeps transmitting the signed residual
+    // Mp. Element side: the dof joins the release mask and Qf(dof) -= Mp, so the condensation
+    //   Qf*_r = Qf_r - k_rc k_cc^-1 Qf_c
+    // reproduces the exact hinged element relation Q_r = kl*_rr d_r + Qf0*_r + k_rc k_cc^-1 Mp
+    // (carry-over moment + equivalent shear couple). The NODE-side reaction (-Mp * local axis,
+    // a NodalLoad at the joint) is the caller's job -- see Hinge.h; the condensed element
+    // cannot deliver it (its released row is zero). Both signs are pinned by the F32
+    // yield-point continuity oracle (hinged solution == elastic solution at |M| == Mp).
+    std::array<bool, 12> rel = mem.release;
+    bool anyRelease = false;
+    if (opts.enableReleases)
+        for (int k = 0; k < 12; ++k) anyRelease = anyRelease || rel[k];
+    else
+        rel = std::array<bool, 12>{};            // Member.release honoured only when enabled
+    for (const auto& h : model.hinges) {
+        if (h.member != mem.id) continue;
+        rel[(size_t)h.dof] = true;
+        Qf_((Eigen::Index)h.dof) -= h.Mp;
+        anyRelease = true;
+    }
+
     // ---- member-end release condensation (on kl AND Qf together) ----
-    if (opts.enableReleases) {
-        bool any = false;
-        for (int k = 0; k < 12; ++k) if (mem.release[k]) { any = true; break; }
-        if (any && !condenseReleases(kl_, Qf_, mem.release)) {
-            why = "member-end release leaves a singular released sub-block "
-                  "(free mechanism, e.g. both torsional ends released) at member "
-                  + std::to_string(static_cast<long long>(mem.id));
-            return false;
-        }
+    if (anyRelease && !condenseReleases(kl_, Qf_, rel)) {
+        why = "member-end release leaves a singular released sub-block "
+              "(free mechanism, e.g. both torsional ends released) at member "
+              + std::to_string(static_cast<long long>(mem.id));
+        return false;
     }
     return true;
 }
