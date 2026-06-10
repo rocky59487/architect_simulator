@@ -1611,6 +1611,58 @@ int main() {
         }
     }
 
+    // ---------- F34: sparse buckling (subspace iteration) agrees with dense + Euler ----------
+    {
+        const real kPi  = 3.14159265358979323846;
+        const real Pref = 1000.0;                      // reference axial compression (matches F23)
+        std::printf("[F34] sparse buckling (subspace iteration vs dense vs Euler)\n");
+        // Rectangular section so the two bending planes are NON-degenerate: the lowest mode
+        // buckles about the weak axis, a clean single smallest eigenvalue for the sparse subspace
+        // iteration to converge to (a square section's y/z pair is degenerate). denseThreshold<=0
+        // FORCES the sparse path so this fixture actually exercises subspaceSmallest, not dense.
+        Section    secB   = Section::Rectangular(60.0, 100.0);
+        const real Ibuck  = std::min(secB.Iy, secB.Iz);   // weak-axis I governs the lowest mode
+        BucklingOptions sparseOpt; sparseOpt.denseThreshold = 0;
+
+        auto runCol = [&](const char* what, bool pinned, int n, real L, real lenFactor) {
+            FrameModel m;
+            if (pinned) fixtures::simplySupportedBeamN(m, n, L, mat, secB);
+            else        fixtures::cantileverBeamN(m, n, L, mat, secB);
+            NodalLoad nl; nl.node = n; nl.comp[Ux] = -Pref; m.nodalLoads = { nl };
+            PreparedSystem ps = assembleAndFactor(m);
+            const BucklingResult d = solveBuckling(ps, m);              // dense (default threshold)
+            const BucklingResult s = solveBuckling(ps, m, sparseOpt);   // forced sparse
+            const real PcrEx = kPi * kPi * E * Ibuck / (lenFactor * L * L);
+            checkTrue((std::string(what) + " dense non-singular").c_str(),  !d.singular, d.diagnostic);
+            checkTrue((std::string(what) + " sparse non-singular").c_str(), !s.singular, s.diagnostic);
+            const real relSD = std::fabs(s.criticalFactor - d.criticalFactor) /
+                               std::max<real>(1e-30, std::fabs(d.criticalFactor));
+            std::printf("   %s: lamDense=%.9g lamSparse=%.9g Euler=%.6g relSparseVsDense=%.2e\n",
+                        what, d.criticalFactor, s.criticalFactor, PcrEx / Pref, relSD);
+            checkClose((std::string(what) + " sparse == dense").c_str(), s.criticalFactor, d.criticalFactor, 1e-6);
+            checkClose((std::string(what) + " sparse Pcr == Euler").c_str(), s.criticalFactor * Pref, PcrEx, 1e-4);
+        };
+
+        runCol("pinned-pinned n=10", true,  10, 3000.0, 1.0);   // Pcr = pi^2 E I / L^2
+        runCol("fixed-free n=10",    false, 10, 3000.0, 4.0);   // Pcr = pi^2 E I / (2L)^2
+        runCol("pinned-pinned n=24", true,  24, 3000.0, 1.0);   // larger nf still agrees
+
+        // all-tension guard: a tension reference load -> no compressive member -> Kg empty -> the
+        // forced-sparse request defers to the dense path, which reports the historical "no
+        // compression" singular diagnostic. Forcing sparse must NOT fabricate a positive factor.
+        {
+            const int n = 10; const real L = 3000.0;
+            FrameModel m; fixtures::cantileverBeamN(m, n, L, mat, secB);
+            NodalLoad nl; nl.node = n; nl.comp[Ux] = Pref; m.nodalLoads = { nl };   // +Pref = tension (pull)
+            PreparedSystem ps = assembleAndFactor(m);
+            const BucklingResult d = solveBuckling(ps, m);
+            const BucklingResult s = solveBuckling(ps, m, sparseOpt);
+            checkTrue("all-tension dense singular (no compression)", d.singular, d.diagnostic);
+            checkTrue("all-tension forced-sparse singular (defers to dense)", s.singular, s.diagnostic);
+            checkTrue("all-tension sparse diagnostic == dense", s.diagnostic == d.diagnostic, s.diagnostic);
+        }
+    }
+
     std::printf("\n%s  (failures=%d)\n", g_fail == 0 ? "ALL PASS" : "FAILURES", g_fail);
     return g_fail == 0 ? 0 : 1;
 }

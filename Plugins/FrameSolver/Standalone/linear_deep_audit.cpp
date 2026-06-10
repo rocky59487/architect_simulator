@@ -338,6 +338,25 @@ void testBucklingScaling() {
     addRow("Buckling", "no-compression guard",
            "tension-only reference load should not return a positive buckling factor",
            "unexpected non-singular flag", tensionOk ? 1.0 : 0.0, 0.0, !tensionOk);
+
+    // S1: the sparse subspace-iteration path (forced via denseThreshold<=0) must reproduce the
+    // dense GeneralizedSelfAdjointEigenSolver critical factor to tolerance (iterative, NOT bit-
+    // identical). Rectangular section -> non-degenerate planes -> a clean smallest eigenvalue.
+    {
+        Section secR = Section::Rectangular(120.0, 200.0);
+        FrameModel m;
+        fixtures::simplySupportedBeamN(m, 20, L, mat, secR);
+        NodalLoad nl; nl.node = 20; nl.comp[Ux] = -1000.0; m.nodalLoads = { nl };
+        PreparedSystem ps = assembleAndFactor(m);
+        const BucklingResult d = solveBuckling(ps, m);
+        BucklingOptions opt; opt.denseThreshold = 0;             // force the sparse path
+        const BucklingResult s = solveBuckling(ps, m, opt);
+        const bool okSD = !d.singular && !s.singular;
+        const real sdErr = okSD ? relErr(s.criticalFactor, d.criticalFactor) : 1.0;
+        addRow("Buckling", "sparse path agrees with dense",
+               "subspaceSmallest critical factor == dense eigensolver (forced sparse)",
+               "relative sparse-vs-dense error", sdErr, 1e-6, okSD && sdErr < 1e-6);
+    }
 }
 
 void testResponseSpectrum() {
