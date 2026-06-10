@@ -4,6 +4,7 @@
 #include "BeamColumnElement.h"
 #include "MITC4ShellElement.h"
 
+#include <Eigen/IterativeLinearSolvers>
 #include <algorithm>
 #include <memory>
 #include <string>
@@ -14,6 +15,33 @@ namespace frame {
 namespace {
 std::unique_ptr<IElement> makeMemberElem(int e) { return std::make_unique<BeamColumnElement>(e); }
 std::unique_ptr<IElement> makeShellElem(int s)  { return std::make_unique<MITC4ShellElement>(s); }
+
+// Eigen preconditioner whose solve() forwards to the STALE baseline LDLT — turns Eigen's CG into a
+// stale-factor-preconditioned solve of the modified K' (Tier-2). Mirrors the research prototype.
+struct StalePrecond {
+    const LDLTSolver* ldlt = nullptr;
+    StalePrecond() = default;
+    template <class M> explicit StalePrecond(const M&) {}
+    template <class M> StalePrecond& analyzePattern(const M&) { return *this; }
+    template <class M> StalePrecond& factorize(const M&) { return *this; }
+    template <class M> StalePrecond& compute(const M&) { return *this; }
+    template <class Rhs> VecX solve(const Rhs& b) const { return ldlt->solve(b); }
+    Eigen::ComputationInfo info() const { return Eigen::Success; }
+};
+
+// nf x nf free-free sparse submatrix of the full N x N K via the free-DOF map.
+SpMat reduceFFsp(const SpMat& Kfull, const std::vector<int>& fmap, int nf) {
+    std::vector<Triplet> t;
+    t.reserve((size_t)Kfull.nonZeros());
+    for (int c = 0; c < Kfull.outerSize(); ++c)
+        for (SpMat::InnerIterator it(Kfull, c); it; ++it) {
+            const int r = it.row();
+            if (fmap[(size_t)r] >= 0 && fmap[(size_t)c] >= 0)
+                t.emplace_back(fmap[(size_t)r], fmap[(size_t)c], it.value());
+        }
+    SpMat R(nf, nf); R.setFromTriplets(t.begin(), t.end()); R.makeCompressed();
+    return R;
+}
 }  // namespace
 
 // ============================================================================
@@ -267,6 +295,28 @@ SolveResult ReSolveSession::solve(ReanalysisStats* stats) {
         st.tier = 1;
         const VecX u0ff = P.S().ldlt.solve(Ff);
         uf = P.woodbury(u0ff, mech, pivRatio);
+    } else if (P.opts.allowTier2 && P.R <= 2 * P.opts.maxRank) {
+        // Tier-2: stale-LDLT preconditioned CG on the (assembled, not factored) K_cur_ff. Reuses the
+        // baseline factor as the preconditioner + the baseline solve as the warm-start guess.
+        // Tolerance-level (NOT bit-identical); on non-convergence fall through to Tier-3 (always correct).
+        const VecX  u0ff = P.S().ldlt.solve(Ff);
+        const SpMat Kff  = reduceFFsp(Kcur, fmap, nf);
+        Eigen::ConjugateGradient<SpMat, Eigen::Lower | Eigen::Upper, StalePrecond> cg;
+        cg.preconditioner().ldlt = &P.S().ldlt;
+        cg.setTolerance(P.opts.pcgTol);
+        cg.setMaxIterations(P.opts.pcgMaxIter);
+        cg.compute(Kff);
+        uf = cg.solveWithGuess(Ff, u0ff);
+        st.pcgIters    = (int)cg.iterations();
+        st.relResidual = cg.error();
+        if (cg.info() == Eigen::Success && uf.allFinite()) {
+            st.tier = 2;
+        } else {
+            st.tier = 3; st.refactored = true;               // CG stalled -> rebaseline
+            P.buildBaseline();
+            if (!P.baseValid) { R.singular = true; R.diagnostic = P.diag; if (stats) *stats = st; return R; }
+            uf = P.S().ldlt.solve(Ff);
+        }
     } else {
         st.tier = 3; st.refactored = true;
         P.buildBaseline();                                   // rebaseline on the current set

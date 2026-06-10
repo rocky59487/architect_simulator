@@ -1329,6 +1329,21 @@ void testReanalysis() {
            "removing the base of a 2-member chain -> capacitance singular -> mechanism flag + singular",
            "flagged & singular (want 1)", (sm.mechanism && rm.singular) ? 1.0 : 0.0, 0.0,
            sm.mechanism && rm.singular);
+
+    // (4) Tier-2 stale-LDLT PCG: a small maxRank forces one removal (rank 6) past Tier-1 into Tier-2.
+    {
+        ReanalysisOptions o2; o2.maxRank = 5;
+        FrameModel b2 = build();
+        ReSolveSession s2(b2, o2);
+        s2.setMemberActive(1, false);
+        ReanalysisStats t2;
+        const SolveResult r2 = s2.solve(&t2);
+        FrameModel w2 = build(); w2.members[1].active = false;
+        const real e2 = relU(r2, solve(w2));
+        addRow("Reanalysis", "Tier-2 stale-LDLT PCG == fresh (tolerance)",
+               "rank>maxRank -> CG preconditioned by the stale baseline factor; tolerance-level (not bit-identical)",
+               "relative u error", e2, 1e-8, t2.tier == 2 && !r2.singular && e2 < 1e-8);
+    }
 }
 
 }  // namespace

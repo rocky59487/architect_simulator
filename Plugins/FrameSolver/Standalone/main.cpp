@@ -1775,6 +1775,45 @@ int main() {
         }
     }
 
+    // ---------- F36: ReSolve Tier-2 (stale-LDLT PCG) agrees with fresh (tolerance-level) ----------
+    {
+        std::printf("[F36] ReSolve Tier-2 (stale-LDLT PCG) vs fresh\n");
+        auto relMax = [](const std::vector<real>& a, const std::vector<real>& b) -> real {
+            real num = 0, den = 1e-30; const size_t n = std::min(a.size(), b.size());
+            for (size_t i = 0; i < n; ++i) { num = std::max(num, std::fabs(a[i] - b[i])); den = std::max(den, std::fabs(b[i])); }
+            return num / den;
+        };
+        // Portal frame; a deliberately SMALL maxRank forces a single removal (rank 6) past Tier-1
+        // into the Tier-2 PCG path. Removing the beam leaves two stable cantilever columns.
+        FrameModel m;
+        m.materials.push_back(mat); m.sections.push_back(sec);
+        Node n0(0, 0,    0, 0);    n0.fixAll();
+        Node n1(1, 6000, 0, 0);    n1.fixAll();
+        Node n2(2, 0,    0, 3000);
+        Node n3(3, 6000, 0, 3000);
+        m.nodes = { n0, n1, n2, n3 };
+        Member c0(0, 0, 2, 0, 0); c0.refVec = Vec3(1, 0, 0);
+        Member c1(1, 1, 3, 0, 0); c1.refVec = Vec3(1, 0, 0);
+        Member bm(2, 2, 3, 0, 0); bm.refVec = Vec3(0, 0, 1);
+        m.members = { c0, c1, bm };
+        NodalLoad nl; nl.node = 2; nl.comp[Ux] = 5.0e4; m.nodalLoads = { nl };
+        ReanalysisOptions opt; opt.maxRank = 5;            // force rank-6 removal into Tier-2
+        ReSolveSession s(m, opt);
+        checkTrue("tier2 session valid", s.valid(), s.diagnostic());
+        s.setMemberActive(2, false);                       // remove the beam -> two cantilevers
+        ReanalysisStats st;
+        const SolveResult re = s.solve(&st);
+        FrameModel w = m; w.members[2].active = false;
+        const SolveResult fr = solve(w);
+        const real e = relMax(re.u, fr.u);
+        std::printf("   tier=%d rank=%d pcgIters=%d relResidual=%.2e reRel=%.2e\n",
+                    st.tier, st.rank, st.pcgIters, st.relResidual, e);
+        checkTrue("Tier-2 selected (rank > maxRank)", st.tier == 2, "tier=" + std::to_string(st.tier));
+        checkTrue("Tier-2 PCG iterated", st.pcgIters > 0, "");
+        checkTrue("Tier-2 not singular", !re.singular, re.diagnostic);
+        checkTrue("Tier-2 ReSolve == fresh (tolerance)", e < 1e-8, "rel=" + std::to_string(e));
+    }
+
     std::printf("\n%s  (failures=%d)\n", g_fail == 0 ? "ALL PASS" : "FAILURES", g_fail);
     return g_fail == 0 ? 0 : 1;
 }

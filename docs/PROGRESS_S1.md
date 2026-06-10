@@ -39,15 +39,25 @@
 - **驗證**:standalone **F35**:portal+UDL 桿移除 reRel **2.43e-12**、restore drift 1.3e-16、column 移除 5e-12、2 桿鏈移底→**機構偵測**、clamped plate 殼 facet 移除 reRel **1.70e-12**(殼 F 增量也對;殼 rank=6 因 clamped plate 只中心節點自由)。audit **+3**(Tier-1==fresh 4e-14 / restore 2.6e-16 / 機構)→ **63→66**。`build.bat` + `build_linear_audit.bat` 補 `Reanalysis.cpp` 源檔。
 - **誠實標**:Tier-1 精確但 vs fresh ~1e-13(浮點路徑差,非逐位元);每次 solve 重建元素 + 組 K_cur(省 factorization、不省組裝,speedup 比 u-only 原型 31× 略低、同量級,精確數待 commit B/PERFORMANCE 量測);Tier-2 PCG 未做(rank 超 maxRank 走 Tier-3,正確但較頻繁重分解)。
 
+### 5. ReSolveSession Tier-2 stale-LDLT PCG(commit B,本次)✅ — **S1 ReSolveSession 三層全完成**
+- `Reanalysis.cpp`:rank ∈ (maxRank, 2·maxRank] 走 Tier-2 —— `StalePrecond`(Eigen 預條件器,`solve()` = baseline `ldlt.solve`,~15 行移植原型)+ `Eigen::ConjugateGradient<SpMat, Lower|Upper, StalePrecond>`;`compute(K_cur_ff = reduceFFsp(Kcur))`、guess = u0ff;收斂(`info()==Success`)→ tier=2,否則 fallback Tier-3(永遠正確)。**比原型更簡**:直接用已組好的 `Kcur` 降 ff,免 W·S·Wᵀ 組裝。
+- **驗證**:standalone **F36**(portal,maxRank=5 逼單桿移除 rank6 進 Tier-2:**pcgIters=3、relResidual 1.4e-11、reRel 5.3e-15**)+ audit +1(Tier-2==fresh 7e-16)→ **66→67**。
+- **誠實標**:Tier-2 容差級(非逐位元、同輸入確定性可重現);stale 因子對單一變更是極佳預條件(3 迭代收斂)。`allowTier2=false` 可強制跳 Tier-3。
+
 ## 待補(S1 里程碑重 gate 一次處理)
 - **UE automation**:加 `FrameCore.Buckling.SparseAgreesDense`(+ 之後 ReSolve 的 `FrameCore.Reanalysis.LadderAgreesFresh`/`MechanismDetection`)→ bump `run_gate.ps1` `$ExpectedUeTests`(34→實際數)→ 跑 headless UE 測試。
 - **OpenSees strict**:既有「移除態」逐位移場景改走 ReSolveSession 重跑一次(同容差)。
 - 理由:務實分層 gate 政策(額度受限),重 gate 集中里程碑跑。
 
-## 下一個交付點:ReSolveSession **Tier-2 PCG**(commit B;commit A=Tier-1+Tier-3+F 增量已完成,見「已完成 4」)
+## 下一個交付點:S1 里程碑重 gate(UE automation + OpenSees)— **S1 程式碼已全完成**
 
-> ✅ **commit A 已完成**(Tier-1 Woodbury + Tier-3 rebaseline + F 增量 + recover + 機構 + F35;standalone 全綠、audit 66)。
-> **剩 commit B = Tier-2 stale-LDLT PCG**(純效能中間層,可選):rank 落在 (maxRank, 2·maxRank] 時改用 `Eigen::ConjugateGradient<SpMat, Lower|Upper, StalePrecond>`(precond = baseline ldlt,guess = 上次解),取代直接跳 Tier-3。原型 `Research/WS_N_incremental/exp_incremental_refactor.cpp` 的 `StalePrecond`(~15 行)+ `batchUpdateSparse` 可直接移植;**容差互驗(非逐位元)**,F 編號 F36、audit +1。下面的引擎接點筆記對 Tier-2 仍適用。
+> ✅ **S1 程式碼全部落地、standalone 兩腿全綠**:R8 build_perf 修(`0e2e500`)、稀疏屈曲 F34(`a91b171`)、ReSolveSession 三層 F35/F36(`5d3ddfe` + 本次 commit B)、PERFORMANCE_BASELINE 正式化(`8e56195`)。build.bat = **F1–F36 ALL PASS**、build_linear_audit = **67 checks**。
+> **剩 = S1 完成里程碑的重 gate**(務實分層政策延後至此):
+> ① **UE automation**——新增 `FrameCore.Buckling.SparseAgreesDense`、`FrameCore.Reanalysis.LadderAgreesFresh`、`FrameCore.Reanalysis.MechanismDetection`(鏡像 F34/F35 邏輯,放 `Private/Tests/`),bump `Scripts/run_gate.ps1` 的 `$ExpectedUeTests`(34→37),跑 headless UE(`UnrealEditor-Cmd … Automation RunTests FrameCore`,讀 `Saved/Logs/ArchSim.log`)。UE build 耗時 10–30 分,屬里程碑批次。
+> ② **OpenSees strict**——既有「移除態」逐位移場景改走 ReSolveSession 路徑重跑一次(同容差)。
+> 之後 = **S2 動力倒塌**(讀 `docs/specs/S2_dynamic_collapse.md`,事件重解吃 ReSolveSession)。
+>
+> 以下為 ReSolveSession 的引擎接點筆記(實作時用,現存作參考 / S2 沿用)。
 
 **已確認的引擎接點(寫 Reanalysis.cpp 直接用)**:
 - 型別:`MemberId=int`、`gdof(nodeIdx,d)=6*nodeIdx+d`(`FrameTypes.h`,public,`DOF_PER_NODE=6`)。
