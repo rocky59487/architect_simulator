@@ -53,7 +53,7 @@
 ## 下一個交付點:S2 動力倒塌 —— **S1 全四腿 gate 已完成結案**
 
 > ✅ **S1 完整結案(9 commits,`81639c1`→`ca04fee`)**:R8 build_perf(`0e2e500`)、稀疏屈曲 F34(`a91b171`)、ReSolveSession 三層 F35/F36(`5d3ddfe`/`dde71df`)、FrameEigen UE-safety(`989f704`)、PERFORMANCE_BASELINE(`8e56195`)、UE 自動化 3 測試 34→37(`ca04fee`)。**四腿全綠:standalone F1–F36 / UE 37 / OpenSees PASS / audit 67。**
-> **下一輪 = S2 動力倒塌**:讀 `docs/AGENT_PROMPT_S2_S4.md`(後續 agent 提示詞)+ `docs/specs/S2_dynamic_collapse.md`;事件重解吃 `ReSolveSession`。
+> **下一輪 = S2 動力倒塌**:讀 `docs/AGENT_PROMPT_S2_S4.md`(後續 agent 提示詞)+ `docs/specs/S2_dynamic_collapse.md`。**事件重解 = fresh `assembleAndFactor`(非 ReSolveSession)**:模態/Ritz 基底重建需新 K'_ff 的 LDLT(ReSolve 只吐 u、不分解 K'_ff);碎塊 pin 節點=改 support flags 出 ReSolve same-topology 範圍;spec ⑤「fresh 亦可」+留 hook。**ReSolve 真正主場=S4 翻轉 / S7 BESO**。
 > ⚠️ **新政策(使用者 2026-06-11 定調,覆蓋 S1 夜間的務實分層)**:**S2 起,每次 commit 前跑完整四腿大型 gate `Scripts\run_gate.ps1 -RequireOpenSees` 並確認全綠**,不再延後重 gate。
 >
 > 以下為 ReSolveSession 的引擎接點筆記(S2 沿用參考)。

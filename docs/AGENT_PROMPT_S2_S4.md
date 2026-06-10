@@ -12,7 +12,7 @@
 - **S1 四腿全綠**:standalone `build.bat` **F1–F36 ALL PASS**;UE automation **37 tests**(`run_gate.ps1` `$ExpectedUeTests=37`);`build_linear_audit` **67 checks**;OpenSees `opensees_compare.py` **PASS**。
 - S1 交付:R8 修 `build_perf.bat`;稀疏屈曲(F34,`BucklingOptions`+三參 `solveBuckling`,稀疏 `subspaceSmallest` 復用 LDLT、稠密 bit-identical+fallback);**ReSolveSession 三層**(`Public/FrameCore/Reanalysis.h`+`Private/Reanalysis.cpp`:Tier-1 Woodbury / Tier-2 stale-LDLT PCG / Tier-3 rebaseline;F35/F36;機構=capacitance 奇異);`PERFORMANCE_BASELINE.md` 正式化。
 - **F 編號下一個 = F37**;audit 從 **67** 起增;UE 從 **37** 起增。
-- ReSolveSession 引擎接點/設計詳見 `docs/PROGRESS_S1.md`(**S2 事件重解直接吃 `ReSolveSession`**)。
+- ReSolveSession 引擎接點/設計詳見 `docs/PROGRESS_S1.md`。**S2 事件重解 = fresh `assembleAndFactor`(非 ReSolveSession)**,理由見下方 S2 段技術註;ReSolve 的真正主場是 **S4 翻轉 / S7 BESO**(same-topology rank-k 更新)。
 
 ## 鐵律(不可違反)
 1. **每階段 commit 前,跑完整四腿大型 gate 並全綠**:`powershell -ExecutionPolicy Bypass -File Scripts\run_gate.ps1 -RequireOpenSees`(standalone + UE automation + OpenSees + audit)。**任一腿紅 → 不准 commit**。(比 S1 夜間的「務實分層」更嚴:不再把重 gate 延後到里程碑。)
@@ -25,7 +25,7 @@
 
 ## 實作順序(照 PLAN §4 + 各 spec 十節)
 ### S2 — N4 動量繼承連續動力倒塌(spec `docs/specs/S2_dynamic_collapse.md`)
-`runDynamicCollapse`:模態空間 Newmark β=1/4、事件觸發元素停用、**跨事件狀態繼承**、**碎塊帶初速 Chaos**(`FragmentCluster` 加 `Vec3 vel/angVel`,預設零向後相容)、load-dependent Ritz 基底、模態 warm-start。事件重解吃 `ReSolveSession`。新 `Public/FrameCore/DynamicCollapse.h`+`Private/DynamicCollapse.cpp`;改 `Connectivity.h`、`SparseEigsolver.h`(`subspaceSmallest` 加 `X0` warm-start 末參,預設 nullptr 逐位元不變)。Oracle **F37/F38/F39**(全基底跨事件等價 vs 全系統 Newmark+detach 子案例、動量帳、雙質點解析);UE+3、audit+4。`[NEW CODE]`=load-dependent Ritz 生成(F37 把關;truncationResidual 哨兵→擴基→全模態 fallback)。原型 `Research/WS_N_incremental/exp_dynamic_inherit.cpp`。
+`runDynamicCollapse`:模態空間 Newmark β=1/4、事件觸發元素停用、**跨事件狀態繼承**、**碎塊帶初速 Chaos**(`FragmentCluster` 加 `Vec3 vel/angVel`,預設零向後相容)、load-dependent Ritz 基底、模態 warm-start。**事件重解 = fresh `assembleAndFactor`(非 ReSolveSession)**——理由:① 模態/Ritz 基底重建需新 `K'_ff` 的 LDLT(廣義特徵問題),正是 `assembleAndFactor` 的直接產物,而 **ReSolveSession 刻意不分解 K'_ff、公開 API 只吐 u**;② 事件常伴碎塊 pin 節點 = 改 support flags,出 ReSolveSession 的 same-topology 範圍(會自動退 rebaseline=fresh);③ 與既有 `Collapse.cpp` 靜力驅動器同模式、最易獨立驗證。spec ⑤「fresh 亦可」即此。**介面仍留 ReSolve hook**(`reanalyzeAfterEvent` seam;未來「固定 Ritz 基底 + 低秩 `ΦᵀΔKΦ` 縮減算子更新」的優化路徑)。新 `Public/FrameCore/DynamicCollapse.h`+`Private/DynamicCollapse.cpp`;改 `Connectivity.h`、`SparseEigsolver.h`(`subspaceSmallest` 加 `X0` warm-start 末參,預設 nullptr 逐位元不變)。Oracle **F37/F38/F39**(全基底跨事件等價 vs 全系統 Newmark+detach 子案例、動量帳、雙質點解析);UE+3、audit+4。`[NEW CODE]`=load-dependent Ritz 生成(F37 把關;truncationResidual 哨兵→擴基→全模態 fallback)。原型 `Research/WS_N_incremental/exp_dynamic_inherit.cpp`。
 
 ### S3 — P-Delta 二階雙路徑(spec `S3_pdelta.md`)
 `runPDelta` 兩路徑:(A) 參考 `K_T=K_e+Kg` 重組單分解(Wilson 1987);(B) 凍結 = 重用 `K_e` 既有 LDLT 的 pseudo-load 迭代(預設,與 factorize-once/N1 零摩擦);雙路徑 audit 互鎖。新 `PDeltaAnalysis.{h,cpp}`+`Tools/pdelta_compare.py`。**F40**(懸臂柱 f∈{0,0.3,0.95}:凍結 vs 參考≤1e-10、參考 vs 精確≤1e-3、P=0 逐位元=線性、f=1.05 兩路徑 diverged)/**F41**(OpenSees PDeltaCrdTransf);UE+1、audit+3。`[NEW CODE]`=保護式外推(穩定窗+撤銷,任何 f 不得劣於無外推 1.2×)、發散偵測器(20 步滑動窗+maxIter)。原型 `Research/WS_C_pdelta/exp_pdelta_convergence.cpp`。
