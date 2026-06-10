@@ -11,6 +11,8 @@ if exist "%VSWHERE%" (
   if "!VSDIR!"=="" for /f "usebackq tokens=*" %%i in (`"%VSWHERE%" -latest -property installationPath 2^>nul`) do set "VSDIR=%%i"
 )
 if "!VSDIR!"=="" ( echo [build_perf] could not locate Visual Studio via vswhere. & exit /b 1 )
+rem Put vswhere's own folder on PATH so vcvars64's internal bare `vswhere` call resolves quietly.
+for %%d in ("%VSWHERE%") do set "PATH=%%~dpd;%PATH%"
 call "!VSDIR!\VC\Auxiliary\Build\vcvars64.bat" >nul
 if errorlevel 1 ( echo [build_perf] vcvars64 failed & exit /b 1 )
 
@@ -30,6 +32,7 @@ cl /nologo /EHsc /std:c++17 /O2 /MD /utf-8 /DEIGEN_MPL2_ONLY ^
    Source\FrameCore\Private\FrameModel.cpp ^
    Source\FrameCore\Private\ElementStiffness.cpp ^
    Source\FrameCore\Private\BeamColumnElement.cpp ^
+   Source\FrameCore\Private\MITC4ShellElement.cpp ^
    Source\FrameCore\Private\FrameSolver.cpp ^
    Source\FrameCore\Private\ElasticAllowable.cpp ^
    Source\FrameCore\Private\Grillage.cpp ^
