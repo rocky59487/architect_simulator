@@ -14,7 +14,8 @@ S6 三步走 **J1 CLI 文字橋 → J1.5 daemon → J2 C API**。GH C# 元件 / 
 本機無法建置/測試 → 盲產未驗證 C# 違反「誠實驗證」鐵律。故本 commit:
 - **[GATED] J1 CLI 橋核心**:frame_cli 擴充 + `Tools/cli_roundtrip.py` 端到端測試(gate 第五腿)。
 - **[NOT GATED 交付]**:`docs/CLI_PROTOCOL.md` + `Plugins/FrameSolver/Grasshopper/`(參考 C# 客戶端 + README,明標需 Rhino/.NET、不入 gate)。
-- **[DEFERRED]**:DYNC 完整時間歷程/碎塊串流(J1b,給 UE/Chaos)、daemon(J1.5)、C API(J2)、`.gha`/Yak、MAT cap token。
+- **[本輪後續補齊]**:J1b(MAT/SMAT cap token + DYNC `DFRAME` 逐幀)、J1.5(daemon block-loop + EOR)、J2(C API DLL `frame_capi`)**已在同輪 commit `256699a`/`e7f3b45` 完成並 gate 驗證**(見下方「J1b/J1.5/J2 增補」)。
+- **[仍 DEFERRED]**:DYNC 完整 u/v + 碎塊二進位串流(給 UE/Chaos)、daemon 真常駐(持 PreparedSystem 跨請求)、`.gha`/Yak(需 Rhino)。
 
 ## 交付內容(單一 S6 commit)
 ### 新增
@@ -51,13 +52,26 @@ deep audit **checks=79** / **CLI round-trip ALL PASS**。
 traceback 雜訊(不影響 returncode/結果,但不該出現)→ 加 `errors="replace"` 根治。② cwd 漂移:Bash 在
 `E:\project`,跑 Tools 腳本要先 `cd /e/project/ArchSim`。
 
+## J1b / J1.5 / J2 增補(同輪 commit `256699a` + `e7f3b45`)
+- **J1b cap token**:`MAT/SMAT … [capComp [capTens [capShear]]]`(省略=`make(300,300,180)`;1 值→tens=comp、shear=0.6·comp)。
+  → CLI SIZEOPT 用真 σa=25000psi 重現 **standalone F44 的 1608.49 lb**(經文字橋的跨驗證)。
+- **J1b DYNC 逐幀**:`DYNC` 分支加 `DFRAME t maxAbsU`(每儲存幀峰值|位移|的回放時間軸);完整 u/v+碎塊串流仍延後。
+- **J1.5 daemon**:`frame_cli` 對 model BLOCK 迴圈,每塊 `EOR` flush;**同行程多塊==各自獨立 cli 逐位元**(已驗)。
+  現為 **batch 多塊**(每塊 fresh factor);**真常駐**(持 `PreparedSystem`/`ReSolveSession` 跨請求省 factor)留後續。
+- **J2 C API DLL**:`frame_cli_core.{h,cpp}`(`processAll` 共用核心,輸出改 std::string)+ `frame_capi.{h,cpp}`
+  (`frame_capi_solve_text`/`frame_capi_version`)+ `build_capi.bat`(`/LD`)。**與 `frame_cli.exe` 逐位元相等**(ctypes 驗)。
+- **gate 第五腿現 8 checks**:+ MAT-cap 10-bar(weight≥文獻 1593.2 + 6 sized 桿 D/C=1 + ==F44)、DYNC DFRAME、daemon 一致、C API 一致。
+- ⚠️ **`build_capi.bat` 產物 `frame_capi.dll/.exp/.lib` 未被 `.gitignore` 排除**(鐵律禁碰 .gitignore)→ 一律顯式 stage 源碼、勿 `git add -A`。
+
 ## 誠實邊界
-- S6-J1 = **文字橋 plumbing**,非新力學;所有力學正確性沿用 S1–S5 既有 oracle。整合層,無 novelty。
-- **不自稱「GH 外掛完成」**:GH C# 是 NOT GATED 骨架(需 Rhino 環境驗證);引擎端契約由 CLI round-trip 把關。
-- **CLI 材料 allowable cap 硬編 `make(300,300,180)`**:`SIZEOPT`/D-C 隨之縮放(CLI SIZEOPT 測試只驗 plumbing,
-  重量不變量由 standalone F44 嚴格驗);caller 設 cap 的 `MAT … cap` token 延後 J1b。
-- **DYNC 只出摘要**;完整時間歷程/碎塊串流延後 J1b(UE 層協議)。
+- S6 = **文字橋 plumbing**,非新力學;所有力學正確性沿用 S1–S5 既有 oracle(F1-F44/UE/OpenSees/audit79)。整合層,無 novelty。
+- **不自稱「GH 外掛完成」**:GH `.gha` 元件需 Rhino 8 .NET SDK,是唯一未完成項;C# 參考客戶端 NOT GATED;引擎端契約由 CLI round-trip(8 checks)把關。
+- **CLI 材料 allowable cap**:已加 optional `MAT … cap` token(J1b);**省略時**預設 `make(300,300,180)`。
+- **DYNC**:輸出摘要(`DYNC` 行)+ 逐幀峰值(`DFRAME`,J1b);**完整 u/v + 碎塊交接資料二進位串流**(給 UE/Chaos 回放)仍延後。
+- **daemon**:已驗多塊一致;**真常駐跨請求重用**(省 factor)仍延後。
+- 已知 MINOR(審核揭露,gated 路徑不觸發):SizeOpt 對 cap=0 材料會靜默假收斂(finalDC=inf);Amin=0+零力桿截面不更新;
+  CLI DYNC check 為 plumbing(動力正確性由 F37-F39+audit 驗);FrameCoreClient.cs 未非同步讀 stderr(理論死結,NOT GATED)。
 
 ## 下一步(待使用者授權)
-F 編號下一個 = **F45**;audit 從 **79** 起;UE 從 **43** 起。S6-J1 完成即停。後續:J1b(DYNC 時間歷程 +
-MAT cap token)/ J1.5 daemon / J2 C API / GH `.gha`(需 Rhino),或轉 **S7 BESO 拓撲優化**。見 `docs/AGENT_PROMPT_S5_S11.md`。
+F 編號下一個 = **F45**;audit 從 **79** 起;UE 從 **43** 起。**S6 引擎端完成**(J1/J1b/J1.5/J2 全 gate 驗證)。
+後續:**S7 BESO 拓撲優化**(純引擎主線首選)/ GH `.gha`(需 Rhino)/ daemon 真常駐 / DYNC 完整幀串流(UE 層)。見 `docs/AGENT_PROMPT_S5_S11.md`。

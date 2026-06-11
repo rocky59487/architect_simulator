@@ -88,11 +88,13 @@ END
 ```
 → `TONLY 1 0 2` / `SLACK 4` / 標準 state。
 
-## 已知限制 / 未來(誠實標)
-- **材料 allowable cap 目前硬編 `Capacity::make(300,300,180)`**(MAT 未帶 cap);`SIZEOPT`/D-C 用此 cap →
-  尺寸結果隨之縮放。需 caller 設 cap 時,協議待加 `MAT … cap_comp cap_tens cap_shear` optional token(J1b)。
-- `DYNC` 目前只出**摘要**;完整時間歷程幀(`DynCollapseFrame.u/v`)+ 碎塊交接資料(給 UE/Chaos 回放)
-  屬 U 層協議,**延後 J1b**。
-- **daemon 常駐**(持有 `PreparedSystem`/`ReSolveSession` 跨請求,省重複 factor)= **J1.5**;
-  **C API DLL** = **J2**。皆未實作(WS_R2 §10:J1 行程開銷僅 6.7ms,~20k DOF 端到端 2.1s,J1 先夠)。
-- GH `.gha` 元件 + Yak 發佈需 **Rhino 8 .NET SDK**(見 `Plugins/FrameSolver/Grasshopper/README.md`),不入引擎 gate。
+## 已實作 / 已知限制 / 未來(誠實標)
+- **材料 allowable cap**:**已加 optional `MAT/SMAT … cap` token(J1b)**;**省略時**預設 `make(300,300,180)`。
+  → CLI `SIZEOPT` 用真 cap 重現 standalone F44 的 1608.49 lb(`Tools/cli_roundtrip.py` 驗證)。
+- **`DYNC`**:輸出**摘要(`DYNC` 行)+ 逐幀峰值(`DFRAME t maxAbsU`,J1b)**;完整時間歷程幀(`DynCollapseFrame.u/v`)+
+  碎塊交接資料(給 UE/Chaos 回放)的二進位/分塊協議仍**延後**(屬 U 層)。
+- **daemon(J1.5)= 已實作**:`frame_cli` 對 model BLOCK 迴圈 + `EOR` flush;**同行程多塊==各自獨立 cli 逐位元**(已驗)。
+  現為 **batch 多塊**(每塊 fresh factor);**真常駐**(持 `PreparedSystem`/`ReSolveSession` 跨請求省 factor)仍延後。
+- **C API DLL(J2)= 已實作**:`frame_capi.dll`(`frame_capi_solve_text`/`frame_capi_version`,`frame_capi.h`),
+  與 `frame_cli.exe` **逐位元相等**(ctypes 驗)。免行程開銷的長期 transport(WS_R2 §10:J1 行程開銷僅 6.7ms,~20k DOF 2.1s)。
+- **唯一未完成 = GH `.gha` 元件 + Yak 發佈**:需 **Rhino 8 .NET SDK**(見 `Plugins/FrameSolver/Grasshopper/README.md`),不入引擎 gate。

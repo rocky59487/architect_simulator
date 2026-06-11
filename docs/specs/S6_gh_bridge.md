@@ -11,9 +11,11 @@ S6 三步走 **J1 CLI 文字橋(MVP)→ J1.5 daemon 模式 → J2 C API DLL**。
   token + `VERSION` 握手行)+ **CLI 端到端黃金檔測試 `Tools/cli_roundtrip.py` 進 gate(第五腿)**。
 - **[NOT GATED 交付]**:`docs/CLI_PROTOCOL.md`(線協議)+ `Grasshopper/` 參考 C# 客戶端骨架
   (純 `System.Diagnostics`,無 Rhino 依賴的解析核心,明標需 .NET/Rhino 建置、不入 gate)。
-- **[DEFERRED]**:① DYNC 完整時間歷程 + 碎塊串流協議(給 UE/Chaos 回放,屬 U 層;本輪只出 DYNC **摘要**)
-  → J1b;② daemon 常駐(持有 `PreparedSystem`/`ReSolveSession` 跨請求)→ J1.5;③ C API DLL → J2;
-  ④ GH `.gha` 元件組 + Yak 發佈 → 需 Rhino 環境。
+- **[本輪後續已補,見 `docs/PROGRESS_S6.md`「J1b/J1.5/J2 增補」]**:① **J1b** MAT cap token + DYNC `DFRAME` 逐幀
+  (commit `256699a`);② **J1.5 daemon** block-loop + EOR(`256699a`,batch 多塊);③ **J2 C API DLL** `frame_capi`
+  (`e7f3b45`,共用 `frame_cli_core`,與 frame_cli.exe 逐位元相等)。CLI round-trip 腿現 **8 checks**。
+- **[仍 DEFERRED]**:DYNC 完整 u/v + 碎塊二進位串流(給 UE/Chaos 回放,U 層)、daemon **真常駐**(持
+  `PreparedSystem`/`ReSolveSession` 跨請求省 factor)、GH `.gha` 元件組 + Yak 發佈(需 Rhino 8 .NET SDK,唯一未完成項)。
 
 ## ① 目標 / 不做
 - **做**:把 S2–S5 新增的分析能力接上 `frame_cli` 文字協議(GH/任何外部客戶端可 shell-out 驅動),

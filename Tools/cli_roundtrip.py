@@ -183,14 +183,16 @@ def main():
           and d["WEIGHTVOL"] and d["WEIGHTVOL"] > 0,
           "SIZEOPT=%s nAreas=%d vol=%s" % (so, len(d["AREA"]), d["WEIGHTVOL"]))
 
-    # ---- 4: J1b MAT cap token -> 10-bar weight matches standalone F44 (1608.49 lb) ----
+    # ---- 4: J1b MAT cap token -> real allowables; literature-INDEPENDENT FSD invariants ----
+    # (avoid a self-referential "==engine value" oracle: assert the pin-jointed literature lower
+    #  bound 1593.2 lb, the fully-stressed invariant on the sized bars, AND consistency with F44.)
     sigA = 25000.0 * 0.0068947572931684          # 25000 psi -> MPa
     d = run(ten_bar(cap=sigA) + ["SIZEOPT {} 100 1e-10".format(0.1 * IN * IN)])
-    # weight_lb = 0.1 lb/in^3 * sum(A_in2 * L_in) = 0.1 * WEIGHTVOL[mm^3] / IN^3
-    weight_lb = 0.1 * d["WEIGHTVOL"] / (IN ** 3)
-    check("MAT cap token -> 10-bar FSD weight == F44 (1608.5 lb, |.|<2)",
-          d["SIZEOPT"][0] == 1 and abs(weight_lb - 1608.49) < 2.0,
-          "weight_lb=%.4f" % weight_lb)
+    weight_lb = 0.1 * d["WEIGHTVOL"] / (IN ** 3)  # 0.1 lb/in^3 * sum(A_in2*L_in) = 0.1*WEIGHTVOL/IN^3
+    fs_bars = sum(1 for (a, dc) in d["AREA"].values() if 0.999 <= dc <= 1.001)  # fully-stressed bars
+    check("MAT cap token -> 10-bar FSD: weight >= lit 1593.2, sized bars D/C=1, == F44",
+          d["SIZEOPT"][0] == 1 and weight_lb >= 1593.0 and fs_bars >= 5 and abs(weight_lb - 1608.49) < 2.0,
+          "weight_lb=%.4f fs_bars=%d" % (weight_lb, fs_bars))
 
     # ---- 5: DYNC per-frame DFRAME streaming (loaded cantilever vibrates; frames stored) ----
     dynbeam = ["MAT 210000 80769 7850", "SEC " + sq(100.0),
