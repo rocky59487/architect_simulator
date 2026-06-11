@@ -16,6 +16,7 @@
 #include "FrameCore/DynamicCollapse.h"
 #include "FrameCore/PDeltaAnalysis.h"
 #include "FrameCore/TensionOnly.h"
+#include "FrameCore/SizeOpt.h"
 #include "FrameCore/MemberGeometry.h"
 #include "FrameTestFixtures.h"
 
@@ -2104,6 +2105,51 @@ int main() {
             if (!(Rs.converged || Rs.cycled)) allTerminate = false;
         }
         checkTrue("F43 default policy terminates across a load sweep", allTerminate, "");
+    }
+
+    // ---------- F44: 10-bar truss fully-stressed design (Schmit/Berke; FSD weight ~ 1593.2 lb) ----------
+    {
+        std::printf("[F44] Size optimization: classic 10-bar truss FSD (stress-ratio resizing)\n");
+        const real IN = 25.4, LB = 4.4482216152605, PSI = 0.0068947572931684;
+        const real Empa = 1.0e7 * PSI, sigA = 25000.0 * PSI;
+        const real bay = 360.0 * IN, A0 = 10.0 * IN * IN, Amin = 0.1 * IN * IN, P = 1.0e5 * LB;
+        Material tmat(Empa, Empa / 2.6, 0.0);
+        tmat.cap = Capacity::make(sigA, sigA, sigA);
+        FrameModel m; fixtures::tenBarTruss(m, bay, A0, P, tmat);
+
+        SizeOptOptions o; o.maxIter = 100; o.dcTol = 1e-10; o.Amin = Amin;
+        const SizeOptResult R = runSizeOptimization(m, o);
+        checkTrue("F44 converged", R.converged && !R.singular, "iters=" + std::to_string(R.iterations));
+
+        // weight from the final areas (imperial): W = sum 0.1 lb/in^3 * A_in2 * L_in
+        real weightLb = 0;
+        for (size_t k = 0; k < m.members.size(); ++k) {
+            const int ni = m.nodeIndex(m.members[k].i), nj = m.nodeIndex(m.members[k].j);
+            const real L = norm(m.nodes[(size_t)nj].pos - m.nodes[(size_t)ni].pos);
+            weightLb += 0.1 * (R.finalAreas[k] / (IN * IN)) * (L / IN);
+        }
+        // combined-stress FSD lands at ~1608 lb -- about 1% ABOVE the pin-jointed literature optimum
+        // (1593.2 lb, Haftka & Gurdal): the engine gates true pins, so the moment-frame members carry a
+        // little bending that eats into the axial allowance, sizing every chord slightly heavier (and
+        // safer). The combined-stress optimum can never fall BELOW the pure-axial optimum -- an invariant.
+        checkTrue("F44 weight >= pin-jointed optimum 1593.2 lb (combined-stress is heavier)",
+                  weightLb >= 1593.0, "W=" + std::to_string(weightLb));
+        checkClose("F44 FSD weight within 1.5% of literature 1593.2 lb", weightLb, 1593.2, 1.5e-2);
+
+        // fully-stressed: every SIZED bar sits at D/C = 1 to machine precision (the FS property)
+        bool fs = true; int nSized = 0;
+        for (size_t k = 0; k < m.members.size(); ++k)
+            if (R.finalAreas[k] > Amin * 1.01) { ++nSized; if (std::fabs(R.finalDC[k] - 1.0) > 1e-6) fs = false; }
+        checkTrue("F44 sized bars fully stressed (|D/C-1|<1e-6)", fs, "nSized=" + std::to_string(nSized));
+
+        // the four low-force bars (2,5,6,10 -> idx 1,4,5,9) bottom out at A_min exactly (clamp)
+        bool atMin = true;
+        for (int k : { 1, 4, 5, 9 }) if (relErr(R.finalAreas[(size_t)k], Amin) > 1e-9) atMin = false;
+        checkTrue("F44 bars 2/5/6/10 at A_min bound", atMin, "");
+
+        // sized areas match the literature pattern (bars 1,3 are the big chords ~7.94 / 8.06 in^2)
+        checkClose("F44 bar1 area (in^2)", R.finalAreas[0] / (IN * IN), 7.94, 3e-2);
+        checkClose("F44 bar3 area (in^2)", R.finalAreas[2] / (IN * IN), 8.06, 3e-2);
     }
 
     std::printf("\n%s  (failures=%d)\n", g_fail == 0 ? "ALL PASS" : "FAILURES", g_fail);

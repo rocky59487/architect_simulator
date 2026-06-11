@@ -257,6 +257,39 @@ inline void xBracedPortal(FrameModel& m, real H, real V,
     m.nodalLoads = { l2, l3 };
 }
 
+// Classic 10-bar cantilever truss (Schmit/Berke sizing benchmark) in the global X-Z plane. Two
+// bays of `bay`, height `bay`; nodes 5,6 are supported at x=0; downward (global -Z) point loads P
+// at nodes 2 and 4. ALL ten bars SHARE section index 0 (a uniform start area A0) -- runSizeOptimization
+// expands a private section per member. Planar: Uy is pinned everywhere, supports pin Ux,Uy,Uz.
+// Bars (standard numbering, by node id): 1:5-3 2:3-1 3:6-4 4:4-2 5:3-4 6:1-2 7:5-4 8:6-3 9:3-2 10:4-1.
+// FSD optimum (Haftka & Gurdal): weight ~ 1593.2 lb, areas in^2
+//   [7.94, 0.10, 8.06, 3.94, 0.10, 0.10, 5.74, 5.57, 5.57, 0.10] (bars 2,5,6,10 at the A_min bound).
+inline void tenBarTruss(FrameModel& m, real bay, real A0, real P, const Material& mat) {
+    m = FrameModel{};
+    m.materials.push_back(mat);                                                  // index 0
+    m.sections.push_back(Section::Rectangular(std::sqrt(A0), std::sqrt(A0)));    // index 0: square, area A0
+    auto MakeNode = [](int id, real x, real z, bool support) {
+        Node n(id, x, 0, z);
+        if (support) { n.fixed[Ux] = n.fixed[Uy] = n.fixed[Uz] = true; }
+        else         { n.fixed[Uy] = true; }                                     // planar X-Z problem
+        return n;
+    };
+    m.nodes = {
+        MakeNode(1, 2 * bay, bay, false), MakeNode(2, 2 * bay, 0, false),
+        MakeNode(3, bay,     bay, false), MakeNode(4, bay,     0, false),
+        MakeNode(5, 0,       bay, true),  MakeNode(6, 0,       0, true),
+    };
+    const int bars[10][2] = { {5,3},{3,1},{6,4},{4,2},{3,4},{1,2},{5,4},{6,3},{3,2},{4,1} };
+    for (int k = 0; k < 10; ++k) {
+        Member mem(k, bars[k][0], bars[k][1], 0, 0);
+        mem.refVec = Vec3(0, 1, 0);            // member local axes lie in the X-Z plane (+Y out of plane)
+        m.members.push_back(mem);
+    }
+    NodalLoad l2; l2.node = 2; l2.comp[Uz] = -P;
+    NodalLoad l4; l4.node = 4; l4.comp[Uz] = -P;
+    m.nodalLoads = { l2, l4 };
+}
+
 // ---------------------------------------------------------------------------
 // Shell (MITC4) fixtures. Geometry in the global X-Y plane (facet normal +Z), so
 // at milestone 2 (plate bending only) the in-plane DOFs (Ux,Uy,Rz) are restrained

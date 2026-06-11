@@ -1,6 +1,7 @@
 #include "FrameCore/BucklingAnalysis.h"
 #include "FrameCore/PDeltaAnalysis.h"
 #include "FrameCore/TensionOnly.h"
+#include "FrameCore/SizeOpt.h"
 #include "FrameCore/Reanalysis.h"
 #include "FrameCore/Combination.h"
 #include "FrameCore/FrameSolver.h"
@@ -1596,6 +1597,64 @@ void testTensionOnly() {
     }
 }
 
+void testSizeOpt() {
+    // ---- Check 1: statically DETERMINATE -> stress-ratio FSD = exact minimum-weight optimum ----
+    // A single axial column: the member force is area-independent, so A converges to |N|/sigma_a
+    // in one effective step (Haftka & Gurdal: determinate FSD is provably the lightest design).
+    {
+        const real E = 210000.0, sigA = 250.0, P = 5.0e5, h = 3000.0;
+        Material mat(E, E / 2.6, 0.0); mat.cap = Capacity::make(sigA, sigA, sigA);
+        Section sec = Section::Rectangular(80.0, 80.0);
+        FrameModel m; fixtures::axialColumn(m, P, h, mat, sec);
+        SizeOptOptions o; o.maxIter = 50; o.dcTol = 1e-12; o.Amin = 1.0;
+        const SizeOptResult R = runSizeOptimization(m, o);
+        const real Aexact = P / sigA;                          // sigma = P/A = sigma_a  ->  A = P/sigma_a
+        const real rel = std::fabs(R.finalAreas[0] - Aexact) / Aexact;
+        addRow("Size optimization (FSD)", "determinate stress-ratio = exact optimum",
+               "single axial column: A -> |N|/sigma_allow (determinate FSD provably minimum-weight)",
+               "rel |A_final - P/sigma_a|", rel, 1e-12, R.converged && rel < 1e-12);
+    }
+
+    // ---- Check 2: MULTI-CASE envelope -- the worst case sizes the member; D/C <= 1 under BOTH ----
+    {
+        const real E = 210000.0, sigA = 250.0, h = 3000.0, P1 = 3.0e5, P2 = 6.0e5;
+        Material mat(E, E / 2.6, 0.0); mat.cap = Capacity::make(sigA, sigA, sigA);
+        Section sec = Section::Rectangular(80.0, 80.0);
+        FrameModel m; fixtures::axialColumn(m, P1, h, mat, sec);   // geometry; loads come from cases
+        SizeOptOptions o; o.maxIter = 50; o.dcTol = 1e-12; o.Amin = 1.0;
+        SizeOptLoadCase cA, cB;
+        { NodalLoad nl; nl.node = 1; nl.comp[Uz] = -P1; cA.nodalLoads = { nl }; }
+        { NodalLoad nl; nl.node = 1; nl.comp[Uz] = -P2; cB.nodalLoads = { nl }; }
+        o.cases = { cA, cB };
+        const SizeOptResult R = runSizeOptimization(m, o);
+        const real Aexact = P2 / sigA;                            // driven by the larger case
+        const bool sizedByMax = std::fabs(R.finalAreas[0] - Aexact) / Aexact < 1e-10;
+        const bool safeBoth   = R.finalDC[0] <= 1.0 + 1e-9;       // envelope D/C at the cap, never above
+        addRow("Size optimization (FSD)", "multi-case envelope sizing (worst case governs)",
+               "two axial cases: area = max(P)/sigma_a; envelope D/C <= 1 under BOTH cases",
+               "final envelope D/C", R.finalDC[0], 1.0 + 1e-9, R.converged && sizedByMax && safeBoth);
+    }
+
+    // ---- Check 3: DISCRETE section table -- round-up (conservative) + finite termination ----
+    {
+        const real E = 210000.0, sigA = 250.0, h = 3000.0, P = 5.0e5;
+        Material mat(E, E / 2.6, 0.0); mat.cap = Capacity::make(sigA, sigA, sigA);
+        Section sec = Section::Rectangular(80.0, 80.0);
+        FrameModel m; fixtures::axialColumn(m, P, h, mat, sec);
+        SizeOptOptions o; o.maxIter = 50; o.Amin = 1.0;
+        o.sectionTable = { 500.0, 1000.0, 1500.0, 2200.0, 3000.0, 5000.0 };  // ascending mm^2
+        const real Acont = P / sigA;                              // 2000 mm^2 continuous optimum
+        const SizeOptResult R = runSizeOptimization(m, o);
+        const bool terminated   = R.converged || R.cycled;        // never hangs
+        const bool isTableVal   = std::fabs(R.finalAreas[0] - 2200.0) < 1e-9;  // round-up of 2000
+        const bool conservative = R.finalAreas[0] >= Acont;       // round-UP is never unsafe
+        addRow("Size optimization (FSD)", "discrete section table: round-up + oscillation guard",
+               "coarse area table -> snap UP to the smallest sufficient section; finite termination",
+               "final area (round-up 2000 -> 2200)", R.finalAreas[0], 2200.0,
+               terminated && isTableVal && conservative);
+    }
+}
+
 }  // namespace
 
 int main() {
@@ -1627,6 +1686,7 @@ int main() {
     testDynamicCollapse();
     testPDelta();
     testTensionOnly();
+    testSizeOpt();
 
     int failures = 0;
     std::cout << "Linear-analysis deep audit (post F17-F25 strengthening)\n\n";

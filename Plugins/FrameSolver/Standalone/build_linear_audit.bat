@@ -55,6 +55,7 @@ cl /nologo /EHsc /std:c++17 /O2 /MD /utf-8 /DEIGEN_MPL2_ONLY /DFRAMECORE_BUILD_S
    Source\FrameCore\Private\Reanalysis.cpp ^
    Source\FrameCore\Private\PDeltaAnalysis.cpp ^
    Source\FrameCore\Private\TensionOnly.cpp ^
+   Source\FrameCore\Private\SizeOpt.cpp ^
    Standalone\linear_deep_audit.cpp
 if errorlevel 1 ( echo [build] COMPILE FAILED & popd & exit /b 1 )
 
