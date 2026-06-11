@@ -76,3 +76,10 @@ CG+Jacobi 1,248 迭代/423ms(單發);**CG+IncompleteCholesky 2,252 迭代/2,402m
 m=40 才降至 7.3%(nf=108;mode-acceleration 修正約砍半至 19.5%/5.1%)→ S2 spec 改推
 load-dependent Ritz;事件投影 O(basis·nf);warm-start 省 30% 特徵迭代。每步成本與基底數線性 — S2 驗收目標:nf=20k、basis=30、
 每步 ≤0.5ms(60fps 預算內 ≥30 步)`[PENDING:S2]`。
+
+**S2 實作後(`runDynamicCollapse`,2026-06-11)**:測試 fixture 為小模型(nf ≤ 12 全基底,鏈/門架),
+整輪(數十~數百步 + 1–2 事件)毫秒級,不構成大規模基線。架構符合預測:事件間每步 = per-mode Newmark
+`O(basisSize)`(模態解耦純量遞推)+ 每 `screenEvery` 步一次 recover/D-C 篩;**事件成本 = fresh
+`assembleAndFactor`**(非 ReSolve:碎塊 pin 改 support flags 超出 ReSolve same-topology,且基底重建需新
+`K'_ff` 的 LDLT)+ 基底重生成 `O(basis·nf)` + 投影。大規模(nf=20k+)同機量測 `[PENDING:S6/後續]`
+——事件 re-factor 成本由 §1 的 factor 規模階梯主導,事件稀疏時每步便宜的時間積分才是主要工作。

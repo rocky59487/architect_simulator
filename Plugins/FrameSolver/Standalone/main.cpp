@@ -13,6 +13,7 @@
 #include "FrameCore/ModalDynamics.h"
 #include "FrameCore/Connectivity.h"
 #include "FrameCore/Collapse.h"
+#include "FrameCore/DynamicCollapse.h"
 #include "FrameCore/MemberGeometry.h"
 #include "FrameTestFixtures.h"
 
@@ -1812,6 +1813,167 @@ int main() {
         checkTrue("Tier-2 PCG iterated", st.pcgIters > 0, "");
         checkTrue("Tier-2 not singular", !re.singular, re.diagnostic);
         checkTrue("Tier-2 ReSolve == fresh (tolerance)", e < 1e-8, "rel=" + std::to_string(e));
+    }
+
+    // ---------- F37: DynamicCollapse -- full-basis self-consistency (Ritz == pure modes, zero truncation) ----------
+    // A portal frame whose diagonal brace trips at t=0+ (static D/C). The moment frame stays
+    // connected and free-vibrates. With a FULL basis the Ritz path and the pure-eigenmode path
+    // span the same space, so every replay frame must agree to round-off, and the per-event
+    // truncation residual must vanish (the inheritance projection is exact).
+    {
+        std::printf("[F37] DynamicCollapse: portal frame, brace trips -> Ritz==modes (full basis), zero truncation\n");
+        const real E = 200000.0, Gs = 80000.0, rho = 7850.0, W = 3000.0, H = 3000.0, P = 50000.0;
+        Section sec = Section::Rectangular(200.0, 200.0);
+        Material strong(E, Gs, rho); strong.cap = Capacity::make(1e9, 1e9, 1e9);
+        Material braceMat(E, Gs, rho); braceMat.cap = Capacity::make(0.5, 0.5, 1e9);   // tiny -> brace trips first
+        FrameModel m;
+        m.materials = { strong, braceMat }; m.sections = { sec };
+        Node n0(0, 0, 0, 0); n0.fixAll();
+        Node n1(1, W, 0, 0); n1.fixAll();
+        Node n2(2, 0, 0, H);
+        Node n3(3, W, 0, H);
+        m.nodes   = { n0, n1, n2, n3 };
+        m.members = { Member(0, 0, 2, 0, 0), Member(1, 1, 3, 0, 0), Member(2, 2, 3, 0, 0), Member(3, 0, 3, 1, 0) };  // m3 = brace
+        NodalLoad nl; nl.node = 2; nl.comp[Ux] = P;
+        m.nodalLoads = { nl };
+
+        auto runCase = [&](bool ritz) -> DynCollapseHistory {
+            DynCollapseOptions opt;
+            opt.dt = 1e-5; opt.maxTime = 40 * opt.dt;
+            opt.basisSize = 200; opt.useRitzVectors = ritz;            // full basis (nf = 12)
+            opt.screenEvery = 1; opt.frameStride = 1; opt.removeThreshold = 1.0; opt.maxEvents = 3;
+            return runDynamicCollapse(m, opt);
+        };
+        const DynCollapseHistory hm = runCase(false), hr = runCase(true);
+        std::printf("   modes: outcome=%d events=%zu frames=%zu | ritz: events=%zu frames=%zu\n",
+                    (int)hm.outcome, hm.events.size(), hm.frames.size(), hr.events.size(), hr.frames.size());
+        checkTrue("F37 brace tripped first (modes)", !hm.events.empty() && hm.events[0].removedMembers.size() == 1 && hm.events[0].removedMembers[0] == 3, "");
+        checkTrue("F37 same event count (Ritz vs modes)", hm.events.size() == hr.events.size(), "");
+        checkTrue("F37 same frame count (Ritz vs modes)", hm.frames.size() == hr.frames.size(), "");
+        real maxTrunc = 0; for (const auto& ev : hm.events) maxTrunc = std::max(maxTrunc, ev.truncationResidual);
+        checkTrue("F37 truncationResidual ~ 0 (full basis)", maxTrunc < 1e-9, "maxTrunc=" + std::to_string(maxTrunc));
+        real num = 0, den = 1e-30;
+        const size_t nfr = std::min(hm.frames.size(), hr.frames.size());
+        for (size_t k = 0; k < nfr; ++k) {
+            const size_t n = std::min(hm.frames[k].u.size(), hr.frames[k].u.size());
+            for (size_t i = 0; i < n; ++i) { num = std::max(num, std::fabs(hm.frames[k].u[i] - hr.frames[k].u[i])); den = std::max(den, std::fabs(hm.frames[k].u[i])); }
+        }
+        checkTrue("F37 Ritz frames == mode frames (full basis)", num / den < 1e-8, "rel=" + std::to_string(num / den));
+    }
+
+    // ---------- F38: DynamicCollapse -- momentum handoff (a fragment detaches WHILE MOVING) ----------
+    // Portal frame brace trips at t=0+, the frame sways, and a chain hung off the moving corner is
+    // shaken until its link trips dynamically -> the chain detaches carrying real velocity. The
+    // handoff vel/angVel must be finite and nonzero (the exact rigid-motion identity is in the audit).
+    {
+        std::printf("[F38] DynamicCollapse: brace trips -> sway -> hung chain detaches with velocity\n");
+        const real E = 200000.0, Gs = 80000.0, rho = 7850.0, W = 3000.0, H = 3000.0, D = 2000.0, P = 150000.0;
+        Section sec = Section::Rectangular(200.0, 200.0);
+        Material strong(E, Gs, rho);   strong.cap   = Capacity::make(1e9, 1e9, 1e9);
+        Material braceMat(E, Gs, rho); braceMat.cap = Capacity::make(0.5, 0.5, 1e9);   // brace trips at t=0+
+        Material linkMat(E, Gs, rho);  linkMat.cap  = Capacity::make(12.0, 12.0, 1e9); // link trips dynamically
+        FrameModel m;
+        m.materials = { strong, braceMat, linkMat }; m.sections = { sec };
+        Node n0(0, 0, 0, 0); n0.fixAll();
+        Node n1(1, W, 0, 0); n1.fixAll();
+        Node n2(2, 0, 0, H);
+        Node n3(3, W, 0, H);
+        Node n4(4, 0, 0, H + D);          // chain hung off node2 (the driven, max-amplitude corner)
+        Node n5(5, 0, 0, H + 2 * D);
+        m.nodes   = { n0, n1, n2, n3, n4, n5 };
+        m.members = { Member(0, 0, 2, 0, 0), Member(1, 1, 3, 0, 0), Member(2, 2, 3, 0, 0), Member(3, 0, 3, 1, 0),
+                      Member(4, 2, 4, 2, 0), Member(5, 4, 5, 0, 0) };          // m3 brace, m4 weak link (off node2)
+        NodalLoad nl; nl.node = 2; nl.comp[Ux] = P;
+        m.nodalLoads = { nl };
+        DynCollapseOptions opt;
+        opt.dt = 1e-5; opt.maxTime = 600 * opt.dt;
+        opt.basisSize = 200; opt.useRitzVectors = false;
+        opt.screenEvery = 2; opt.frameStride = 2; opt.removeThreshold = 1.0; opt.maxEvents = 6;
+        const DynCollapseHistory h = runDynamicCollapse(m, opt);
+        std::printf("   outcome=%d events=%zu\n", (int)h.outcome, h.events.size());
+        for (size_t i = 0; i < h.events.size(); ++i) {
+            const auto& ev = h.events[i];
+            std::printf("   event[%zu] t=%.3e mode=%d removedM=%zu detached=%zu", i, ev.t, (int)ev.mode, ev.removedMembers.size(), ev.detached.size());
+            if (!ev.detached.empty()) {
+                const auto& fc = ev.detached[0];
+                std::printf(" mass=%.4e vel=(%.3e,%.3e,%.3e) |angVel|=%.3e", fc.mass, fc.vel.x, fc.vel.y, fc.vel.z, std::sqrt(dot(fc.angVel, fc.angVel)));
+            }
+            std::printf("\n");
+        }
+        int di = -1; for (size_t i = 0; i < h.events.size(); ++i) if (!h.events[i].detached.empty()) { di = (int)i; break; }
+        checkTrue("F38 a fragment detached", di >= 0, "");
+        if (di >= 0) {
+            const auto& fc = h.events[(size_t)di].detached[0];
+            checkTrue("F38 fragment has mass", fc.mass > 0, "mass=" + std::to_string(fc.mass));
+            const real speed = std::sqrt(dot(fc.vel, fc.vel));
+            checkTrue("F38 handoff velocity finite", std::isfinite(speed) && std::isfinite(dot(fc.angVel, fc.angVel)), "");
+            checkTrue("F38 handoff velocity nonzero (moving fragment)", speed > 1e-9, "speed=" + std::to_string(speed));
+            checkTrue("F38 handoff respects x-z symmetry (vel_y ~ 0)", std::fabs(fc.vel.y) < 1e-6 * speed, "vel_y=" + std::to_string(fc.vel.y));
+        }
+    }
+
+    // ---------- F39: DynamicCollapse -- axial chain, mid member trips -> upper part detaches, retained SDOF ----------
+    // The retained piece (node0 encastre - member0 - node1) is a fixed-free axial bar: a single
+    // analytic SDOF. The inheritance must hand node1 its pre-event static displacement exactly
+    // (full basis), and the retained part then free-vibrates about its new (zero-load) equilibrium.
+    {
+        std::printf("[F39] DynamicCollapse: axial chain, mid member trips -> detach + retained axial SDOF\n");
+        const real E = 200000.0, Gs = 80000.0, rho = 7850.0, L = 1000.0, P = 10000.0;
+        Section sec = Section::Rectangular(100.0, 100.0);                 // A = 10000 mm^2
+        Material strong(E, Gs, rho); strong.cap = Capacity::make(1e9, 1e9, 1e9);
+        Material weak(E, Gs, rho);   weak.cap   = Capacity::make(0.5, 0.5, 1e9);   // sigma = P/A = 1 MPa > 0.5 -> trips
+        FrameModel m;
+        m.materials = { strong, weak };                                  // idx 0 strong, idx 1 weak
+        m.sections  = { sec };
+        Node n0(0, 0, 0, 0);     n0.fixAll();
+        Node n1(1, 0, 0, L);
+        Node n2(2, 0, 0, 2 * L);
+        Node n3(3, 0, 0, 3 * L);
+        m.nodes   = { n0, n1, n2, n3 };
+        m.members = { Member(0, 0, 1, 0, 0), Member(1, 1, 2, 1, 0), Member(2, 2, 3, 0, 0) };   // member1 weak
+        NodalLoad nl; nl.node = 3; nl.comp[Uz] = P;                       // axial tension at the tip
+        m.nodalLoads = { nl };
+
+        const real kPi = 3.14159265358979323846;
+        const real rho_b = rho * 1e-12;                                  // kg/m^3 -> tonne/mm^3 unit bridge
+        const real omega = std::sqrt(3.0 * E / (rho_b * L * L));         // fixed-free axial bar (consistent mass)
+        const real T = 2.0 * kPi / omega;
+        const real u1_static = P * L / (E * sec.A);                      // member0 elongation under P
+
+        auto runCase = [&](bool ritz) -> DynCollapseHistory {
+            DynCollapseOptions opt;
+            opt.dt = T / 200.0; opt.maxTime = 80.0 * opt.dt;
+            opt.basisSize = 200; opt.useRitzVectors = ritz;              // basisSize >> nf -> full basis (exact)
+            opt.screenEvery = 1; opt.frameStride = 1; opt.removeThreshold = 1.0; opt.maxEvents = 5;
+            return runDynamicCollapse(m, opt);
+        };
+        const DynCollapseHistory h = runCase(false);
+        std::printf("   outcome=%d events=%zu frames=%zu T=%.3e u1_static=%.4e\n",
+                    (int)h.outcome, h.events.size(), h.frames.size(), T, u1_static);
+        checkTrue("F39 exactly one event", h.events.size() == 1, "events=" + std::to_string(h.events.size()));
+        if (h.events.size() == 1) {
+            checkTrue("F39 member1 removed", h.events[0].removedMembers.size() == 1 && h.events[0].removedMembers[0] == 1, "");
+            checkTrue("F39 upper part detached (carries member2)", !h.events[0].detached.empty(), "");
+            const real te = h.events[0].t;
+            int fi = -1;
+            for (size_t k = 0; k < h.frames.size(); ++k) if (std::fabs(h.frames[k].t - te) < 0.5 * (T / 200.0)) fi = (int)k;
+            checkTrue("F39 post-event frame exists", fi >= 0, "");
+            if (fi >= 0) checkClose("F39 inherited u1 == static (analytic)", h.frames[(size_t)fi].u[(size_t)gdof(1, Uz)], u1_static, 1e-9);
+            bool wentNeg = false; real maxAbs = 0;
+            for (size_t k = 0; k < h.frames.size(); ++k) {
+                const real u = h.frames[k].u[(size_t)gdof(1, Uz)];
+                if (u < -0.2 * u1_static) wentNeg = true;
+                maxAbs = std::max(maxAbs, std::fabs(u));
+            }
+            checkTrue("F39 retained part free-vibrates (overshoots)", wentNeg, "");
+            checkClose("F39 amplitude conserved (Newmark)", maxAbs, u1_static, 1e-2);
+        }
+        const DynCollapseHistory hr = runCase(true);
+        if (hr.events.size() == 1) {
+            const real te = hr.events[0].t; int fi = -1;
+            for (size_t k = 0; k < hr.frames.size(); ++k) if (std::fabs(hr.frames[k].t - te) < 0.5 * (T / 200.0)) fi = (int)k;
+            if (fi >= 0) checkClose("F39 Ritz inherited u1 == static", hr.frames[(size_t)fi].u[(size_t)gdof(1, Uz)], u1_static, 1e-8);
+        }
     }
 
     std::printf("\n%s  (failures=%d)\n", g_fail == 0 ? "ALL PASS" : "FAILURES", g_fail);

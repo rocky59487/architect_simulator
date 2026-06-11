@@ -172,6 +172,8 @@ The analysis modules (each a free function + POD result, **no `solve()` flag blo
 | Debris connectivity | `analyzeConnectivity` (`Connectivity.h`) | union-find over the active-element graph; grounded = reaches a fixed DOF; detached `FragmentCluster` = id lists + closed-form mass/com/inertia (rod + two-triangle lamina), id-sorted accumulation for bit-determinism |
 | Collapse driver | `runProgressiveCollapse` (`Collapse.h`) | sequential linear analysis: apply event → connectivity cleanup (pin debris nodes, shed their loads) → fresh factor + solve → screen → next event; dual terminal Stable/Collapsed + MaxSteps; deterministic tie-breaks |
 | Plastic hinges | `PlasticHinge` (`Hinge.h`, model state) + `CollapseOptions.plasticHinges` | release + signed residual `Mp = fy·Z` baked into the element condensation (element channel) + joint moment `−Mp·ê` (node channel); event-to-event until a hinge mechanism |
+| Dynamic collapse (S2) | `runDynamicCollapse` (`DynamicCollapse.h`) | continuous modal-space Newmark (β=¼) over removal events; cross-event inheritance `q'=Φ'ᵀM'u`, `q̇'=Φ'ᵀM'v` onto a fresh post-event Ritz/pure-mode basis; per-event fresh factor; replay frames `(u,v)`; terminal Stable (kinetic quiescence) / Collapsed (mechanism) / MaxSteps |
+| Fragment momentum (S2) | `fillFragmentVelocity` (`FragmentMomentum.h`, shared with the driver) | fragment-local consistent mass → linear `p` / angular `L` at the detach instant → `FragmentCluster.vel = p/m`, `angVel = I⁻¹L`; the dynamic debris handoff (the static driver leaves these zero) |
 
 ### The collapse line (C1–C5, stages 1–4b)
 

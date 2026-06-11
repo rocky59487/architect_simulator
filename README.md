@@ -15,9 +15,10 @@ compiles as a standalone console gate *and* as an Unreal Engine module.
 
 > **Status:** clean, audited baseline + a full linear-analysis suite + a **progressive-collapse
 > driver** (element removal, debris connectivity for the physics-engine handoff, shell failure
-> screen, event-to-event plastic hinges). Verification gate is green (`standalone ALL PASS
-> (F1–F33)` · `34 UE automation tests` · `OpenSees strict cross-validation PASS` · `deep audit
-> 62 checks`), including same-element agreement with OpenSees `ShellMITC4` (~1e-10 on
+> screen, event-to-event plastic hinges) + a **continuous dynamic-collapse driver** (modal-space
+> Newmark, cross-event state inheritance, momentum-preserving debris handoff). Verification gate
+> is green (`standalone ALL PASS (F1–F39)` · `40 UE automation tests` · `OpenSees strict
+> cross-validation PASS` · `deep audit 71 checks`), including same-element agreement with OpenSees `ShellMITC4` (~1e-10 on
 > flat/tilted plates; ~1e-7–1e-8 on skewed + warped meshes), natural frequencies vs OpenSees
 > `eigen` (~1e-11), and a formed-hinge state vs an independent OpenSees formulation (~1e-12).
 > Note: these are the *measured* agreements; the gate **tolerances** are looser on purpose
@@ -64,6 +65,7 @@ compiles as a standalone console gate *and* as an Unreal Engine module.
 | **Collapse driver** | `runProgressiveCollapse`: GSA-style LSP as sequential linear analysis — remove the governing element while D/C > threshold, clean up detached debris each step (pin + shed loads), re-factor, re-solve; dual terminal (Stable / Collapsed) + step budget; `dlf` sudden-removal amplification (default 2.0); `initialRemovals` scenarios; deterministic tie-breaks; per-step displacement snapshots for replay |
 | **Shell failure screen** | `checkShellSurface` / `worstShellUtilization`: surface von Mises (σ = N/t ± 6M/t², centre + corners, both faces) vs `Capacity.vm`; the driver can condemn facets |
 | **Plastic hinges (event-to-event)** | `PlasticHinge` model state (release + signed residual `Mp = fy·Z`, both channels documented in `Hinge.h`); `CollapseOptions.plasticHinges` makes hinge-capable members ductile in bending — hinges form at `|M| ≥ Mp` until a hinge **mechanism**; reproduces the classic `w* = 16Mp/L²` plastic collapse load to ±2 % |
+| **Dynamic collapse (S2)** | `runDynamicCollapse`: continuous modal-space Newmark (β=¼) over a sequence of brittle removal events, with **cross-event state inheritance** (M-orthonormal projection onto the post-event basis) and **momentum-preserving debris handoff** (`FragmentCluster.vel`/`angVel` from the consistent-mass linear/angular momentum at the detach instant); load-dependent **Ritz** basis (Wilson) with the per-event truncation residual reported; replay frames `(u,v)`. Fixes the "zero initial velocity" handoff limit of the static driver. Each event re-factors fresh; inter-event steps are `O(basisSize)` |
 
 ### Scope boundaries (read this — the engine is honest about what it is *not*)
 
@@ -100,8 +102,16 @@ compiles as a standalone console gate *and* as an Unreal Engine module.
   (every solve stays linear): no hinge unloading/reversal, uniaxial `Mp`, no N–M interaction,
   zero hinge length — it is **not** true elastoplasticity, and there are still **no fiber
   sections / pushover** (deliberately excluded). The shell screen checks surface von Mises
-  only (no transverse-shear screen, no plate buckling/ultimate). Debris fragments are handed
-  to the physics layer **from rest** (a static engine estimates no separation velocities).
+  only (no transverse-shear screen, no plate buckling/ultimate). The **static** driver hands
+  debris to the physics layer from rest (a static engine estimates no separation velocities).
+- The **dynamic-collapse driver** (`runDynamicCollapse`, S2) is **linear-elastic in modal space
+  between events** — the failure criterion is the same screening D/C (not a code check), events
+  trigger on a whole step (O(dt)), and the Chaos handoff is one-way (a fragment does not feed
+  back after leaving). Truncation error is reported per event via `truncationResidual` (a full
+  basis is exact; a truncated basis can miss high-frequency content). The fragment **own-axis**
+  angular momentum uses the slender-rod closed form (the FE section polar term is dropped —
+  negligible for slender members). Plastic-hinge **dynamics** are reserved (S2.1); the velocity
+  handoff fixes the static driver's "from rest" limit.
 
 ---
 

@@ -280,8 +280,8 @@ S9 (CR) ───► S10 (N-M 塑鉸,必在 CR 後;R4 方向耦合)
 | 完成後 | standalone F | UE 測試 | linear_deep_audit | 備註 |
 |---|---|---|---|---|
 | 基準 `733833d` | F1–F33 | 34 | 62 | 起點 |
-| **S1** | +F34–F36 | 37 | 68 | tier1/恢復漂移/機構/tier2/sparse buckling/全拉 |
-| **S2** | +F37–F39 | 40 | 72 | 等價/動量/Ritz 殘差/能量帳 |
+| **S1** ✅ | +F34–F36 | 37 | 67 | tier1/恢復漂移/機構/tier2/sparse buckling/全拉(實測回填) |
+| **S2** ✅ | +F37–F39 | 40 | **71**(67→71) | 等價(全系統 Newmark)/動量閉合/Ritz 殘差/全基底零截斷(實測回填) |
 | **S3** | +F40–F41 | 41 | 75 | 雙路徑互驗/P=0 退化/發散旗標 |
 | **S4** | +F42–F43 | 42 | 77 | 省略等價/fingerprint 守門 |
 | S5+ | +F44… | 43… | 79… | 骨架,動工前定 |
@@ -289,12 +289,12 @@ S9 (CR) ───► S10 (N-M 塑鉸,必在 CR 後;R4 方向耦合)
 > 數字是 spec 預測(各 spec ⑦ 節);實作時以實際新增為準並回填本表 + `run_gate.ps1`。
 > UE 期望數基準取決於 S1/S2 先後(S2 spec ⑤ 已註)。
 
-**實作狀態(2026-06-11,夜間無人監督)**:S1 進行中。已落地並 push:R8 `build_perf.bat` 修復(`0e2e500`)、
-**稀疏屈曲** overload(`a91b171`,standalone **F34** + audit **63**;注意實際編號 F34 而非 spec 暫定 F36,
-因 baseline 最高 logical fixture=F33)、`PERFORMANCE_BASELINE.md` 正式化 + 同機錨點。**ReSolveSession**
-(三層階梯,本表的 F34/F35 預測項)尚未實作,已備妥逐位元交接筆記於 `docs/PROGRESS_S1.md`(建議拆
-Tier-1+Tier-3 / Tier-2 兩個完整 commit)。UE automation + OpenSees 重 gate 依務實分層政策留待 S1 完成里程碑。
-詳見 [PROGRESS_S1.md](PROGRESS_S1.md)。
+**實作狀態(2026-06-11)**:**S1 完成結案**(9 commits `81639c1`→`ca04fee` + docs `f08941d`;稀疏屈曲 F34、
+ReSolveSession 三層 F35/F36、UE 34→37、audit 67)。**S2 完成**(本輪):`runDynamicCollapse`(模態空間 Newmark +
+跨事件 M-正交繼承 + 碎塊動量交接 `FragmentMomentum.h`)+ F37–F39 + 3 UE 測試(37→40)+ audit `testDynamicCollapse`
+(+4,67→71)。事件重解走 **fresh re-factor**(碎塊清理 pin 改 support flags,超出 ReSolve same-topology;且基底
+重建需新構型 `K'_ff` 的 LDLT;介面留 ReSolve hook)。**每次 commit 前完整四腿 `run_gate.ps1 -RequireOpenSees`
+全綠**(政策升級,不再務實分層)。詳見 [PROGRESS_S2.md](PROGRESS_S2.md)。下一步 = S3 P-Delta(使用者檢視 S2 後授權)。
 
 ---
 

@@ -12,6 +12,9 @@
 #include "FrameCore/Collapse.h"
 #include "FrameTestFixtures.h"
 #include "MITC4ShellElement.h"   // Private seam: element + Eigen types for the element-level audit
+#include "PreparedSystemImpl.h"  // S2: assembled K + free map + prepared elements (mass)
+#include "FragmentMomentum.h"    // S2: fragment momentum extraction (shared with the driver)
+#include "FrameCore/DynamicCollapse.h"
 
 #include <algorithm>
 #include <array>
@@ -1346,6 +1349,163 @@ void testReanalysis() {
     }
 }
 
+// ---------------------------------------------------------------------------
+// S2 dynamic collapse: cross-event inheritance == full-system Newmark, momentum
+// handoff closure (imposed rigid motion), and full-basis exactness.
+// ---------------------------------------------------------------------------
+SpMat dcReduceFF(const SpMat& K, const std::vector<int>& fmap, int nf) {
+    std::vector<Triplet> t;
+    for (int c = 0; c < K.outerSize(); ++c)
+        for (SpMat::InnerIterator it(K, c); it; ++it) {
+            const int r = it.row();
+            if (fmap[(size_t)r] >= 0 && fmap[(size_t)c] >= 0) t.emplace_back(fmap[(size_t)r], fmap[(size_t)c], it.value());
+        }
+    SpMat R(nf, nf); R.setFromTriplets(t.begin(), t.end()); return R;
+}
+SpMat dcMassFF(const PreparedSystem::Impl& S) {
+    std::vector<Triplet> mt; for (const auto& el : S.elems) el->assembleMass(mt);
+    SpMat M(S.N, S.N); M.setFromTriplets(mt.begin(), mt.end());
+    return dcReduceFF(M, S.fmap, S.nf);
+}
+VecX dcReduceVec(const VecX& F, const std::vector<int>& fmap, int nf) {
+    VecX f = VecX::Zero(nf);
+    for (int g = 0; g < (int)fmap.size(); ++g) if (fmap[(size_t)g] >= 0) f(fmap[(size_t)g]) = F(g);
+    return f;
+}
+
+void testDynamicCollapse() {
+    // ---- Check 1: cross-event modal inheritance == full-system Newmark (full basis) ----
+    {
+        const real E = 200000.0, Gs = 80000.0, rho = 7850.0, W = 3000.0, Hh = 3000.0, P = 50000.0;
+        Section sec = Section::Rectangular(200.0, 200.0);
+        Material mat(E, Gs, rho); mat.cap = Capacity::make(1e9, 1e9, 1e9);
+        FrameModel m; m.materials = { mat }; m.sections = { sec };
+        Node n0(0, 0, 0, 0); n0.fixAll();
+        Node n1(1, W, 0, 0); n1.fixAll();
+        Node n2(2, 0, 0, Hh); Node n3(3, W, 0, Hh);
+        m.nodes   = { n0, n1, n2, n3 };
+        m.members = { Member(0, 0, 2, 0, 0), Member(1, 1, 3, 0, 0), Member(2, 2, 3, 0, 0), Member(3, 0, 3, 0, 0) };
+        PreparedSystem ps1 = assembleAndFactor(m); const auto& S1 = *ps1.impl;
+        const SpMat K1 = dcReduceFF(S1.K, S1.fmap, S1.nf), M1 = dcMassFF(S1);
+        VecX Fg = VecX::Zero(S1.N); Fg(gdof(2, Ux)) = P;
+        const VecX F1 = dcReduceVec(Fg, S1.fmap, S1.nf);
+        FrameModel m2 = m; m2.members[3].active = false;             // remove brace -> stays connected
+        PreparedSystem ps2 = assembleAndFactor(m2); const auto& S2 = *ps2.impl;
+        const SpMat K2 = dcReduceFF(S2.K, S2.fmap, S2.nf), M2 = dcMassFF(S2);
+        const VecX F2 = dcReduceVec(Fg, S2.fmap, S2.nf);
+
+        const MatX K1d = MatX(K1), M1d = MatX(M1), K2d = MatX(K2), M2d = MatX(M2);
+        Eigen::GeneralizedSelfAdjointEigenSolver<MatX> g1(K1d, M1d), g2(K2d, M2d);
+        const VecX w1 = g1.eigenvalues(), w2 = g2.eigenvalues();
+        const MatX P1 = g1.eigenvectors(), P2 = g2.eigenvectors();
+        const real T1 = 2 * kPi / std::sqrt(w1(0)); const real dt = T1 / 200.0;
+        const int nSteps = 400, eventStep = 160;
+        const real a0 = 4.0 / (dt * dt), a2 = 4.0 / dt;
+
+        LDLTSolver h1; h1.compute(SpMat(K1 + a0 * M1));
+        LDLTSolver h2; h2.compute(SpMat(K2 + a0 * M2));
+        LDLTSolver Ml1; Ml1.compute(M1); LDLTSolver Ml2; Ml2.compute(M2);
+        auto physStep = [&](const LDLTSolver& hh, const SpMat& M, const SpMat& K, const VecX& F, VecX& u, VecX& v, VecX& a) {
+            (void)K; const VecX Fhat = F + M * (a0 * u + a2 * v + a);
+            const VecX un = hh.solve(Fhat);
+            const VecX an = a0 * (un - u) - a2 * v - a;
+            v = v + (dt / 2.0) * (a + an); u = un; a = an;
+        };
+        VecX u = VecX::Zero(S1.nf), v = VecX::Zero(S1.nf), a = Ml1.solve(F1);
+        std::vector<VecX> traceA; traceA.reserve((size_t)nSteps);
+        for (int s = 0; s < nSteps; ++s) {
+            if (s == eventStep) a = Ml2.solve(F2 - K2 * u);
+            if (s < eventStep) physStep(h1, M1, K1, F1, u, v, a); else physStep(h2, M2, K2, F2, u, v, a);
+            traceA.push_back(u);
+        }
+        auto modalStep = [&](VecX& q, VecX& qd, VecX& qdd, const VecX& f, const VecX& w2c) {
+            for (int i = 0; i < (int)q.size(); ++i) {
+                const real kh = w2c(i) + a0;
+                const real qn = (f(i) + a0 * q(i) + a2 * qd(i) + qdd(i)) / kh;
+                const real qddn = a0 * (qn - q(i)) - a2 * qd(i) - qdd(i);
+                qd(i) += (dt / 2.0) * (qdd(i) + qddn); q(i) = qn; qdd(i) = qddn;
+            }
+        };
+        const VecX f1 = P1.transpose() * F1, f2 = P2.transpose() * F2;
+        VecX q = VecX::Zero(S1.nf), qd = VecX::Zero(S1.nf), qdd = f1;
+        real maxErr = 0, maxRef = 0;
+        for (int s = 0; s < nSteps; ++s) {
+            if (s == eventStep) {
+                const VecX ue = P1 * q, ve = P1 * qd;
+                q = P2.transpose() * (M2 * ue); qd = P2.transpose() * (M2 * ve); qdd = f2 - w2.cwiseProduct(q);
+            }
+            modalStep(q, qd, qdd, (s < eventStep ? f1 : f2), (s < eventStep ? w1 : w2));
+            const VecX ub = (s < eventStep ? P1 : P2) * q;
+            maxErr = std::max(maxErr, (ub - traceA[(size_t)s]).cwiseAbs().maxCoeff());
+            maxRef = std::max(maxRef, traceA[(size_t)s].cwiseAbs().maxCoeff());
+        }
+        const real rel = maxErr / std::max<real>(1e-30, maxRef);
+        addRow("Dynamic collapse", "cross-event modal inheritance == full-system Newmark",
+               "modal projection q'=Phi'^T M' u (full basis) vs avg-accel Newmark with state carry",
+               "relMax u", rel, 1e-8, rel < 1e-8);
+    }
+
+    // ---- Check 2 & 3: fragment momentum closure under imposed rigid motion ----
+    {
+        FrameModel c;
+        Material cm(200000.0, 76923.07692307692, 7850.0); cm.cap = Capacity::make(1e9, 1e9, 1e9);
+        Section cs = Section::Rectangular(150.0, 150.0);
+        c.materials = { cm }; c.sections = { cs };
+        for (int k = 0; k <= 3; ++k) { Node n(k, 0, 0, 1000.0 * k); if (k == 0) n.fixAll(); c.nodes.push_back(n); }
+        for (int k = 0; k < 3; ++k) { Member mm(k, k, k + 1, 0, 0); mm.refVec = Vec3(1, 0, 0); c.members.push_back(mm); }
+        FrameModel work = c; work.members[1].active = false;
+        const ConnectivityResult cr = analyzeConnectivity(work);
+        const FragmentCluster& fc = cr.detached[0];   // {n2, n3, m2}
+
+        const real v0 = 7.3;
+        VecX vT = VecX::Zero(c.dofCount());
+        for (NodeId nid : fc.nodes) vT(gdof(work.nodeIndex(nid), Ux)) = v0;
+        Vec3 p, L; fragmentMomentum(fc, work, vT, p, L);
+        const real px_exp = fc.mass * v0;
+        const bool ok2 = relErr(p.x, px_exp) < 1e-10 && std::fabs(p.y) < 1e-8 * px_exp && std::fabs(p.z) < 1e-8 * px_exp;
+        addRow("Dynamic collapse", "fragment linear momentum closure",
+               "imposed rigid translation: p = m*v0 (FE consistent mass), transverse p ~ 0",
+               "p_x vs m*v0", relErr(p.x, px_exp), 1e-10, ok2);
+
+        const real w0 = 0.31;
+        VecX vR = VecX::Zero(c.dofCount());
+        for (NodeId nid : fc.nodes) {
+            const int gi = work.nodeIndex(nid);
+            const Vec3 rel = work.nodes[(size_t)gi].pos - fc.com;
+            const Vec3 tr = cross(Vec3(0, 1, 0), rel);
+            vR(gdof(gi, Ux)) = w0 * tr.x; vR(gdof(gi, Uy)) = w0 * tr.y; vR(gdof(gi, Uz)) = w0 * tr.z;
+            vR(gdof(gi, Ry)) = w0;
+        }
+        Vec3 p3, L3; fragmentMomentum(fc, work, vR, p3, L3);
+        const real Ly_exp = fc.inertia[1] * w0;
+        addRow("Dynamic collapse", "fragment transverse angular momentum",
+               "imposed rigid rotation about com (axis y): L_y = I_yy*w0 (slender-rod cluster form)",
+               "L_y vs I_yy*w0", relErr(L3.y, Ly_exp), 1e-2, relErr(L3.y, Ly_exp) < 1e-2);
+    }
+
+    // ---- Check 4: full-basis inheritance is exact (zero per-event truncation residual) ----
+    {
+        const real E = 200000.0, Gs = 80000.0, rho = 7850.0, W = 3000.0, Hh = 3000.0, P = 50000.0;
+        Section sec = Section::Rectangular(200.0, 200.0);
+        Material strong(E, Gs, rho); strong.cap = Capacity::make(1e9, 1e9, 1e9);
+        Material braceMat(E, Gs, rho); braceMat.cap = Capacity::make(0.5, 0.5, 1e9);
+        FrameModel m; m.materials = { strong, braceMat }; m.sections = { sec };
+        Node n0(0, 0, 0, 0); n0.fixAll();
+        Node n1(1, W, 0, 0); n1.fixAll();
+        Node n2(2, 0, 0, Hh); Node n3(3, W, 0, Hh);
+        m.nodes   = { n0, n1, n2, n3 };
+        m.members = { Member(0, 0, 2, 0, 0), Member(1, 1, 3, 0, 0), Member(2, 2, 3, 0, 0), Member(3, 0, 3, 1, 0) };
+        NodalLoad nl; nl.node = 2; nl.comp[Ux] = P; m.nodalLoads = { nl };
+        DynCollapseOptions opt; opt.dt = 1e-5; opt.maxTime = 40 * opt.dt; opt.basisSize = 200;
+        opt.screenEvery = 1; opt.frameStride = 5; opt.removeThreshold = 1.0; opt.maxEvents = 3;
+        const DynCollapseHistory h = runDynamicCollapse(m, opt);
+        real maxTrunc = 0; for (const auto& ev : h.events) maxTrunc = std::max(maxTrunc, ev.truncationResidual);
+        addRow("Dynamic collapse", "full-basis inheritance is exact",
+               "runDynamicCollapse basisSize >> nf: per-event projection residual ~ 0",
+               "max truncationResidual", maxTrunc, 1e-9, !h.events.empty() && maxTrunc < 1e-9);
+    }
+}
+
 }  // namespace
 
 int main() {
@@ -1374,6 +1534,7 @@ int main() {
     testHingeDriverCompat();
     testSafetyAndMargin();
     testReanalysis();
+    testDynamicCollapse();
 
     int failures = 0;
     std::cout << "Linear-analysis deep audit (post F17-F25 strengthening)\n\n";

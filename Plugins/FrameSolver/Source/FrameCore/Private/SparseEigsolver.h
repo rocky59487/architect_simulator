@@ -28,9 +28,14 @@ namespace frame {
 // B symmetric sparse. On success fills `lambda` (ascending, size nev) and `vec` (n×nev, columns
 // are the eigenvectors, A-normalized) and returns true. Returns false if the projected problem
 // goes ill-conditioned or it fails to converge — the caller should fall back to the dense path.
+// Optional `X0` seeds the leading columns of the iteration block (warm-start): pass the
+// pre-event modes to converge the post-event modes in fewer iterations. Default nullptr keeps
+// the deterministic random start -> bit-identical to the un-seeded path (modal/buckling oracles
+// unaffected).
 inline bool subspaceSmallest(const SpMat& A, const LDLTSolver& Ainv, const SpMat& B,
                              int nev, VecX& lambda, MatX& vec,
-                             int maxIter = 300, real tol = 1e-11) {
+                             int maxIter = 300, real tol = 1e-11,
+                             const MatX* X0 = nullptr) {
     const int n = static_cast<int>(A.rows());
     if (nev <= 0 || n <= 0 || nev > n) return false;
     const int p = std::min(n, std::max(nev + 4, 2 * nev));   // guard vectors aid convergence
@@ -41,6 +46,10 @@ inline bool subspaceSmallest(const SpMat& A, const LDLTSolver& Ainv, const SpMat
     MatX X(n, p);
     for (int j = 0; j < p; ++j)
         for (int i = 0; i < n; ++i) X(i, j) = dist(rng);
+    if (X0) {   // warm-start: overwrite the leading columns with the supplied block
+        const int c = std::min<int>(p, static_cast<int>(X0->cols()));
+        X.leftCols(c) = X0->leftCols(c);
+    }
 
     VecX muPrev = VecX::Constant(p, real(1e30));   // mu = 1/lambda (largest -> smallest lambda)
     VecX mu     = VecX::Zero(p);

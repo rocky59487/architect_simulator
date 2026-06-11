@@ -12,8 +12,10 @@ namespace frame {
 // in tonne*mm^2. Mass model (honest scope): STRUCTURAL self-mass only — members as slender
 // rods (rho*A*L, zero inertia about their own axis), shells as thin laminae (rho*t*Area,
 // exact two-triangle closed form). Applied loads carry no mass (same scope as the modal
-// mass matrix). Initial velocities are NOT estimated (this is a static engine): the physics
-// layer starts the fragment from rest under gravity.
+// mass matrix). Initial velocities: the STATIC driver (runProgressiveCollapse) leaves vel/
+// angVel ZERO -- a static engine cannot estimate separation speed, so the physics layer would
+// start the fragment from rest under gravity. The DYNAMIC driver (runDynamicCollapse, S2) fills
+// them from the consistent-mass momentum captured at the detach instant (see vel/angVel below).
 struct FragmentCluster {
     std::vector<NodeId>   nodes;     // ascending id (deterministic output)
     std::vector<MemberId> members;   // active members fully inside the component, ascending
@@ -27,6 +29,14 @@ struct FragmentCluster {
     // I = [[Ixx,Ixy,Ixz],[Ixy,Iyy,Iyz],[Ixz,Iyz,Izz]] with NO extra sign flip on the
     // consumer side — read them straight into a 3x3.
     real inertia[6] = { 0, 0, 0, 0, 0, 0 };
+
+    // Rigid-body velocity of the fragment at the detach instant, GLOBAL axes. ZERO from the
+    // static driver (old behaviour, POD default). The dynamic driver (S2) fills them from the
+    // fragment's consistent-mass momentum at separation: vel = p / mass, angVel = I^{-1} L_com
+    // (I = the inertia tensor above). Hand straight to the physics engine as the chunk's
+    // initial linear/angular velocity.
+    Vec3 vel;       // centre-of-mass linear velocity (mm/s, global)
+    Vec3 angVel;    // angular velocity (rad/s, global) = I^{-1} L_com
 };
 
 // Connected-component analysis of the ACTIVE element graph: vertices = nodes, edges =
