@@ -71,16 +71,19 @@ namespace FrameCore.Bridge
             using (var p = new Process { StartInfo = psi })
             {
                 p.Start();
+                var stdoutTask = p.StandardOutput.ReadToEndAsync();
+                var stderrTask = p.StandardError.ReadToEndAsync();
                 p.StandardInput.Write(modelText);
                 p.StandardInput.Close();
-                string stdout = p.StandardOutput.ReadToEnd();
                 if (!p.WaitForExit(timeoutMs))
                 {
                     try { p.Kill(); } catch { /* ignore */ }
                     throw new TimeoutException("frame_cli timed out");
                 }
+                string stdout = stdoutTask.GetAwaiter().GetResult();
+                string stderr = stderrTask.GetAwaiter().GetResult();
                 if (p.ExitCode != 0)
-                    throw new InvalidOperationException("frame_cli exit " + p.ExitCode + ": " + p.StandardError.ReadToEnd());
+                    throw new InvalidOperationException("frame_cli exit " + p.ExitCode + ": " + stderr);
                 return Parse(stdout);
             }
         }

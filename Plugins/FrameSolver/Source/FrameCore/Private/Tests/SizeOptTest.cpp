@@ -7,6 +7,7 @@
 #include "FrameCore/FrameSolver.h"
 #include "FrameCore/SizeOpt.h"
 #include "FrameTestFixtures.h"
+#include <cmath>
 
 #if WITH_DEV_AUTOMATION_TESTS
 
@@ -54,6 +55,32 @@ bool FFrameCoreSizeOptTest::RunTest(const FString& /*Parameters*/)
     for (int k : { 1, 4, 5, 9 })
         if (FMath::Abs(R.finalAreas[(size_t)k] - Amin) / Amin > 1e-9) atMin = false;
     TestTrue(TEXT("bars 2/5/6/10 at A_min bound"), atMin);
+
+    {
+        Material zmat(Empa, Empa / 2.6, 0.0);  // cap intentionally left at zero
+        FrameModel zm; fixtures::cantileverTipLoad(zm, -1000.0, 1000.0, zmat, Section::Rectangular(100.0, 100.0));
+        SizeOptOptions zo; zo.maxIter = 10; zo.Amin = 1.0;
+        const SizeOptResult Z = runSizeOptimization(zm, zo);
+        TestTrue(TEXT("zero-cap demand does not fake-converge"), !Z.converged && Z.invalidDemand);
+        TestTrue(TEXT("zero-cap final D/C is non-finite"),
+                 !Z.finalDC.empty() && !std::isfinite(Z.finalDC[0]));
+    }
+
+    {
+        FrameModel zm; fixtures::cantileverTipLoad(zm, -1000.0, 1000.0, tmat, Section::Rectangular(100.0, 100.0));
+        Node n2(2, 0.0, 1000.0, 0.0); n2.fixAll();
+        Node n3(3, 1000.0, 1000.0, 0.0); n3.fixAll();
+        zm.nodes.push_back(n2);
+        zm.nodes.push_back(n3);
+        zm.members.push_back(Member(1, 2, 3, 0, 0));  // fixed-fixed, unloaded -> zero D/C
+        SizeOptOptions zo; zo.maxIter = 10; zo.dcTol = 1e-10; zo.Amin = 0;
+        const SizeOptResult Z = runSizeOptimization(zm, zo, { 1 });
+        TestTrue(TEXT("zero-force member reports zero area/section"),
+                 Z.converged && !Z.singular && Z.finalAreas.size() > 1 &&
+                 Z.finalAreas[1] == 0 && Z.finalSections[1].A == 0);
+        TestTrue(TEXT("zero-force member has zero sized volume"),
+                 !Z.weightHistory.empty() && Z.weightHistory.back() == 0);
+    }
     return true;
 }
 

@@ -6,6 +6,7 @@
 #include <cmath>
 #include <cstdint>
 #include <cstring>
+#include <limits>
 #include <set>
 #include <string>
 
@@ -20,7 +21,11 @@ namespace {
 Section scaledFrom(const Section& orig, real Anew) {
     Section s = orig;
     const real Aold = orig.A;
-    if (Aold <= 0 || Anew <= 0) return s;        // defensive: leave untouched
+    if (Aold <= 0) return s;        // defensive: leave untouched
+    if (Anew <= 0) {
+        s.A = s.Iy = s.Iz = s.J = s.cy = s.cz = s.Asy = s.Asz = s.Zy = s.Zz = 0;
+        return s;
+    }
     const real r   = Anew / Aold;
     const real lam = std::sqrt(r);
     s.A   = Anew;
@@ -117,6 +122,12 @@ SizeOptResult runSizeOptimization(const FrameModel& model, const SizeOptOptions&
         if (ni < 0 || nj < 0) return 0;
         return norm(work.nodes[(size_t)nj].pos - work.nodes[(size_t)ni].pos);
     };
+    auto sizedVolume = [&]() -> real {
+        real vol = 0;
+        for (size_t k = 0; k < sized.size(); ++k)
+            vol += area[k] * memberLen(sized[k]);
+        return vol;
+    };
 
     // Nothing to resize: report the model as-is (converged, no work).
     if (sized.empty()) {
@@ -146,17 +157,39 @@ SizeOptResult runSizeOptimization(const FrameModel& model, const SizeOptOptions&
             }
             if (sawSingular) { R.singular = true; break; }
 
+            bool sawNonFinite = false;
+            real worstDC = 0;
+            for (real d : dc) {
+                if (!std::isfinite(d)) {
+                    sawNonFinite = true;
+                    worstDC = std::numeric_limits<real>::infinity();
+                } else if (!sawNonFinite) {
+                    worstDC = std::max(worstDC, d);
+                }
+            }
+            if (sawNonFinite) {
+                R.invalidDemand = true;
+                R.dcHistory.push_back(worstDC);
+                R.weightHistory.push_back(sizedVolume());
+                break;
+            }
+
             // 2) resize + bookkeeping
-            real worstDC = 0, maxDevFS = 0, vol = 0;
+            real maxDevFS = 0, vol = 0;
             int changed = 0;
             for (size_t k = 0; k < sized.size(); ++k) {
-                worstDC = std::max(worstDC, dc[k]);
-                const real factor = std::isfinite(dc[k]) ? dc[k] : real(1);
+                const real factor = dc[k];
                 real Anew = std::max(opts.Amin, area[k] * factor);
                 if (!opts.sectionTable.empty()) Anew = snapUp(opts.sectionTable, Anew);
                 if (Anew != area[k]) ++changed;
                 area[k] = Anew;
-                work.sections[(size_t)work.members[(size_t)sized[k]].secIdx] = scaledFrom(origSec[k], Anew);
+                Member& mem = work.members[(size_t)sized[k]];
+                if (Anew <= 0) {
+                    mem.active = false;
+                } else {
+                    mem.active = true;
+                    work.sections[(size_t)mem.secIdx] = scaledFrom(origSec[k], Anew);
+                }
                 if (Anew > opts.Amin * (real(1) + real(1e-9)))
                     maxDevFS = std::max(maxDevFS, std::fabs(factor - real(1)));
                 vol += Anew * memberLen(sized[k]);
@@ -179,6 +212,12 @@ SizeOptResult runSizeOptimization(const FrameModel& model, const SizeOptOptions&
     R.finalSections.assign(nMem, Section{});
     R.finalDC.assign(nMem, 0);
     for (size_t e = 0; e < nMem; ++e) {
+        const int p = sizePos[e];
+        if (p >= 0) {
+            R.finalSections[e] = scaledFrom(origSec[(size_t)p], area[(size_t)p]);
+            R.finalAreas[e] = area[(size_t)p];
+            continue;
+        }
         const Member& m = work.members[e];
         if (m.secIdx >= 0 && m.secIdx < (int)work.sections.size()) {
             R.finalSections[e] = work.sections[(size_t)m.secIdx];

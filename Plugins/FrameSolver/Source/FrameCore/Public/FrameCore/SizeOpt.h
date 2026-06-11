@@ -55,10 +55,11 @@ struct SizeOptResult {
     std::vector<real>    finalDC;        // per member: D/C at convergence (fully-stressed members ~ 1)
     std::vector<real>    dcHistory;      // worst D/C across sizable members, per iteration
     std::vector<real>    weightHistory;  // material VOLUME sum_e A_e * L_e (mm^3) -- a density-free
-                                         // weight proxy, monotone-ish decreasing toward the optimum
+                                          // weight proxy, monotone-ish decreasing toward the optimum
     bool converged  = false;
     bool cycled     = false;             // discrete-table oscillation guard tripped -> finite-terminated
     bool singular   = false;             // a solve hit a mechanism (e.g. Amin too small)
+    bool invalidDemand = false;          // non-finite D/C (e.g. zero allowable capacity under demand)
     int  iterations = 0;
 };
 

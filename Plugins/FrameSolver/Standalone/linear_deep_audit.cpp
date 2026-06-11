@@ -2,6 +2,7 @@
 #include "FrameCore/PDeltaAnalysis.h"
 #include "FrameCore/TensionOnly.h"
 #include "FrameCore/SizeOpt.h"
+#include "FrameCore/Topology.h"
 #include "FrameCore/Reanalysis.h"
 #include "FrameCore/Combination.h"
 #include "FrameCore/FrameSolver.h"
@@ -1655,6 +1656,112 @@ void testSizeOpt() {
     }
 }
 
+// S7 BESO topology optimization + N2 collapse robustness.
+void testBESO() {
+    const real E = 210000.0, G = 80769.0;
+    Material mat(E, G, 7850.0); mat.cap = Capacity::make(300.0, 300.0, 180.0);
+    const Section sec = Section::Rectangular(80.0, 80.0);
+
+    // ---- Check 1: sensitivity = element strain energy -> energy balance sum(alpha) == 1/2 F.u ----
+    // A portal frame (axial + bending + shear engaged) independent of F45's L-frame: the BESO
+    // sensitivity is the exact element strain energy, so it must sum to half the external work.
+    {
+        FrameModel m; m.materials.push_back(mat); m.sections.push_back(sec);
+        m.nodes.push_back(Node(0, 0, 0, 0));      m.nodes[0].fixAll();
+        m.nodes.push_back(Node(1, 0, 0, 2000));
+        m.nodes.push_back(Node(2, 2000, 0, 2000));
+        m.nodes.push_back(Node(3, 2000, 0, 0));   m.nodes[3].fixAll();
+        { Member a(0, 0, 1, 0, 0); a.refVec = { 1, 0, 0 }; m.members.push_back(a); }   // column
+        { Member b(1, 1, 2, 0, 0); b.refVec = { 0, 0, 1 }; m.members.push_back(b); }   // beam
+        { Member c(2, 2, 3, 0, 0); c.refVec = { 1, 0, 0 }; m.members.push_back(c); }   // column
+        NodalLoad l1; l1.node = 1; l1.comp[Ux] = 10000.0; m.nodalLoads.push_back(l1);
+        NodalLoad l2; l2.node = 2; l2.comp[Uz] = -6000.0; m.nodalLoads.push_back(l2);
+        const SolveResult r = solve(m);
+        real sumA = 0;
+        for (size_t e = 0; e < m.members.size(); ++e) sumA += memberStrainEnergy(m, r, (int)e);
+        real C = 0;
+        for (const NodalLoad& L : m.nodalLoads) {
+            const int ni = m.nodeIndex(L.node);
+            for (int d = 0; d < 6; ++d) C += L.comp[d] * r.u[(size_t)gdof(ni, d)];
+        }
+        const real rel = std::fabs(sumA - 0.5 * C) / std::max<real>(1.0, std::fabs(0.5 * C));
+        addRow("Topology (BESO)", "sensitivity = exact element strain energy (all components)",
+               "portal frame: sum_e alpha_e == 1/2 F.u (energy balance, independent of F45 L-frame)",
+               "rel |sum a - 1/2 F.u|", rel, 1e-9, !r.singular && rel < 1e-9);
+    }
+
+    // ---- Check 2: N2 robustness — robust BESO topology survives every single-member removal + locks
+    // (unconstrained sister topology does NOT). Colinear main chain g+m with a small-section backup b.
+    {
+        FrameModel m; m.materials.push_back(mat);
+        m.sections.push_back(sec);
+        m.sections.push_back(Section::Rectangular(50.0, 50.0));
+        m.nodes.push_back(Node(0, 0, 0, 0));      m.nodes[0].fixAll();
+        m.nodes.push_back(Node(1, 0, 0, 2000));   m.nodes[1].fixAll();
+        m.nodes.push_back(Node(2, 1500, 0, 0));
+        m.nodes.push_back(Node(3, 3000, 0, 1000));
+        m.members.push_back(Member(0, 0, 2, 0, 0));   // g (main)
+        m.members.push_back(Member(1, 2, 3, 0, 0));   // m (main)
+        m.members.push_back(Member(2, 1, 3, 0, 1));   // b (small backup)
+        NodalLoad l; l.node = 3; l.comp[Uz] = -2000.0; m.nodalLoads.push_back(l);
+        auto fragile = [&](const std::vector<char>& act) -> bool {
+            FrameModel mm = m;
+            for (size_t e = 0; e < mm.members.size(); ++e) mm.members[e].active = act[e] != 0;
+            for (size_t e = 0; e < mm.members.size(); ++e) {
+                if (!mm.members[e].active) continue;
+                CollapseOptions co; co.dlf = 1.0; co.removeThreshold = 1.0;
+                co.initialRemovals = { mm.members[e].id };
+                if (runProgressiveCollapse(mm, co).outcome == CollapseOutcome::Collapsed) return true;
+            }
+            return false;
+        };
+        BESOOptions ou; ou.targetVolFrac = 0.6; ou.evolRate = 0.34; ou.maxIter = 20;
+        const BESOResult Ru = runBESO(m, ou);
+        BESOOptions orb = ou; orb.redundancyCheckEvery = 1; orb.redundancySamples = 0;
+        orb.redundancy.dlf = 1.0; orb.redundancy.removeThreshold = 1.0;
+        const BESOResult Rr = runBESO(m, orb);
+        const bool uncFragile = fragile(Ru.finalActive);
+        const bool robSafe    = !fragile(Rr.finalActive) && !Rr.protectedMembers.empty();
+        addRow("Topology (BESO N2)", "collapse-robustness constraint rolls back + locks bars",
+               "unconstrained topology collapses on a single removal; robust one survives all + locks",
+               "robust-safe AND unc-fragile (1=yes)", (uncFragile && robSafe) ? 1.0 : 0.0, 0.0,
+               uncFragile && robSafe);
+    }
+
+    // ---- Check 3: mechanism guard — BESO never stops on a singular topology (FRESH-confirmed) ----
+    {
+        const int NX = 5, NZ = 3; const real SP = 500.0;
+        auto nid = [&](int i, int k) { return k * (NX + 1) + i; };
+        FrameModel m; m.materials.push_back(mat); m.sections.push_back(sec);
+        for (int k = 0; k <= NZ; ++k)
+            for (int i = 0; i <= NX; ++i) {
+                Node n(nid(i, k), i * SP, 0.0, k * SP);
+                if (i == 0) n.fixAll();
+                else { n.fixed[Uy] = true; n.fixed[Rx] = true; n.fixed[Rz] = true; }
+                m.nodes.push_back(n);
+            }
+        auto add = [&](int a, int b) {
+            Member mem((int)m.members.size(), a, b, 0, 0);
+            const Vec3 d = m.nodes[(size_t)b].pos - m.nodes[(size_t)a].pos;
+            mem.refVec = (std::fabs(d.z) > std::fabs(d.x)) ? Vec3{ 1, 0, 0 } : Vec3{ 0, 0, 1 };
+            m.members.push_back(mem);
+        };
+        for (int k = 0; k <= NZ; ++k) for (int i = 0; i < NX; ++i) add(nid(i, k), nid(i + 1, k));
+        for (int k = 0; k < NZ; ++k) for (int i = 0; i <= NX; ++i) add(nid(i, k), nid(i, k + 1));
+        for (int k = 0; k < NZ; ++k) for (int i = 0; i < NX; ++i) { add(nid(i, k), nid(i + 1, k + 1)); add(nid(i + 1, k), nid(i, k + 1)); }
+        NodalLoad l; l.node = nid(NX, NZ / 2); l.comp[Uz] = -1.0e4; m.nodalLoads.push_back(l);
+        BESOOptions o; o.targetVolFrac = 0.45; o.evolRate = 0.06; o.maxIter = 80;
+        const BESOResult R = runBESO(m, o);
+        FrameModel mb = m;
+        for (size_t e = 0; e < mb.members.size(); ++e) mb.members[e].active = R.bestActive[e] != 0;
+        const SolveResult rb = solve(mb);
+        addRow("Topology (BESO)", "mechanism guard (capacitance fast + fresh confirm)",
+               "best topology factors under a FRESH solve -> BESO never stops on a singular structure",
+               "best topology singular flag (0=ok)", rb.singular ? 1.0 : 0.0, 0.0,
+               !rb.singular && !R.finalActive.empty());
+    }
+}
+
 }  // namespace
 
 int main() {
@@ -1687,6 +1794,7 @@ int main() {
     testPDelta();
     testTensionOnly();
     testSizeOpt();
+    testBESO();
 
     int failures = 0;
     std::cout << "Linear-analysis deep audit (post F17-F25 strengthening)\n\n";

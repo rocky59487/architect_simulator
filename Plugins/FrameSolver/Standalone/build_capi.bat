@@ -55,6 +55,7 @@ cl /nologo /LD /EHsc /std:c++17 /O2 /MD /utf-8 /DEIGEN_MPL2_ONLY /DFRAMECORE_BUI
    Source\FrameCore\Private\PDeltaAnalysis.cpp ^
    Source\FrameCore\Private\TensionOnly.cpp ^
    Source\FrameCore\Private\SizeOpt.cpp ^
+   Source\FrameCore\Private\Topology.cpp ^
    Standalone\frame_cli_core.cpp ^
    Standalone\frame_capi.cpp
 if errorlevel 1 ( echo [build_capi] COMPILE FAILED & popd & exit /b 1 )

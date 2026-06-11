@@ -17,6 +17,7 @@
 #include "FrameCore/PDeltaAnalysis.h"
 #include "FrameCore/TensionOnly.h"
 #include "FrameCore/SizeOpt.h"
+#include "FrameCore/Topology.h"
 #include "FrameCore/MemberGeometry.h"
 #include "FrameTestFixtures.h"
 
@@ -2150,6 +2151,213 @@ int main() {
         // sized areas match the literature pattern (bars 1,3 are the big chords ~7.94 / 8.06 in^2)
         checkClose("F44 bar1 area (in^2)", R.finalAreas[0] / (IN * IN), 7.94, 3e-2);
         checkClose("F44 bar3 area (in^2)", R.finalAreas[2] / (IN * IN), 8.06, 3e-2);
+
+        // Guard: zero allowable capacity under demand produces D/C=inf. FSD cannot fix that by
+        // resizing, so it must fail honestly instead of treating the non-finite factor as 1.
+        {
+            Material zmat(Empa, Empa / 2.6, 0.0);  // cap intentionally left at zero
+            FrameModel zm; fixtures::cantileverTipLoad(zm, -1000.0, 1000.0, zmat, Section::Rectangular(100.0, 100.0));
+            SizeOptOptions zo; zo.maxIter = 10; zo.Amin = 1.0;
+            const SizeOptResult Z = runSizeOptimization(zm, zo);
+            checkTrue("F44 zero-cap demand does not fake-converge",
+                      !Z.converged && Z.invalidDemand,
+                      "converged=" + std::to_string((int)Z.converged) +
+                      " invalidDemand=" + std::to_string((int)Z.invalidDemand));
+            checkTrue("F44 zero-cap final D/C is non-finite",
+                      !Z.finalDC.empty() && !std::isfinite(Z.finalDC[0]), "");
+        }
+
+        // Guard: a zero-force sizable member may hit Amin=0. The reported section/area and weight
+        // history must agree; internally the member is deactivated so the working model stays valid.
+        {
+            FrameModel zm; fixtures::cantileverTipLoad(zm, -1000.0, 1000.0, tmat, Section::Rectangular(100.0, 100.0));
+            Node n2(2, 0.0, 1000.0, 0.0); n2.fixAll();
+            Node n3(3, 1000.0, 1000.0, 0.0); n3.fixAll();
+            zm.nodes.push_back(n2);
+            zm.nodes.push_back(n3);
+            zm.members.push_back(Member(1, 2, 3, 0, 0));  // fixed-fixed, unloaded -> zero D/C
+            SizeOptOptions zo; zo.maxIter = 10; zo.dcTol = 1e-10; zo.Amin = 0;
+            const SizeOptResult Z = runSizeOptimization(zm, zo, { 1 });
+            checkTrue("F44 zero-force member reports zero area/section",
+                      Z.converged && !Z.singular && Z.finalAreas.size() > 1 &&
+                      Z.finalAreas[1] == 0 && Z.finalSections[1].A == 0,
+                      "A=" + (Z.finalAreas.size() > 1 ? std::to_string(Z.finalAreas[1]) : std::string("missing")));
+            checkTrue("F44 zero-force member has zero sized volume",
+                      !Z.weightHistory.empty() && Z.weightHistory.back() == 0, "");
+        }
+    }
+
+    // helper: external work C = sum over nodal loads of F . u (the compliance / strain energy x2)
+    auto compliance = [](const FrameModel& mm, const SolveResult& rr) -> real {
+        real C = 0;
+        for (const NodalLoad& L : mm.nodalLoads) {
+            const int ni = mm.nodeIndex(L.node);
+            if (ni < 0) continue;
+            for (int d = 0; d < 6; ++d) C += L.comp[d] * rr.u[(size_t)gdof(ni, d)];
+        }
+        return C;
+    };
+
+    // ---------- F45: BESO sensitivity = element strain energy; energy balance sum(alpha)=1/2 F.u ----
+    {
+        std::printf("[F45] BESO sensitivity: element strain energy + energy balance (sum a = 1/2 F.u)\n");
+        // 3D L-frame so all six end-force components participate (axial+shear+bending+torsion).
+        FrameModel m; m.materials.push_back(mat); m.sections.push_back(sec);
+        m.nodes.push_back(Node(0, 0, 0, 0)); m.nodes[0].fixAll();
+        m.nodes.push_back(Node(1, 1500, 0, 0));
+        m.nodes.push_back(Node(2, 1500, 0, 1200));
+        { Member a(0, 0, 1, 0, 0); a.refVec = { 0, 0, 1 }; m.members.push_back(a); }
+        { Member b(1, 1, 2, 0, 0); b.refVec = { 1, 0, 0 }; m.members.push_back(b); }
+        NodalLoad l; l.node = 2; l.comp[Ux] = 8000.0; l.comp[Uz] = -5000.0; l.comp[Ry] = 3.0e6;
+        m.nodalLoads.push_back(l);
+        SolveResult r = solve(m);
+        checkTrue("F45 not singular", !r.singular, r.diagnostic);
+        real sumA = 0;
+        for (size_t e = 0; e < m.members.size(); ++e) sumA += memberStrainEnergy(m, r, (int)e);
+        // sum of element strain energies == 1/2 external work (the energy-balance identity)
+        checkClose("F45 energy balance sum(alpha) == 1/2 F.u", sumA, 0.5 * compliance(m, r), 1e-9);
+        checkTrue("F45 both members carry strain energy",
+                  memberStrainEnergy(m, r, 0) > 0 && memberStrainEnergy(m, r, 1) > 0, "");
+        // single-member cantilever degenerate check: alpha == 1/2 F.u
+        FrameModel c; fixtures::cantileverTipLoad(c, 1000.0, 2000.0, mat, sec);
+        SolveResult rc = solve(c);
+        checkClose("F45 cantilever alpha == 1/2 F.u", memberStrainEnergy(c, rc, 0), 0.5 * compliance(c, rc), 1e-9);
+
+        // per-component analytic oracle: isolate each weight channel against the closed-form element
+        // strain energy (P^2 L/2EA, M^2 L/2EIz, T^2 L/2GJ). A sum-only balance can hide a SYMMETRIC
+        // sign error; the analytic value is an independent source that pins each channel's coefficient.
+        {
+            const real Lb = 2000.0;
+            auto bar = [&](int comp, real val) -> real {   // cantilever bar along +x, refVec=+y -> local == global
+                FrameModel m; m.materials.push_back(mat); m.sections.push_back(sec);
+                m.nodes.push_back(Node(0, 0, 0, 0)); m.nodes[0].fixAll();
+                m.nodes.push_back(Node(1, Lb, 0, 0));
+                { Member a(0, 0, 1, 0, 0); a.refVec = { 0, 1, 0 }; m.members.push_back(a); }
+                NodalLoad l; l.node = 1; l.comp[comp] = val; m.nodalLoads.push_back(l);
+                const SolveResult r = solve(m);
+                return memberStrainEnergy(m, r, 0);
+            };
+            const real Pax = 30000.0, Mz = 2.0e7, Tq = 1.5e7;
+            checkClose("F45 pure axial alpha == P^2 L/2EA",   bar(Ux, Pax), Pax * Pax * Lb / (2.0 * E * sec.A),  1e-6);
+            checkClose("F45 pure bending alpha == M^2 L/2EIz", bar(Rz, Mz),  Mz * Mz * Lb / (2.0 * E * sec.Iz),  1e-5);
+            checkClose("F45 pure torsion alpha == T^2 L/2GJ",  bar(Rx, Tq),  Tq * Tq * Lb / (2.0 * G * sec.J),   1e-5);
+        }
+    }
+
+    // ---------- F46: BESO evolutionary removal on a ground structure (Michell-like) ----------
+    {
+        std::printf("[F46] BESO: ground-structure evolutionary removal + compliance-best rollback\n");
+        const int NX = 6, NZ = 3; const real SP = 500.0;
+        auto nid = [&](int i, int k) { return k * (NX + 1) + i; };
+        FrameModel m; m.materials.push_back(mat); m.sections.push_back(sec);
+        for (int k = 0; k <= NZ; ++k)
+            for (int i = 0; i <= NX; ++i) {
+                Node n(nid(i, k), i * SP, 0.0, k * SP);
+                if (i == 0) n.fixAll();
+                else { n.fixed[Uy] = true; n.fixed[Rx] = true; n.fixed[Rz] = true; }  // planar xz frame
+                m.nodes.push_back(n);
+            }
+        auto add = [&](int aN, int bN) {
+            Member mem((int)m.members.size(), aN, bN, 0, 0);
+            const Vec3 d = m.nodes[(size_t)bN].pos - m.nodes[(size_t)aN].pos;
+            mem.refVec = (std::fabs(d.z) > std::fabs(d.x)) ? Vec3{ 1, 0, 0 } : Vec3{ 0, 0, 1 };
+            m.members.push_back(mem);
+        };
+        for (int k = 0; k <= NZ; ++k) for (int i = 0; i < NX; ++i) add(nid(i, k), nid(i + 1, k));
+        for (int k = 0; k < NZ; ++k) for (int i = 0; i <= NX; ++i) add(nid(i, k), nid(i, k + 1));
+        for (int k = 0; k < NZ; ++k) for (int i = 0; i < NX; ++i) { add(nid(i, k), nid(i + 1, k + 1)); add(nid(i + 1, k), nid(i, k + 1)); }
+        const int loadNode = nid(NX, NZ / 2);
+        NodalLoad l; l.node = loadNode; l.comp[Uz] = -1.0e4; m.nodalLoads.push_back(l);
+
+        const int active0 = (int)m.members.size();
+        BESOOptions o; o.targetVolFrac = 0.5; o.evolRate = 0.06; o.maxIter = 80;
+        const BESOResult R = runBESO(m, o);
+        // BESO drives volume to the target, then terminates cleanly -- either it hit the target, or
+        // (discrete bars can't land on it precisely) it stalled JUST above it because the remaining
+        // bars can't go without a mechanism. Both are legitimate; reject blow-up / mechanism / invalid.
+        checkTrue("F46 drove volume to/near target + clean termination",
+                  (R.reason == BESOStop::TargetReached || R.reason == BESOStop::Stalled) &&
+                  !R.volFracHistory.empty() && R.volFracHistory.back() > 0.0 &&
+                  R.volFracHistory.back() <= o.targetVolFrac + o.evolRate,
+                  "reason=" + std::to_string((int)R.reason) +
+                  " volFrac=" + std::to_string(R.volFracHistory.empty() ? -1.0 : R.volFracHistory.back()));
+        int activeF = 0; for (char a : R.finalActive) if (a) ++activeF;
+        // quantitative removal: at least a quarter of the bars are gone (not merely "removed one bar")
+        checkTrue("F46 removed >= 25% of members", activeF <= (int)(active0 * 0.75),
+                  "active " + std::to_string(active0) + "->" + std::to_string(activeF));
+        // loaded node stays grounded: rebuild the best topology, solve, must be non-singular
+        FrameModel mb = m;
+        for (size_t e = 0; e < mb.members.size(); ++e) mb.members[e].active = R.bestActive[e] != 0;
+        const SolveResult rb = solve(mb);
+        checkTrue("F46 best topology non-singular (load path intact)", !rb.singular, rb.diagnostic);
+        // removing ~half the volume must make the structure MEASURABLY softer: compliance up >= 15%.
+        // (a 0.1%-tolerance "rises" check would pass even if nothing changed -- too weak to mean anything)
+        checkTrue("F46 compliance rises >= 15% with removal (softer structure)",
+                  !R.complianceHistory.empty() && std::isfinite(R.complianceHistory.back()) &&
+                  R.complianceHistory.back() >= R.complianceHistory.front() * 1.15,
+                  "C0=" + std::to_string(R.complianceHistory.front()) + " Cf=" + std::to_string(R.complianceHistory.back()));
+    }
+
+    // ---------- F47: N2 collapse robustness — unconstrained vs robust BESO ----------
+    {
+        std::printf("[F47] N2 collapse robustness: unconstrained vs robust BESO topology\n");
+        // Two real supports A(0) and B(1); the relay node M and loaded node C are FULLY FREE (no fixed
+        // DOF -- a node with ANY fixed DOF reads as "grounded" to connectivity, which would defeat the
+        // ungrounding test). Main chain g(A-M)+m(M-C) reaches the load via A; a small-section backup
+        // b(B-C) gives a second ground path via B. With only the main chain, removing g ungrounds
+        // {M,C} -> Collapsed; with b retained the load stays grounded -> Stable. The 3D beams keep the
+        // free nodes stable on their own (no truss mechanism). The probe finds fragility regardless of
+        // cut order.
+        FrameModel m; m.materials.push_back(mat);
+        m.sections.push_back(sec);                                   // sec0: main bars (square 100)
+        m.sections.push_back(Section::Rectangular(60.0, 60.0));      // sec1: small backup bar
+        m.nodes.push_back(Node(0, 0, 0, 0));      m.nodes[0].fixAll();   // support A
+        m.nodes.push_back(Node(1, 0, 0, 2000));   m.nodes[1].fixAll();   // support B
+        m.nodes.push_back(Node(2, 1500, 0, 0));                          // relay M (free)
+        m.nodes.push_back(Node(3, 3000, 0, 1000));                       // loaded C (free)
+        m.members.push_back(Member(0, 0, 2, 0, 0));   // g (A-M, main)
+        m.members.push_back(Member(1, 2, 3, 0, 0));   // m (M-C, main)
+        m.members.push_back(Member(2, 1, 3, 0, 1));   // b (B-C, small backup)
+        NodalLoad l; l.node = 3; l.comp[Uz] = -2000.0; m.nodalLoads.push_back(l);
+
+        // does ANY single active-member removal make the (active-masked) structure collapse?
+        auto fragile = [&](const std::vector<char>& act) -> bool {
+            FrameModel mm = m;
+            for (size_t e = 0; e < mm.members.size(); ++e) mm.members[e].active = act[e] != 0;
+            for (size_t e = 0; e < mm.members.size(); ++e) {
+                if (!mm.members[e].active) continue;
+                CollapseOptions co; co.dlf = 1.0; co.removeThreshold = 1.0;
+                co.initialRemovals = { mm.members[e].id };
+                if (runProgressiveCollapse(mm, co).outcome == CollapseOutcome::Collapsed) return true;
+            }
+            return false;
+        };
+
+        BESOOptions ou; ou.targetVolFrac = 0.6; ou.evolRate = 0.34; ou.maxIter = 20;   // unconstrained
+        const BESOResult Ru = runBESO(m, ou);
+        BESOOptions orb = ou; orb.redundancyCheckEvery = 1; orb.redundancySamples = 0; // robust
+        orb.redundancy.dlf = 1.0; orb.redundancy.removeThreshold = 1.0;
+        const BESOResult Rr = runBESO(m, orb);
+
+        checkTrue("F47 unconstrained topology is fragile (a single removal collapses it)",
+                  fragile(Ru.finalActive), "");
+        checkTrue("F47 robust topology survives every single-member removal",
+                  !fragile(Rr.finalActive), "");
+        checkTrue("F47 robust BESO locked protective members", !Rr.protectedMembers.empty(),
+                  "nProtected=" + std::to_string(Rr.protectedMembers.size()));
+        int au = 0, ar = 0;
+        for (char a : Ru.finalActive) au += a ? 1 : 0;
+        for (char a : Rr.finalActive) ar += a ? 1 : 0;
+        checkTrue("F47 robust retains >= unconstrained active members", ar >= au,
+                  "unc=" + std::to_string(au) + " rob=" + std::to_string(ar));
+        // direct mechanism check (not just the fragility outcome, which a carefully tuned model could
+        // pass by luck): the unconstrained run DROPS the soft backup bar b (idx 2 -- lowest strain
+        // energy); the robust run KEEPS it and LISTS it as protected. b's id is 2.
+        checkTrue("F47 unconstrained dropped the backup bar b (idx 2)",
+                  Ru.finalActive.size() > 2 && Ru.finalActive[2] == 0, "");
+        const bool bLocked = std::find(Rr.protectedMembers.begin(), Rr.protectedMembers.end(), 2) != Rr.protectedMembers.end();
+        checkTrue("F47 robust kept + locked the backup bar b (idx 2)",
+                  Rr.finalActive.size() > 2 && Rr.finalActive[2] == 1 && bLocked, "");
     }
 
     std::printf("\n%s  (failures=%d)\n", g_fail == 0 ? "ALL PASS" : "FAILURES", g_fail);
