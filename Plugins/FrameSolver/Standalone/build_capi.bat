@@ -1,6 +1,7 @@
 @echo off
-REM Builds frame_cli.exe (stdin/stdout solver) for the OpenSees offline comparison harness.
-REM Same FrameCore translation units as build.bat, but main.cpp -> frame_cli.cpp.
+REM Builds frame_capi.dll (S6 J2 C ABI) -- the FrameCore text-protocol engine behind a stable C
+REM boundary. Same FrameCore translation units as build_cli.bat + frame_cli_core.cpp + frame_capi.cpp,
+REM compiled /LD (DLL). Smoke-tested via ctypes in Tools/cli_roundtrip.py.
 setlocal enabledelayedexpansion
 set "ROOT=%~dp0.."
 set "EIGEN=E:\project\UE_5.7\Engine\Source\ThirdParty\Eigen"
@@ -11,21 +12,21 @@ if exist "%VSWHERE%" (
   for /f "usebackq tokens=*" %%i in (`"%VSWHERE%" -prerelease -latest -property installationPath 2^>nul`) do set "VSDIR=%%i"
   if "!VSDIR!"=="" for /f "usebackq tokens=*" %%i in (`"%VSWHERE%" -latest -property installationPath 2^>nul`) do set "VSDIR=%%i"
 )
-if "!VSDIR!"=="" ( echo [build_cli] could not locate Visual Studio via vswhere. & exit /b 1 )
+if "!VSDIR!"=="" ( echo [build_capi] could not locate Visual Studio via vswhere. & exit /b 1 )
 rem Put vswhere's own folder on PATH so vcvars64's internal bare `vswhere` call resolves quietly.
 for %%d in ("%VSWHERE%") do set "PATH=%%~dpd;%PATH%"
 call "!VSDIR!\VC\Auxiliary\Build\vcvars64.bat" >nul
-if errorlevel 1 ( echo [build_cli] vcvars64 failed & exit /b 1 )
+if errorlevel 1 ( echo [build_capi] vcvars64 failed & exit /b 1 )
 
 pushd "%ROOT%"
-if not exist "Standalone\obj_cli" mkdir "Standalone\obj_cli"
+if not exist "Standalone\obj_capi" mkdir "Standalone\obj_capi"
 
 set "GITSHA=unknown"
 for /f "usebackq tokens=*" %%g in (`git -C "%ROOT%" rev-parse --short HEAD 2^>nul`) do set "GITSHA=%%g"
 
-cl /nologo /EHsc /std:c++17 /O2 /MD /utf-8 /DEIGEN_MPL2_ONLY /DFRAMECORE_BUILD_SHA=\"!GITSHA!\" ^
-   /Fe:Standalone\frame_cli.exe ^
-   /Fo:Standalone\obj_cli\ ^
+cl /nologo /LD /EHsc /std:c++17 /O2 /MD /utf-8 /DEIGEN_MPL2_ONLY /DFRAMECORE_BUILD_SHA=\"!GITSHA!\" ^
+   /Fe:Standalone\frame_capi.dll ^
+   /Fo:Standalone\obj_capi\ ^
    /I"%EIGEN%" ^
    /I"Source\FrameCore\Public" ^
    /I"Source\FrameCore\Private" ^
@@ -55,9 +56,9 @@ cl /nologo /EHsc /std:c++17 /O2 /MD /utf-8 /DEIGEN_MPL2_ONLY /DFRAMECORE_BUILD_S
    Source\FrameCore\Private\TensionOnly.cpp ^
    Source\FrameCore\Private\SizeOpt.cpp ^
    Standalone\frame_cli_core.cpp ^
-   Standalone\frame_cli.cpp
-if errorlevel 1 ( echo [build_cli] COMPILE FAILED & popd & exit /b 1 )
+   Standalone\frame_capi.cpp
+if errorlevel 1 ( echo [build_capi] COMPILE FAILED & popd & exit /b 1 )
 
-echo [build_cli] OK -^> Standalone\frame_cli.exe
+echo [build_capi] OK -^> Standalone\frame_capi.dll
 popd
 exit /b 0

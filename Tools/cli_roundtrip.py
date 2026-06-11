@@ -13,11 +13,14 @@ proves the text bridge round-trips so a Grasshopper / external client can drive 
 
 Usage:  python Tools/cli_roundtrip.py        (exit 0 iff every check passes)
 """
-import os, sys, math, subprocess
+import os, sys, math, subprocess, ctypes
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-CLI  = os.path.join(ROOT, "Plugins", "FrameSolver", "Standalone", "frame_cli.exe")
-BUILD_CLI = os.path.join(ROOT, "Plugins", "FrameSolver", "Standalone", "build_cli.bat")
+STAND = os.path.join(ROOT, "Plugins", "FrameSolver", "Standalone")
+CLI   = os.path.join(STAND, "frame_cli.exe")
+DLL   = os.path.join(STAND, "frame_capi.dll")
+BUILD_CLI  = os.path.join(STAND, "build_cli.bat")
+BUILD_CAPI = os.path.join(STAND, "build_capi.bat")
 IN = 25.4   # mm per inch
 
 _fails = 0
@@ -94,11 +97,24 @@ def run(lines):
 
 
 def ensure_built():
-    p = subprocess.run(["cmd", "/c", BUILD_CLI], capture_output=True, text=True, errors="replace")
-    if p.returncode != 0 or not os.path.exists(CLI):
-        print("[FAIL] build_cli.bat failed (rc=%d)" % p.returncode)
-        print(p.stdout[-800:]); print(p.stderr[-400:])
-        sys.exit(1)
+    for bat, art in ((BUILD_CLI, CLI), (BUILD_CAPI, DLL)):
+        p = subprocess.run(["cmd", "/c", bat], capture_output=True, text=True, errors="replace")
+        if p.returncode != 0 or not os.path.exists(art):
+            print("[FAIL] %s failed (rc=%d)" % (os.path.basename(bat), p.returncode))
+            print(p.stdout[-800:]); print(p.stderr[-400:])
+            sys.exit(1)
+
+
+def capi_solve(text):
+    """Drive the C ABI DLL (frame_capi_solve_text) -- two-call size-then-fill, like a real client."""
+    lib = ctypes.CDLL(DLL)
+    lib.frame_capi_solve_text.restype = ctypes.c_int
+    lib.frame_capi_solve_text.argtypes = [ctypes.c_char_p, ctypes.c_char_p, ctypes.c_int]
+    b = (text if text.rstrip().endswith("END") else text.rstrip() + "\nEND\n").encode()
+    n = lib.frame_capi_solve_text(b, None, 0)           # query length
+    buf = ctypes.create_string_buffer(n + 1)
+    lib.frame_capi_solve_text(b, buf, n + 1)
+    return buf.value.decode(errors="replace")
 
 
 # ------------------------------------------------------------------ models
@@ -200,6 +216,19 @@ def main():
     check("daemon: 2 blocks/1 process == 2 independent cli runs (byte-identical)",
           ok_count and same0 and same1,
           "nBlocks=%d same0=%s same1=%s" % (len(multi), same0, same1))
+
+    # ---- 7: J2 C API DLL -- frame_capi_solve_text == frame_cli.exe (byte-identical protocol) ----
+    model_lines = cantilever(P, L, side, E)
+    capi_out = capi_solve("\n".join(model_lines))
+    # the CLI stdout for the same single block (processAll backs both, so output is byte-identical)
+    p = subprocess.run([CLI], input="\n".join(model_lines) + "\nEND\n",
+                        capture_output=True, text=True, errors="replace")
+    cli_out = p.stdout
+    same = capi_out.strip() == cli_out.strip()
+    capi_ver = capi_out.split()[1] if capi_out.split() and capi_out.split()[0] == "VERSION" else ""
+    check("C API DLL frame_capi_solve_text == frame_cli.exe (byte-identical)",
+          same and bool(capi_ver),
+          "identical=%s capi_sha=%s len=%d" % (same, capi_ver, len(capi_out)))
 
     print("\n%s  (failures=%d)" % ("ALL PASS" if _fails == 0 else "FAILURES", _fails))
     return 0 if _fails == 0 else 1
