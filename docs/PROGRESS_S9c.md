@@ -34,8 +34,11 @@ leg)/ audit **101**(+3)/ CLI round-trip **ALL PASS**(+ARCL)。`$ExpectedUeTests`
 
 ## Oracle(實測)
 
-- **F52a/b snap-through**:淺人字 von Mises 拱,弧長法 `λ_peak=0.00586` @step3(極限載荷 ≈ von Mises 閉式
-  0.0057,rigid-jointed 略高合理),λ 升後降(後屈曲路徑);載荷控制到 1.5×極限 → `diverged`(證明弧長必要)。
+- **F52a/b snap-through**:淺人字拱(**rigid-jointed**),弧長法 `λ_peak=0.00586` @step3,λ 升後降(後屈曲
+  路徑);載荷控制到 1.5×極限 → `diverged`(證明弧長必要)。**極限載荷驗證(誠實)**:pin-jointed von Mises
+  閉式 = **0.00566**(scipy 獨立;**與 F52 的剛接框架是不同模型**,剛接 + 彎曲剛度使其略高 ~3.5%);F52 的剛接
+  `0.00586` 是由 **OpenSees `integrator ArcLength` 互驗(0.0058962,rel 0.64%)**,非剛接框架的解析閉式。
+  F52a 已 `checkClose` `λ_peak`(非僅 bool 存在性)。
 - **F53a UDL**:X 懸臂橫向 UDL,tip `δ=wL⁴/8EI` rel **1.25e-08**。
 - **F53b prescribed**:導向懸臂 tip Uy=δ(Rz free),tip Uy==δ rel **0**(BC 精確)、base reaction
   `=−3EIδ/L³` rel **1.02e-08**。
@@ -85,9 +88,36 @@ leg)/ audit **101**(+3)/ CLI round-trip **ALL PASS**(+ARCL)。`$ExpectedUeTests`
 6. **環境工具錯亂**(本輪踩到):一批 Edit 顯示成功卻沒落地(`git status` / `grep` 核對才發現)→ 重大改動後
    **以 `git status` + `grep` 核對檔案真有改到**,勿只信 Edit 回傳。
 
-## 對抗式審核
+## 對抗式審核(2026-06-12,3-agent 平行)
 
-(待 3-agent 平行對抗審核回報後補。)
+S9c 五腿全綠後做 **3-agent 平行對抗審核**(弧長法+一致切線數學 / UDL+prescribed+衛生 / oracle 強度),各用
+numpy/scipy 獨立重算 + 既有 `frametest.exe`,不跑 build。**零 CRITICAL**。核心經獨立確認正確:
+
+- **弧長法數學(numpy)**:Crisfield cylindrical `a/b/c` 係數(兩根滿足約束 3.5e-18)、predictor 落在圓柱面、
+  root selection 符合 Crisfield Vol.1 eq.5.65、GSP 符號、FD 擾動空間左乘——全對。
+- **UDL/prescribed**:UDL `Qf` 符號與 `BeamColumnElement` **逐行一致**、`peq=−TᵀQf` 慣例相同;prescribed DOF
+  為 FIXED 每步**設**非累加、平移/旋轉分支正確;守門移除後殼/塑鉸/release/tonly 守門仍在(無 silent-wrong)。
+- **oracle**:exe vs OpenSees 0.64%、UDL `wL⁴/8EI`、prescribed `3EIδ/L³` 公式正確。
+
+**findings 處理**:
+- **[MAJOR→REJECTED] `dutPrev` raw vs signed**(弧長 agent):agent 建議 `dutPrev=sgn·dut`(Crisfield Alg.5.5
+  純桁架版)。**實證:改 signed 反而破壞 F52**(λ 單調升到 2.36 不 snap)——本式用 consecutive raw tangent
+  點積 GSP 準則(`dut^i·dut^{i-1}` 在極限點反號)才正確追過極限點。**原碼正確**,僅把該行註解改寫說明為何 raw。
+- **[MAJOR→修] F52「von Mises 0.0057」誤導**(oracle agent):0.0057 是 **pin-jointed** 閉式(scipy 0.00566),
+  F52 是剛接框架(不同模型)→ 改誠實標:剛接 0.00586 由 OpenSees ArcLength 互驗 0.64%,非剛接解析閉式。
+- **[MAJOR→修] header SCOPE 過時**(衛生 agent):header 仍寫「NO snap-through / UDLs/prescribed REJECTED」
+  (S9c 已實作)→ 重寫 SCOPE 反映 arc-length/UDL/prescribed 已支援(公開 API 誠實)。
+- **[MAJOR→修] 旋轉 prescribed 無 oracle**(oracle agent):新增 **F53b2**(tip Rz=θ → base moment EIθ/L,
+  rel **2.65e-16**)覆蓋 `R_node=expSO3(λ·presc)` 旋轉路徑(原只測平移 prescribed)。
+- **[MINOR→修] F52a λ_peak 未斷言**:加 `checkClose(λ_peak,0.00586,2e-2)`(非僅 bool 存在性)。
+- **[MINOR→修] F53a UDL 容差過鬆**:2e-3→1e-4(實測 1.25e-8)。
+- **[MINOR→修] cpp/header「Ksigma2/3→S9c」措辭**:S9c 用 FD 一致切線,解析 Ksigma2/3 留未來。
+- **[誠實標,未補測] 已知覆蓋缺口**:① **auto `Dl` 路徑無測**(已知對軟方向失效,snap-through 須手動 arcLength,
+  踩雷①);② F53b 平移 `tip Uy==δ` check 是機械強制(反力 check 才是真 oracle,已註解);③ F53c FD==main 是
+  自洽(main 正確性由 F50/F51/OpenSees 1.22e-9 獨立確立);④ FD 迭代數較多(160 vs 80)因每步 N 次額外組裝非
+  收斂較慢;⑤ snap-through 單一幾何 / 大位移 UDL / arc-length+UDL 組合未測(誠實標,留後續)。
+
+審核後重跑五腿全綠(standalone F1-F53 / UE 49 / OpenSees PASS / audit 101 / CLI ALL PASS),**零 CRITICAL 殘留**。
 
 ## 下一步
 

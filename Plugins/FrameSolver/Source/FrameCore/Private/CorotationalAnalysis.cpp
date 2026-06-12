@@ -30,8 +30,9 @@
 // Tangent (WS_F2 section 6 + the S9-verified durable lesson that the NR converged solution depends ONLY on
 // f_int, the tangent only on convergence speed): the tangent is T^T*Kl*T + Ksigma1 (the strict axial
 // geometric term, reducing to S9's (N/Ln)q q^T, symmetric so the same SimplicialLDLT path as S9/PDelta is
-// reused). The full spin/moment geometric terms (OpenSees Ksigma2/3) are NOT added -- they only accelerate
-// convergence, and this main term already converges the elastica alpha=1..10 (F50/F51). Full Ksigma2/3 -> S9c.
+// reused). The analytical spin/moment geometric terms (OpenSees Ksigma2/3) are NOT added -- the main term
+// already converges the elastica alpha=1..10 (F50/F51), and S9c's opts.consistentTangent provides a numerical
+// FD consistent tangent for quadratic NR. The analytical Ksigma2/3 stays a future convergence-speed optimisation.
 
 namespace frame {
 namespace {
@@ -462,7 +463,11 @@ CorotationalResult runCorotational(const FrameModel& model, const CorotationalOp
                 if (lastRel < opts.tolR || du.norm() < opts.tolU * std::max<real>(1.0, Du.norm())) { conv = true; break; }
             }
             lambda = lam;
-            dutPrev = dut; firstStep = false;
+            dutPrev = dut; firstStep = false;   // GSP sign uses the dot of CONSECUTIVE raw tangent solutions
+                                                // dut^(i).dut^(i-1): it flips negative exactly when Kt^-1*F
+                                                // reverses at the limit point, so the path descends past it.
+                                                // (Storing sgn*dut instead makes this case climb monotonically
+                                                // and miss the snap-through -- verified: it breaks F52.)
             R.pathLambda.push_back(lambda);
             R.pathDisp.push_back(uu[(size_t)mdof]);
             R.totalIterations = totalIters;

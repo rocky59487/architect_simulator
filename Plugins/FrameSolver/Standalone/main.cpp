@@ -2746,6 +2746,10 @@ int main() {
                         R.pathLambda.size(), lamMax, iMax, lamEnd, (int)hasLimit);
             checkTrue("F52a arc-length converged", R.converged, R.finalState.diagnostic.c_str());
             checkTrue("F52a snap-through limit point tracked (lambda rises then falls)", hasLimit, "");
+            // limit load asserted (not just "a limit exists"): cross-validated against OpenSees integrator
+            // ArcLength (0.0058962, rel 0.64%); near the pin-jointed von Mises closed form 0.00566 (rigid
+            // joints + bending raise it ~3.5%). Not an analytical closed form for THIS rigid frame.
+            checkClose("F52a limit load lambda_peak ~ 0.00586 (cross-validated vs OpenSees ArcLength)", lamMax, 0.00586, 2e-2);
 
             // (b) load control to a target ABOVE the limit load -> diverges at the limit point (arc-length needed)
             FrameModel m2; fixtures::shallowArchPair(m2, b, h, -(lamMax > 0 ? lamMax : 1.0) * 1.5, amat, asec);
@@ -2774,7 +2778,7 @@ int main() {
             const real exact = w * Lc * Lc * Lc * Lc / (8.0 * Ec * Ic);
             std::printf("   (a) UDL cantilever tip=%.6e exact=%.6e rel=%.2e\n", dfl, exact, relErr(dfl, exact));
             checkTrue("F53a UDL converged", R.converged, R.finalState.diagnostic.c_str());
-            checkClose("F53a UDL cantilever tip = wL^4/8EI", dfl, exact, 2e-3);
+            checkClose("F53a UDL cantilever tip = wL^4/8EI", dfl, exact, 1e-4);
         }
 
         // (b) prescribed displacement: X-cantilever, tip Uy prescribed = delta (Rz free) -> guided cantilever,
@@ -2800,6 +2804,33 @@ int main() {
             checkTrue("F53b prescribed converged", R.converged, R.finalState.diagnostic.c_str());
             checkClose("F53b prescribed tip Uy == delta (Dirichlet BC imposed)", tipUy, delta, 1e-9);
             checkClose("F53b prescribed base reaction = -3EI delta/L^3", baseRy, -exactP, 5e-3);
+        }
+
+        // (b2) prescribed ROTATION: exercises the R_node=expSO3(lambda*presc) path (translation BC alone
+        //      never touches it). X-cantilever, tip Rz prescribed = theta (Uy free) -> base reaction moment
+        //      = EI theta/L (a tip-moment cantilever; small theta). The reaction is the NON-trivial oracle
+        //      (tip Rz == theta is mechanically forced; it only checks the logSO3 recover of R_node).
+        {
+            const real theta = 1e-4; const int n = 8;
+            FrameModel m; fixtures::prepMatSec(m, cmat, sym);
+            m.nodes.clear(); m.members.clear();
+            for (int k = 0; k <= n; ++k) {
+                Node nd(k, Lc * real(k) / real(n), 0, 0);
+                nd.fixed[Uz] = nd.fixed[Rx] = nd.fixed[Ry] = true;
+                if (k == 0) nd.fixAll();
+                m.nodes.push_back(nd);
+            }
+            m.nodes[(size_t)n].fixed[Rz] = true; m.nodes[(size_t)n].prescribed[Rz] = theta;   // impose tip rotation
+            for (int k = 0; k < n; ++k) { Member mm(k, k, k + 1, 0, 0); mm.refVec = Vec3(0, 0, 1); m.members.push_back(mm); }
+            CorotationalOptions co; co.loadSteps = 1; co.maxIter = 50;
+            const CorotationalResult R = runCorotational(m, co);
+            const real tipRz = R.finalState.u[(size_t)gdof(n, Rz)];
+            const real baseMz = R.finalState.reactions[(size_t)gdof(0, Rz)];
+            const real exactM = Ec * Ic * theta / Lc;
+            std::printf("   (b2) prescribed rotation tip Rz=%.6e(set %.6e) base moment=%.6e exact=%.6e\n", tipRz, theta, baseMz, -exactM);
+            checkTrue("F53b2 prescribed rotation converged", R.converged, R.finalState.diagnostic.c_str());
+            checkClose("F53b2 prescribed tip Rz == theta (expSO3 BC recover)", tipRz, theta, 1e-6);
+            checkClose("F53b2 prescribed rotation base moment = -EI theta/L", baseMz, -exactM, 1e-2);
         }
 
         // (c) consistent (FD) tangent: arc-length snap-through reaches the SAME limit load with the numerical
