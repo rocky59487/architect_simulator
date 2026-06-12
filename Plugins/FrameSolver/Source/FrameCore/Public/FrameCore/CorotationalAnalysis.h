@@ -16,6 +16,12 @@ struct CorotationalOptions {
     real tolR      = 1e-9;   // convergence: ||residual_free|| / ||lambda*F_ext_free||   (force residual)
     real tolU      = 1e-12;  // convergence: ||du_free|| / max(1,||u_free||)             (displacement)
     SolveOptions solve;      // pivotTol passthrough (useTimoshenko reserved; planar v1 is Euler-Bernoulli).
+    // --- S9c (all default off -> S9b behaviour bit-for-bit; none enter modelFingerprint) ---
+    bool useArcLength      = false;  // Crisfield cylindrical arc-length (snap-through); ignores loadSteps
+    real arcLength         = 0;      // arc-length increment Dl (0 -> auto from the first tangent / loadSteps)
+    int  arcSteps          = 50;     // max arc-length increments
+    int  monitorDof        = -1;     // global DOF recorded in result.pathDisp (-1 -> tip translation auto)
+    bool consistentTangent = false;  // numerical (finite-difference) consistent tangent -> quadratic NR
 };
 
 // POD result. converged / diverged are mutually exclusive on a healthy run; both false means a step
@@ -23,12 +29,15 @@ struct CorotationalOptions {
 // reached (tangent K_T not positive-definite under load control -> snap-through needs arc-length).
 struct CorotationalResult {
     bool        converged = false;
-    bool        diverged  = false;   // limit point: K_T not positive-definite (snap-through; S9 stops)
+    bool        diverged  = false;   // load-control: limit point reached (snap-through). Arc-length tracks past it.
     int         loadStepsCompleted = 0;   // lambda increments fully equilibrated (== loadSteps on success)
     int         totalIterations    = 0;   // summed NR iterations across all completed steps
     real        lastResidual       = 0;   // last ||residual_free|| / ||lambda*F_ext_free||
     SolveResult finalState;          // large-displacement state at lambda=1 (u, reactions, member forces);
                                      // singular flag forwarded on a failed / limit-point / invalid run.
+    // --- S9c arc-length path (empty unless useArcLength): load factor + monitored displacement per step ---
+    std::vector<real> pathLambda;    // load factor lambda at each completed arc-length increment
+    std::vector<real> pathDisp;      // displacement of the monitor DOF at each increment (snap-through curve)
 };
 
 // Co-rotational large-displacement analysis (geometric nonlinearity). Newton-Raphson, load-controlled.

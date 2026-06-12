@@ -52,7 +52,7 @@ def rect(b, d):
 def _parse(rows):
     d = {"VERSION": None, "SINGULAR": None, "DISP": {}, "MF": {},
          "TONLY": None, "SLACK": [], "SIZEOPT": None, "AREA": {}, "WEIGHTVOL": None,
-         "DYNC": None, "DEVENT": [], "DFRAME": [], "COROT": None, "_first": None}
+         "DYNC": None, "DEVENT": [], "DFRAME": [], "COROT": None, "ARCL": None, "_first": None}
     for t in rows:
         if d["_first"] is None:
             d["_first"] = t[0]
@@ -70,6 +70,7 @@ def _parse(rows):
         elif tag == "DEVENT":    d["DEVENT"].append([float(t[1]), int(t[2]), int(t[3]), int(t[4])])
         elif tag == "DFRAME":    d["DFRAME"].append([float(t[1]), float(t[2])])
         elif tag == "COROT":     d["COROT"] = (int(t[1]), int(t[2]), int(t[3]), int(t[4]))
+        elif tag == "ARCL":      d["ARCL"] = (int(t[1]), int(t[2]), int(t[3]), float(t[4]))
     return d
 
 
@@ -280,6 +281,24 @@ def main():
     check("COROT 3D out-of-plane cantilever alpha=5 (tip dv/L along +Z vs Mattiasson; 3D, no planar restraint)",
           co3 is not None and co3[0] == 1 and co3[1] == 0 and abs(dvz - dv_exact) < 2e-3,
           "COROT=%s dvZ=%.6f(exp %.6f)" % (co3, dvz, dv_exact))
+
+    # ---- 11: ARCL shallow-arch snap-through (S9c) -- limit load via arc-length vs von Mises (~0.0059) ----
+    def shallow_arch(b=1.0, h=0.25, E=1.0, A=1.0, I=1e-4):
+        lines = ["MAT {} 0.4 0".format(E), "SEC {} {} {} {} 1 1 0 0".format(A, I, I, I)]
+        lines.append("NODE 0 0 0 0 1 1 1 1 1 1 0 0 0 0 0 0")              # encastre
+        lines.append("NODE 1 {} 0 0 1 1 1 1 1 1 0 0 0 0 0 0".format(2 * b))  # encastre
+        lines.append("NODE 2 {} {} 0 0 0 1 1 1 0 0 0 0 0 0 0".format(b, h))  # apex: in-plane free, out-of-plane fixed
+        lines.append("MEMBER 0 0 2 0 0 0 0 1")                            # refVec=(0,0,1)
+        lines.append("MEMBER 1 1 2 0 0 0 0 1")
+        lines.append("NLOAD 2 0 -1 0 0 0 0")                             # unit downward apex load
+        return lines
+
+    da = run(shallow_arch() + ["ARCL 0.03 80 40"])
+    arc = da["ARCL"]
+    lam_peak_exact = 0.00586   # standalone F52 / von Mises closed form
+    check("ARCL shallow-arch snap-through (limit load via arc-length, converged, not diverged)",
+          arc is not None and arc[0] == 1 and arc[1] == 0 and arc[2] > 4 and abs(arc[3] - lam_peak_exact) < 5e-4,
+          "ARCL=%s lambda_peak=%.5f(exp~%.5f)" % (arc, arc[3] if arc else 0.0, lam_peak_exact))
 
     print("\n%s  (failures=%d)" % ("ALL PASS" if _fails == 0 else "FAILURES", _fails))
     return 0 if _fails == 0 else 1

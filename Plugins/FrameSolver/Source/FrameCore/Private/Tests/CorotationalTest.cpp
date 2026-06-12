@@ -157,4 +157,37 @@ bool FFrameCoreCorotational3DTest::RunTest(const FString& /*Parameters*/)
     return true;
 }
 
+// UE automation mirror of the standalone F52 -- S9c arc-length snap-through. A shallow two-bar arch
+// (von Mises frame) under a downward apex load: the Crisfield arc-length driver tracks the full path
+// past the limit point (load factor rises to a peak then descends), where plain load control diverges.
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FFrameCoreCorotationalSnapTest,
+    "FrameCore.Corotational.SnapThrough",
+    EAutomationTestFlags_ApplicationContextMask | EAutomationTestFlags::SmokeFilter)
+
+bool FFrameCoreCorotationalSnapTest::RunTest(const FString& /*Parameters*/)
+{
+    using namespace frame;
+    Material amat(1.0, 0.4, 0.0); amat.cap = Capacity::make(1e9, 1e9, 1e9);
+    Section asec; asec.A = 1.0; asec.Iy = 1e-4; asec.Iz = 1e-4; asec.J = 1e-4;
+    asec.cy = 1.0; asec.cz = 1.0; asec.Asy = 0.0; asec.Asz = 0.0;
+    const real bb = 1.0, hh = 0.25;
+
+    FrameModel m; fixtures::shallowArchPair(m, bb, hh, -1.0, amat, asec);
+    CorotationalOptions co; co.useArcLength = true; co.arcLength = 0.03; co.arcSteps = 80; co.maxIter = 40; co.tolR = 1e-8;
+    const CorotationalResult R = runCorotational(m, co);
+    real lamMax = -1e30; size_t iMax = 0;
+    for (size_t i = 0; i < R.pathLambda.size(); ++i) if (R.pathLambda[i] > lamMax) { lamMax = R.pathLambda[i]; iMax = i; }
+    const real lamEnd = R.pathLambda.empty() ? 0.0 : R.pathLambda.back();
+    const bool hasLimit = R.pathLambda.size() > 4 && iMax > 0 && iMax < R.pathLambda.size() - 1 && lamEnd < lamMax;
+    TestTrue(TEXT("arc-length converged"), R.converged);
+    TestTrue(TEXT("snap-through limit point tracked (lambda rises then falls)"), hasLimit);
+
+    FrameModel m2; fixtures::shallowArchPair(m2, bb, hh, -(lamMax > 0 ? lamMax : 1.0) * 1.5, amat, asec);
+    CorotationalOptions cl; cl.loadSteps = 30; cl.maxIter = 60;
+    const CorotationalResult Rl = runCorotational(m2, cl);
+    TestTrue(TEXT("load control diverges at the limit point"), Rl.diverged && !Rl.converged);
+
+    return true;
+}
+
 #endif // WITH_DEV_AUTOMATION_TESTS

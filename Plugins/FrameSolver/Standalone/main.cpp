@@ -2726,6 +2726,102 @@ int main() {
         }
     }
 
+    // ---------- F52: S9c arc-length snap-through (shallow two-bar arch / von Mises frame) ----------
+    {
+        std::printf("[F52] S9c arc-length: shallow-arch snap-through (limit point + post-buckling path)\n");
+        Material amat(1.0, 0.4, 0.0);
+        Section asec; asec.A = 1.0; asec.Iy = 1e-4; asec.Iz = 1e-4; asec.J = 1e-4; asec.cy = 1.0; asec.cz = 1.0; asec.Asy = 0.0; asec.Asz = 0.0;
+        const real b = 1.0, h = 0.25;
+
+        // (a) arc-length tracks the full snap-through path (lambda rises to a limit point then descends)
+        {
+            FrameModel m; fixtures::shallowArchPair(m, b, h, -1.0, amat, asec);   // unit downward apex load
+            CorotationalOptions co; co.useArcLength = true; co.arcLength = 0.03; co.arcSteps = 80; co.maxIter = 40; co.tolR = 1e-8;
+            const CorotationalResult R = runCorotational(m, co);
+            real lamMax = -1e30; size_t iMax = 0;
+            for (size_t i = 0; i < R.pathLambda.size(); ++i) if (R.pathLambda[i] > lamMax) { lamMax = R.pathLambda[i]; iMax = i; }
+            const real lamEnd = R.pathLambda.empty() ? 0.0 : R.pathLambda.back();
+            const bool hasLimit = R.pathLambda.size() > 4 && iMax > 0 && iMax < R.pathLambda.size() - 1 && lamEnd < lamMax;
+            std::printf("   (a) arc-length: %zu steps, lambda_peak=%.5f @step%zu, lambda_end=%.5f, hasLimit=%d\n",
+                        R.pathLambda.size(), lamMax, iMax, lamEnd, (int)hasLimit);
+            checkTrue("F52a arc-length converged", R.converged, R.finalState.diagnostic.c_str());
+            checkTrue("F52a snap-through limit point tracked (lambda rises then falls)", hasLimit, "");
+
+            // (b) load control to a target ABOVE the limit load -> diverges at the limit point (arc-length needed)
+            FrameModel m2; fixtures::shallowArchPair(m2, b, h, -(lamMax > 0 ? lamMax : 1.0) * 1.5, amat, asec);
+            CorotationalOptions cl; cl.loadSteps = 30; cl.maxIter = 60;
+            const CorotationalResult Rl = runCorotational(m2, cl);
+            std::printf("   (b) load control to 1.5x limit: converged=%d diverged=%d\n", (int)Rl.converged, (int)Rl.diverged);
+            checkTrue("F52b load control diverges at limit point (arc-length is required)", Rl.diverged && !Rl.converged, "");
+        }
+    }
+
+    // ---------- F53: S9c member UDL / prescribed displacement / consistent (FD) tangent ----------
+    {
+        std::printf("[F53] S9c: member UDL + prescribed displacement + consistent (FD) tangent\n");
+        Material cmat(1.0, 0.4, 0.0);
+        Section sym; sym.A = 100.0; sym.Iy = 1e-3; sym.Iz = 1e-3; sym.J = 2e-3; sym.cy = 1.0; sym.cz = 1.0; sym.Asy = 0.0; sym.Asz = 0.0;
+        const real Lc = 1.0, Ec = 1.0, Ic = 1e-3;
+
+        // (a) member UDL: X-cantilever, transverse local-y UDL w -> tip deflection wL^4/8EI (small w, linear)
+        {
+            const real w = 1e-6;
+            FrameModel m; fixtures::cantileverSpatial(m, 8, Lc, Vec3(1, 0, 0), 0, 0, 0, 0, 0, 0, cmat, sym);
+            for (const auto& mem : m.members) { MemberUDL ud; ud.member = mem.id; ud.w_local = Vec3(0, w, 0); m.memberUDLs.push_back(ud); }
+            CorotationalOptions co; co.loadSteps = 1; co.maxIter = 50;
+            const CorotationalResult R = runCorotational(m, co);
+            const real dfl = R.finalState.u[(size_t)gdof(8, Uz)];   // local y = global Z for the X-cantilever
+            const real exact = w * Lc * Lc * Lc * Lc / (8.0 * Ec * Ic);
+            std::printf("   (a) UDL cantilever tip=%.6e exact=%.6e rel=%.2e\n", dfl, exact, relErr(dfl, exact));
+            checkTrue("F53a UDL converged", R.converged, R.finalState.diagnostic.c_str());
+            checkClose("F53a UDL cantilever tip = wL^4/8EI", dfl, exact, 2e-3);
+        }
+
+        // (b) prescribed displacement: X-cantilever, tip Uy prescribed = delta (Rz free) -> guided cantilever,
+        //     base reaction = -3EI delta/L^3 (small delta). Verifies the Dirichlet BC is imposed + reaction.
+        {
+            const real delta = 1e-4; const int n = 8;
+            FrameModel m; fixtures::prepMatSec(m, cmat, sym);
+            m.nodes.clear(); m.members.clear();
+            for (int k = 0; k <= n; ++k) {
+                Node nd(k, Lc * real(k) / real(n), 0, 0);
+                nd.fixed[Uz] = nd.fixed[Rx] = nd.fixed[Ry] = true;   // planar XY bending
+                if (k == 0) nd.fixAll();
+                m.nodes.push_back(nd);
+            }
+            m.nodes[(size_t)n].fixed[Uy] = true; m.nodes[(size_t)n].prescribed[Uy] = delta;   // impose tip deflection
+            for (int k = 0; k < n; ++k) { Member mm(k, k, k + 1, 0, 0); mm.refVec = Vec3(0, 0, 1); m.members.push_back(mm); }
+            CorotationalOptions co; co.loadSteps = 1; co.maxIter = 50;
+            const CorotationalResult R = runCorotational(m, co);
+            const real tipUy = R.finalState.u[(size_t)gdof(n, Uy)];
+            const real baseRy = R.finalState.reactions[(size_t)gdof(0, Uy)];
+            const real exactP = 3.0 * Ec * Ic * delta / (Lc * Lc * Lc);
+            std::printf("   (b) prescribed tip Uy=%.6e(set %.6e) base reaction=%.6e exact=%.6e\n", tipUy, delta, baseRy, -exactP);
+            checkTrue("F53b prescribed converged", R.converged, R.finalState.diagnostic.c_str());
+            checkClose("F53b prescribed tip Uy == delta (Dirichlet BC imposed)", tipUy, delta, 1e-9);
+            checkClose("F53b prescribed base reaction = -3EI delta/L^3", baseRy, -exactP, 5e-3);
+        }
+
+        // (c) consistent (FD) tangent: arc-length snap-through reaches the SAME limit load with the numerical
+        //     consistent tangent as with the analytical main-term tangent (proves the FD tangent is correct).
+        {
+            Material amat(1.0, 0.4, 0.0);
+            Section asec; asec.A = 1.0; asec.Iy = 1e-4; asec.Iz = 1e-4; asec.J = 1e-4; asec.cy = 1.0; asec.cz = 1.0; asec.Asy = 0.0; asec.Asz = 0.0;
+            real peakMain = 0, peakFD = 0; bool cMain = false, cFD = false; int itMain = 0, itFD = 0;
+            for (int fd = 0; fd < 2; ++fd) {
+                FrameModel m; fixtures::shallowArchPair(m, 1.0, 0.25, -1.0, amat, asec);
+                CorotationalOptions co; co.useArcLength = true; co.arcLength = 0.03; co.arcSteps = 80; co.maxIter = 40; co.tolR = 1e-8; co.consistentTangent = (fd != 0);
+                const CorotationalResult R = runCorotational(m, co);
+                real lm = 0; for (real l : R.pathLambda) if (l > lm) lm = l;
+                if (fd) { peakFD = lm; cFD = R.converged; itFD = R.totalIterations; }
+                else    { peakMain = lm; cMain = R.converged; itMain = R.totalIterations; }
+            }
+            std::printf("   (c) consistent tangent: main peak=%.6f(%dit) FD peak=%.6f(%dit) rel=%.2e\n", peakMain, itMain, peakFD, itFD, relErr(peakFD, peakMain));
+            checkTrue("F53c consistent-tangent both converged", cMain && cFD, "");
+            checkClose("F53c FD tangent same limit load as main-term", peakFD, peakMain, 1e-3);
+        }
+    }
+
     std::printf("\n%s  (failures=%d)\n", g_fail == 0 ? "ALL PASS" : "FAILURES", g_fail);
     return g_fail == 0 ? 0 : 1;
 }

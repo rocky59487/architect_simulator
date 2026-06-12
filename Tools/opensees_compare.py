@@ -706,6 +706,89 @@ def run_opensees_corot(model, steps=20):
     return ok, disp
 
 
+def shallow_arch_model():
+    """Shallow two-bar arch (von Mises frame) for the S9c arc-length snap-through cross-check. Apex carries a
+    unit downward load; out-of-plane restrained -> planar. Matches the standalone F52 / audit fixture."""
+    E, A, I = 1.0, 1.0, 1e-4
+    G = E / (2.0 * (1.0 + 0.3))
+    b, h = 1.0, 0.25
+    sec = dict(A=A, Iy=I, Iz=I, J=I, cy=1.0, cz=1.0, Asy=0.0, Asz=0.0)
+    nodes = [dict(id=0, x=0.0, y=0.0, z=0.0, fix=[1, 1, 1, 1, 1, 1]),
+             dict(id=1, x=2 * b, y=0.0, z=0.0, fix=[1, 1, 1, 1, 1, 1]),
+             dict(id=2, x=b, y=h, z=0.0, fix=[0, 0, 1, 1, 1, 0])]
+    members = [dict(id=0, i=0, j=2, mat=0, sec=0, refvec=(0.0, 0.0, 1.0)),
+               dict(id=1, i=1, j=2, mat=0, sec=0, refvec=(0.0, 0.0, 1.0))]
+    nloads = [dict(node=2, comp=[0.0, -1.0, 0.0, 0, 0, 0])]
+    mats = [dict(E=E, G=G, rho=7850.0)]
+    return dict(name="shallow arch (von Mises snap-through)", materials=mats, sections=[sec],
+                nodes=nodes, members=members, nloads=nloads)
+
+
+def run_frame_cli_arcl(model, dl=0.03, steps=80):
+    """Drive frame_cli in arc-length mode; return (converged, lambda_peak)."""
+    lines = []
+    for m in model["materials"]:
+        lines.append(f"MAT {m['E']} {m['G']} {m.get('rho', 7850.0)}")
+    for s in model["sections"]:
+        lines.append("SEC {A} {Iy} {Iz} {J} {cy} {cz} {Asy} {Asz}".format(**s))
+    for n in model["nodes"]:
+        fp = list(n["fix"]) + list(n.get("presc", [0, 0, 0, 0, 0, 0]))
+        lines.append("NODE {} {} {} {} {}".format(n["id"], n["x"], n["y"], n["z"], " ".join(str(v) for v in fp)))
+    for e in model["members"]:
+        rv = e["refvec"]
+        lines.append(f"MEMBER {e['id']} {e['i']} {e['j']} {e['mat']} {e['sec']} {rv[0]} {rv[1]} {rv[2]}")
+    for l in model.get("nloads", []):
+        c = l["comp"]
+        lines.append(f"NLOAD {l['node']} {c[0]} {c[1]} {c[2]} {c[3]} {c[4]} {c[5]}")
+    lines.append(f"ARCL {dl} {steps} 40")
+    lines.append("END")
+    p = subprocess.run([CLI], input="\n".join(lines) + "\n", capture_output=True, text=True)
+    if p.returncode != 0:
+        raise RuntimeError("frame_cli arcl failed: " + p.stderr)
+    conv, lam_peak = 0, 0.0
+    for ln in p.stdout.splitlines():
+        t = ln.split()
+        if t and t[0] == "ARCL":
+            conv = int(t[1]); lam_peak = float(t[4])
+    return conv, lam_peak
+
+
+def run_opensees_arcl(model, dl=0.0012, steps=600):
+    """OpenSees co-rotational snap-through via geomTransf Corotational + integrator ArcLength. Returns the
+    peak load factor (limit load) reached while tracking the equilibrium path past the limit point."""
+    ops.wipe()
+    ops.model("basic", "-ndm", 3, "-ndf", 6)
+    for n in model["nodes"]:
+        ops.node(n["id"], float(n["x"]), float(n["y"]), float(n["z"]))
+        ops.fix(n["id"], *[int(x) for x in n["fix"]])
+    for e in model["members"]:
+        rv = e["refvec"]
+        ops.geomTransf("Corotational", e["id"] + 1, *rv)
+        m = model["materials"][e["mat"]]
+        s = model["sections"][e["sec"]]
+        ops.element("elasticBeamColumn", e["id"] + 1, e["i"], e["j"],
+                    s["A"], m["E"], m["G"], s["J"], s["Iz"], s["Iy"], e["id"] + 1)
+    ops.timeSeries("Linear", 1)
+    ops.pattern("Plain", 1, 1)
+    for l in model.get("nloads", []):
+        ops.load(l["node"], *[float(x) for x in l["comp"]])
+    ops.constraints("Transformation")
+    ops.numberer("RCM")
+    ops.system("BandGeneral")
+    ops.test("NormDispIncr", 1.0e-8, 100)
+    ops.algorithm("Newton")
+    ops.integrator("ArcLength", dl, 1.0)
+    ops.analysis("Static")
+    lam_peak = 0.0
+    for _ in range(steps):
+        if ops.analyze(1) != 0:
+            break
+        lam = ops.getTime()
+        if lam > lam_peak:
+            lam_peak = lam
+    return lam_peak
+
+
 # ----------------------------------------------------------------- driver
 def main():
     if not os.path.exists(CLI):
@@ -904,6 +987,22 @@ def main():
         print(f"  tip |u|  ours={um:.6g}  OpenSees={uo:.6g}   ours-vs-OS={e_mo:.3e}   "
               f"{'PASS' if okc else 'FAIL'} (tol {TOL_COROT_VS_OS:.0e})")
         failures += (0 if okc else 1)
+
+    # ---- arc-length snap-through (limit load) vs OpenSees integrator ArcLength (S9c) ----
+    print("\n" + "-" * 64)
+    print(" arc-length snap-through (limit load) vs OpenSees integrator ArcLength")
+    print("-" * 64)
+    print("  scope: shallow-arch von Mises limit load; both co-rotational + arc-length track past the limit point.")
+    TOL_SNAP = 3e-2   # cross-tool limit-load agreement (arc-length step controls differ; the limit load is physical)
+    Msnap = shallow_arch_model()
+    conv, lam_ours = run_frame_cli_arcl(Msnap)
+    lam_os = run_opensees_arcl(Msnap)
+    print(f"\n[{Msnap['name']}]")
+    e_mo = abs(lam_ours - lam_os) / max(abs(lam_os), 1e-30)
+    oka = conv == 1 and lam_os > 0 and e_mo < TOL_SNAP
+    print(f"  limit load  ours={lam_ours:.6g}  OpenSees={lam_os:.6g}   ours-vs-OS={e_mo:.3e}   "
+          f"{'PASS' if oka else 'FAIL'} (tol {TOL_SNAP:.0e})")
+    failures += (0 if oka else 1)
 
     print("\n" + "=" * 64)
     if failures == 0:

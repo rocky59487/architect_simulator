@@ -58,6 +58,7 @@ struct Block {
     real soAmin = 0; int soMaxIter = 40; real soDcTol = 1e-8;
     real dcDt = 1e-3, dcMaxTime = 0.5;  std::vector<int> dcRemovals;
     int  coSteps = 10, coMaxIter = 50; real coTolR = 1e-9;   // S9 co-rotational
+    real arcLen = 0; int arcSteps = 50;                      // S9c arc-length (snap-through)
     bool empty = true;
 };
 
@@ -93,6 +94,7 @@ void parseLine(Block& b, const std::string& tag, std::istringstream& ss) {
     else if (tag == "SIZEOPT"){ b.analysis = "SIZEOPT"; real a; int mi; real dt; if (ss >> a) b.soAmin = a; if (ss >> mi) b.soMaxIter = mi; if (ss >> dt) b.soDcTol = dt; }
     else if (tag == "DYNC")   { b.analysis = "DYNC";   real d; if (ss >> d) b.dcDt = d; if (ss >> d) b.dcMaxTime = d; int rid; while (ss >> rid) b.dcRemovals.push_back(rid); }
     else if (tag == "COROT")  { b.analysis = "COROT";  int v; real r; if (ss >> v) b.coSteps = v; if (ss >> v) b.coMaxIter = v; if (ss >> r) b.coTolR = r; }
+    else if (tag == "ARCL")   { b.analysis = "ARCL";   real r; int v; if (ss >> r) b.arcLen = r; if (ss >> v) b.arcSteps = v; if (ss >> v) b.coMaxIter = v; }
     // unknown tags are ignored (forward-compatible)
 }
 
@@ -212,6 +214,19 @@ void runBlock(std::string& out, const Block& b) {
         const CorotationalResult R = runCorotational(model, co);
         appendf(out, "COROT %d %d %d %d\n", R.converged ? 1 : 0, R.diverged ? 1 : 0,
                 R.loadStepsCompleted, R.totalIterations);
+        printState(out, model, R.finalState);
+        return;
+    }
+
+    if (b.analysis == "ARCL") {
+        CorotationalOptions co; co.useArcLength = true; co.arcLength = b.arcLen; co.arcSteps = b.arcSteps;
+        co.maxIter = b.coMaxIter; co.tolR = b.coTolR; co.solve = b.opt;
+        const CorotationalResult R = runCorotational(model, co);
+        real lamMax = 0; for (real l : R.pathLambda) if (l > lamMax) lamMax = l;
+        // ARCL <converged> <diverged> <nSteps> <lambdaPeak>, then one APATH line per increment.
+        appendf(out, "ARCL %d %d %d %.9g\n", R.converged ? 1 : 0, R.diverged ? 1 : 0, (int)R.pathLambda.size(), lamMax);
+        for (size_t i = 0; i < R.pathLambda.size(); ++i)
+            appendf(out, "APATH %d %.9g %.9g\n", (int)i, R.pathLambda[i], R.pathDisp[i]);
         printState(out, model, R.finalState);
         return;
     }

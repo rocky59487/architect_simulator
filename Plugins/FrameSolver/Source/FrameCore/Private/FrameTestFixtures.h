@@ -268,6 +268,27 @@ inline void cantileverSpatial(FrameModel& m, int n, real L, const Vec3& dir,
     m.nodalLoads = { nl };
 }
 
+// Shallow two-bar arch (von Mises frame) for the S9c arc-length snap-through oracle. Two rigid-jointed
+// members rise from encastre supports at (0,0,0) and (2b,0,0) to an apex at (b,h,0) with small rise h.
+// The apex (node 2) is free in-plane (Ux,Uy,Rz), restrained out-of-plane (Uz,Rx,Ry) -> a planar problem
+// solved by the 3D driver. A downward apex load `P` (global -Y when P<0) drives snap-through: as the apex
+// is pushed below the supports the structure snaps to an inverted configuration, so the load-deflection
+// curve has a limit point (load control diverges there; arc-length tracks the full path).
+inline void shallowArchPair(FrameModel& m, real b, real h, real P,
+                            const Material& mat, const Section& sec) {
+    prepMatSec(m, mat, sec);
+    m.nodes.clear(); m.members.clear();
+    Node n0(0, 0.0, 0.0, 0.0); n0.fixAll();
+    Node n1(1, 2.0 * b, 0.0, 0.0); n1.fixAll();
+    Node n2(2, b, h, 0.0);
+    n2.fixed[Uz] = n2.fixed[Rx] = n2.fixed[Ry] = true;   // planar (out-of-plane restrained)
+    m.nodes = { n0, n1, n2 };
+    auto add = [&](int id, int i, int j) { Member mm(id, i, j, 0, 0); mm.refVec = Vec3(0, 0, 1); m.members.push_back(mm); };
+    add(0, 0, 2); add(1, 1, 2);
+    NodalLoad nl; nl.node = 2; nl.comp[Uy] = P;
+    m.nodalLoads = { nl };
+}
+
 // X-braced portal in the global X-Z plane (out-of-plane Uy pinned at the free top nodes), for
 // tension-only tests. Stocky columns/beam (section index 0) form a stable moment frame; the two
 // SLENDER diagonals (section index 1) are flagged tension-only. node0/1 = base (encastre),

@@ -2006,6 +2006,58 @@ void testCorotational() {
                "global-Y tip force bends about local y (Iy), global-Z about local z (Iz); the two planes stay distinct",
                "max rel(dy-FyL3/3EIy, dz-FzL3/3EIz)", rel, 1e-3, R.converged && rel < 1e-3);
     }
+
+    // ---- Check 9 (S9c): arc-length tracks snap-through past the limit point; load control diverges there ----
+    {
+        Material amat(1.0, 0.4, 0.0); amat.cap = Capacity::make(1e9, 1e9, 1e9);
+        Section asec; asec.A = 1.0; asec.Iy = 1e-4; asec.Iz = 1e-4; asec.J = 1e-4; asec.cy = 1.0; asec.cz = 1.0; asec.Asy = 0.0; asec.Asz = 0.0;
+        FrameModel m; fixtures::shallowArchPair(m, 1.0, 0.25, -1.0, amat, asec);
+        CorotationalOptions co; co.useArcLength = true; co.arcLength = 0.03; co.arcSteps = 80; co.maxIter = 40; co.tolR = 1e-8;
+        const CorotationalResult R = runCorotational(m, co);
+        real lamMax = -1e30; size_t iMax = 0;
+        for (size_t i = 0; i < R.pathLambda.size(); ++i) if (R.pathLambda[i] > lamMax) { lamMax = R.pathLambda[i]; iMax = i; }
+        const real lamEnd = R.pathLambda.empty() ? 0.0 : R.pathLambda.back();
+        const bool hasLimit = R.pathLambda.size() > 4 && iMax > 0 && iMax < R.pathLambda.size() - 1 && lamEnd < lamMax;
+        FrameModel m2; fixtures::shallowArchPair(m2, 1.0, 0.25, -(lamMax > 0 ? lamMax : 1.0) * 1.5, amat, asec);
+        const CorotationalResult Rl = runCorotational(m2, CorotationalOptions{});
+        const bool ok = R.converged && hasLimit && Rl.diverged && !Rl.converged;
+        addRow("Co-rotational", "arc-length snap-through (limit point + load-control divergence)",
+               "Crisfield arc-length tracks the shallow-arch path past the limit point; plain load control diverges there",
+               "tracked + diverged (1=yes)", ok ? 1.0 : 0.0, 0.5, ok);
+    }
+
+    // ---- Check 10 (S9c): member UDL -> consistent equivalent nodal loads; cantilever tip = wL^4/8EI ----
+    {
+        Material cm(1.0, 0.4, 0.0); cm.cap = Capacity::make(1e9, 1e9, 1e9);
+        Section sym; sym.A = 100.0; sym.Iy = 1e-3; sym.Iz = 1e-3; sym.J = 2e-3; sym.cy = 1.0; sym.cz = 1.0; sym.Asy = 0.0; sym.Asz = 0.0;
+        const real w = 1e-6, Lc = 1.0, Ec = 1.0, Ic = 1e-3;
+        FrameModel m; fixtures::cantileverSpatial(m, 8, Lc, Vec3(1, 0, 0), 0, 0, 0, 0, 0, 0, cm, sym);
+        for (const auto& mem : m.members) { MemberUDL ud; ud.member = mem.id; ud.w_local = Vec3(0, w, 0); m.memberUDLs.push_back(ud); }
+        const CorotationalResult R = runCorotational(m, CorotationalOptions{});
+        const real dfl = R.finalState.u[(size_t)gdof(8, Uz)], exact = w * Lc * Lc * Lc * Lc / (8.0 * Ec * Ic);
+        addRow("Co-rotational", "member UDL -> equivalent nodal loads",
+               "X-cantilever with a transverse member UDL deflects wL^4/8EI (consistent equivalent nodal loads)",
+               "rel |tip - wL^4/8EI|", relErr(dfl, exact), 2e-3, R.converged && relErr(dfl, exact) < 2e-3);
+    }
+
+    // ---- Check 11 (S9c): prescribed support displacement (Dirichlet BC) -> base reaction 3EI delta/L^3 ----
+    {
+        Material cm(1.0, 0.4, 0.0); cm.cap = Capacity::make(1e9, 1e9, 1e9);
+        Section sym; sym.A = 100.0; sym.Iy = 1e-3; sym.Iz = 1e-3; sym.J = 2e-3; sym.cy = 1.0; sym.cz = 1.0; sym.Asy = 0.0; sym.Asz = 0.0;
+        const real delta = 1e-4, Lc = 1.0, Ec = 1.0, Ic = 1e-3; const int n = 8;
+        FrameModel m; fixtures::prepMatSec(m, cm, sym);
+        m.nodes.clear(); m.members.clear();
+        for (int k = 0; k <= n; ++k) { Node nd(k, Lc * real(k) / real(n), 0, 0); nd.fixed[Uz] = nd.fixed[Rx] = nd.fixed[Ry] = true; if (k == 0) nd.fixAll(); m.nodes.push_back(nd); }
+        m.nodes[(size_t)n].fixed[Uy] = true; m.nodes[(size_t)n].prescribed[Uy] = delta;
+        for (int k = 0; k < n; ++k) { Member mm(k, k, k + 1, 0, 0); mm.refVec = Vec3(0, 0, 1); m.members.push_back(mm); }
+        const CorotationalResult R = runCorotational(m, CorotationalOptions{});
+        const real tipUy = R.finalState.u[(size_t)gdof(n, Uy)], baseRy = R.finalState.reactions[(size_t)gdof(0, Uy)];
+        const real exactP = 3.0 * Ec * Ic * delta / (Lc * Lc * Lc);
+        const bool ok = R.converged && relErr(tipUy, delta) < 1e-9 && relErr(baseRy, -exactP) < 5e-3;
+        addRow("Co-rotational", "prescribed support displacement (lambda-ramped Dirichlet BC)",
+               "imposed tip Uy=delta is achieved exactly and the base reaction = -3EI delta/L^3 (guided cantilever)",
+               "max rel(tipUy-delta, react+3EIdelta/L3)", std::max(relErr(tipUy, delta), relErr(baseRy, -exactP)), 5e-3, ok);
+    }
 }
 
 int main() {

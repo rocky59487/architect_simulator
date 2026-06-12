@@ -225,14 +225,8 @@ CorotationalResult runCorotational(const FrameModel& model, const CorotationalOp
         if (sh.active) return reject("co-rotational large-displacement is beam-column only; model contains shells");
     std::string why;
     if (!model.validate(why)) return reject(why.c_str());
-    for (const auto& udl : model.memberUDLs)
-        for (const auto& mem : model.members)
-            if (mem.id == udl.member && mem.active)
-                return reject("co-rotational supports nodal force loads only; member UDLs not yet supported");
-    for (const auto& nd : model.nodes)
-        for (int d = 0; d < 6; ++d)
-            if (nd.fixed[(size_t)d] && nd.prescribed[(size_t)d] != 0.0)
-                return reject("co-rotational does not support prescribed support displacements");
+    // S9c: member UDLs (-> equivalent nodal loads) and prescribed support displacements (-> lambda-ramped
+    // Dirichlet BC) are now SUPPORTED; the guards below still reject what CR genuinely cannot do.
     for (const auto& h : model.hinges)
         for (const auto& mem : model.members)
             if (mem.id == h.member && mem.active)
@@ -283,8 +277,203 @@ CorotationalResult runCorotational(const FrameModel& model, const CorotationalOp
         if (ni < 0) continue;
         for (int d = 0; d < 6; ++d) Fext((Eigen::Index)gdof(ni, d)) += nl.comp[(size_t)d];
     }
+    // S9c: member UDL -> INITIAL-configuration equivalent nodal loads (same consistent Qf as BeamColumnElement),
+    // added to F_ext and scaled by lambda. Small-strain equivalent; deformation-tracking (follower) UDL -> later.
+    for (const auto& udl : model.memberUDLs) {
+        for (size_t e = 0; e < model.members.size(); ++e) {
+            const Member& m = model.members[e];
+            if (!m.active || m.id != udl.member) continue;
+            const int ni = model.nodeIndex(m.i), nj = model.nodeIndex(m.j);
+            if (ni < 0 || nj < 0) continue;
+            const Vec3 pi = model.nodes[(size_t)ni].pos, pj = model.nodes[(size_t)nj].pos;
+            const real L = norm(pj - pi);
+            const real wx = -udl.w_local.x, wy = -udl.w_local.y, wz = -udl.w_local.z;
+            Vec12 Qf = Vec12::Zero();
+            Qf(0) += wx * L / 2;          Qf(6)  += wx * L / 2;
+            Qf(1) += wy * L / 2;          Qf(7)  += wy * L / 2;
+            Qf(5) += wy * L * L / 12.0;   Qf(11) += -wy * L * L / 12.0;
+            Qf(2) += wz * L / 2;          Qf(8)  += wz * L / 2;
+            Qf(4) += -wz * L * L / 12.0;  Qf(10) += wz * L * L / 12.0;
+            const Vec12 peq = -transform12(localAxes(pi, pj, m.refVec)).transpose() * Qf;   // global equivalent load
+            for (int d = 0; d < 6; ++d) { Fext((Eigen::Index)gdof(ni, d)) += peq(d); Fext((Eigen::Index)gdof(nj, d)) += peq(6 + d); }
+        }
+    }
     VecX Fext_f = VecX::Zero(nf);
     for (int g = 0; g < N; ++g) if (fmap[(size_t)g] >= 0) Fext_f(fmap[(size_t)g]) = Fext((Eigen::Index)g);
+
+    // --- shared assembly / increment-application / recovery (load-stepping AND arc-length use these) ---
+    // Internal force (always analytical) + tangent Kff. useFD -> numerical CONSISTENT tangent
+    // (Kff[:,j] = d f_int/d u_j by forward difference -> quadratic NR), else analytical T^T Kl T + Ksigma1.
+    auto assemble = [&](const std::vector<real>& U, const std::vector<Mat3>& Rn, VecX& fint, SpMat& Kff, bool useFD) {
+        fint = VecX::Zero(N);
+        std::vector<Triplet> tf; tf.reserve(elems.size() * 144);
+        for (auto& el : elems) {
+            Eigen::Matrix<real, 12, 1> fe; Eigen::Matrix<real, 12, 12> Ke;
+            crCompute3D(el, model, U, Rn, fe, Ke);
+            for (int a = 0; a < 12; ++a) {
+                fint((Eigen::Index)el.gmap[a]) += fe(a);
+                if (useFD) continue;
+                const int fr = fmap[(size_t)el.gmap[a]];
+                if (fr < 0) continue;
+                for (int c = 0; c < 12; ++c) { const int fc = fmap[(size_t)el.gmap[c]]; if (fc >= 0) tf.emplace_back(fr, fc, Ke(a, c)); }
+            }
+        }
+        if (useFD) {                                   // numerical consistent tangent (oracle / small models)
+            VecX f0 = VecX::Zero(nf);
+            for (int g = 0; g < N; ++g) if (fmap[(size_t)g] >= 0) f0(fmap[(size_t)g]) = fint((Eigen::Index)g);
+            const real eps = 1e-7;
+            for (size_t k = 0; k < model.nodes.size(); ++k) {
+                for (int d = 0; d < 6; ++d) {
+                    const int g = gdof((int)k, d), col = fmap[(size_t)g];
+                    if (col < 0) continue;
+                    std::vector<real> Uc = U; std::vector<Mat3> Rc = Rn;
+                    if (d < 3) Uc[(size_t)g] += eps;
+                    else { Vec3e ax(0, 0, 0); ax(d - 3) = eps; Rc[(size_t)k] = expSO3(ax) * Rc[(size_t)k]; }
+                    VecX fp = VecX::Zero(N);
+                    for (auto& el : elems) {
+                        Eigen::Matrix<real, 12, 1> fe; Eigen::Matrix<real, 12, 12> Ke;
+                        crCompute3D(el, model, Uc, Rc, fe, Ke);
+                        for (int a = 0; a < 12; ++a) fp((Eigen::Index)el.gmap[a]) += fe(a);
+                    }
+                    for (int r = 0; r < N; ++r) { const int rr = fmap[(size_t)r]; if (rr >= 0) { const real v = (fp((Eigen::Index)r) - f0(rr)) / eps; if (v != 0.0) tf.emplace_back(rr, col, v); } }
+                }
+            }
+        }
+        Kff = SpMat((Eigen::Index)nf, (Eigen::Index)nf);
+        Kff.setFromTriplets(tf.begin(), tf.end());
+        Kff.makeCompressed();
+        if (useFD) { SpMat Kt = SpMat(Kff.transpose()); Kff = (Kff + Kt) * 0.5; Kff.makeCompressed(); }   // symmetrise for LDLT
+    };
+    auto applyInc = [&](const VecX& duf, std::vector<real>& U, std::vector<Mat3>& Rn) {
+        for (size_t k = 0; k < model.nodes.size(); ++k) {
+            for (int d = 0; d < 3; ++d) { const int g = gdof((int)k, d); if (fmap[(size_t)g] >= 0) U[(size_t)g] += duf(fmap[(size_t)g]); }
+            Vec3e dth; for (int d = 0; d < 3; ++d) { const int g = gdof((int)k, Rx + d); dth(d) = (fmap[(size_t)g] >= 0) ? duf(fmap[(size_t)g]) : 0.0; }
+            if (dth.squaredNorm() > 0) Rn[(size_t)k] = expSO3(dth) * Rn[(size_t)k];
+        }
+    };
+    // S9c: prescribed support displacements as a lambda-ramped Dirichlet BC (prescribed DOFs are FIXED, not
+    // in the free set; NR never touches them). Translation set directly; rotation via R_node = expSO3(lambda*presc).
+    bool anyPrescribed = false;
+    for (const auto& nd : model.nodes) for (int d = 0; d < 6; ++d) if (nd.fixed[(size_t)d] && nd.prescribed[(size_t)d] != 0.0) anyPrescribed = true;
+    auto applyPrescribed = [&](real lam, std::vector<real>& U, std::vector<Mat3>& Rn) {
+        for (size_t k = 0; k < model.nodes.size(); ++k) {
+            const Node& nd = model.nodes[k];
+            for (int d = 0; d < 3; ++d) if (nd.fixed[(size_t)d] && nd.prescribed[(size_t)d] != 0.0) U[(size_t)gdof((int)k, d)] = lam * nd.prescribed[(size_t)d];
+            Vec3e pth(0, 0, 0); bool anyRot = false;
+            for (int d = 0; d < 3; ++d) if (nd.fixed[(size_t)(Rx + d)] && nd.prescribed[(size_t)(Rx + d)] != 0.0) { pth(d) = lam * nd.prescribed[(size_t)(Rx + d)]; anyRot = true; }
+            if (anyRot) Rn[(size_t)k] = expSO3(pth);
+        }
+    };
+    auto recoverState = [&](const std::vector<real>& U, const std::vector<Mat3>& Rn, real lam) {
+        SolveResult& SR = R.finalState;
+        SR.u.assign((size_t)N, 0.0);
+        SR.reactions.assign((size_t)N, 0.0);
+        for (size_t k = 0; k < model.nodes.size(); ++k) {
+            SR.u[(size_t)gdof((int)k, Ux)] = U[(size_t)gdof((int)k, Ux)];
+            SR.u[(size_t)gdof((int)k, Uy)] = U[(size_t)gdof((int)k, Uy)];
+            SR.u[(size_t)gdof((int)k, Uz)] = U[(size_t)gdof((int)k, Uz)];
+            const Vec3e w = logSO3(Rn[(size_t)k]);
+            SR.u[(size_t)gdof((int)k, Rx)] = w(0);
+            SR.u[(size_t)gdof((int)k, Ry)] = w(1);
+            SR.u[(size_t)gdof((int)k, Rz)] = w(2);
+        }
+        VecX fint = VecX::Zero(N);
+        for (auto& el : elems) {
+            Eigen::Matrix<real, 12, 1> fe; Eigen::Matrix<real, 12, 12> Ke;
+            crCompute3D(el, model, U, Rn, fe, Ke);
+            for (int a = 0; a < 12; ++a) fint((Eigen::Index)el.gmap[a]) += fe(a);
+        }
+        for (int g = 0; g < N; ++g) SR.reactions[(size_t)g] = fint((Eigen::Index)g) - lam * Fext((Eigen::Index)g);
+        SR.memberForces.resize(model.members.size());
+        SR.shellForces.clear();
+        for (size_t e = 0; e < model.members.size(); ++e) SR.memberForces[e].member = model.members[e].id;
+        for (const CrBeam3D& b : elems) {
+            const real Ln = std::max<real>(1e-300, b.Ln);
+            const real Vy = (b.MzI + b.MzJ) / Ln;
+            const real Vz = -(b.MyI + b.MyJ) / Ln;
+            MemberForcePair& mp = SR.memberForces[(size_t)b.e];
+            mp.member = b.id;
+            mp.endI = MemberEndForces{ -b.Nax,  Vy,  Vz, -b.Tx, b.MyI, b.MzI };
+            mp.endJ = MemberEndForces{ -b.Nax, -Vy, -Vz,  b.Tx, b.MyJ, b.MzJ };
+        }
+        SR.singular = false;
+    };
+
+    // --- S9c: Crisfield cylindrical arc-length (snap-through; load factor lambda is an unknown) ---
+    if (opts.useArcLength) {
+        int mdof = opts.monitorDof;
+        if (mdof < 0) {                          // auto: last node's first free translational DOF
+            const int ln = (int)model.nodes.size() - 1;
+            for (int d : { Uy, Uz, Ux }) { const int g = gdof(ln, d); if (fmap[(size_t)g] >= 0) { mdof = g; break; } }
+            if (mdof < 0) mdof = 0;
+        }
+        std::vector<real> uu((size_t)N, 0.0);
+        std::vector<Mat3> RR(model.nodes.size(), Mat3::Identity());
+        real lambda = 0.0, Dl = opts.arcLength;
+        VecX dutPrev = VecX::Zero(nf);
+        bool firstStep = true;
+        int totalIters = 0;
+        for (int step = 1; step <= std::max(1, opts.arcSteps); ++step) {
+            VecX fint; SpMat Kff;
+            assemble(uu, RR, fint, Kff, opts.consistentTangent);
+            LDLTSolver ldlt; ldlt.compute(Kff);
+            VecX dut = ldlt.solve(Fext_f);       // reference tangent
+            if (ldlt.info() != Eigen::Success || !dut.allFinite()) {
+                R.diverged = true; R.finalState.singular = true;
+                R.finalState.diagnostic = "arc-length predictor tangent singular (sharp limit point)";
+                R.loadStepsCompleted = step - 1;
+                break;
+            }
+            if (Dl <= 0) Dl = dut.norm() / std::max(1, opts.loadSteps);   // auto arc-length from first tangent
+            const real dutn = std::sqrt(std::max<real>(1e-300, dut.squaredNorm()));
+            const real sgn = firstStep ? 1.0 : (dutPrev.dot(dut) >= 0 ? 1.0 : -1.0);   // GSP sign (avoid back-track)
+            const real Dlam0 = sgn * Dl / dutn;
+            VecX Du = Dlam0 * dut;
+            applyInc(Du, uu, RR);
+            real lam = lambda + Dlam0, lastRel = 0;
+            if (anyPrescribed) applyPrescribed(lam, uu, RR);
+            bool conv = false;
+            for (int it = 1; it <= std::max(1, opts.maxIter); ++it) {   // corrector NR on the constraint sphere
+                assemble(uu, RR, fint, Kff, opts.consistentTangent);
+                VecX rf = VecX::Zero(nf);
+                for (int g = 0; g < N; ++g) if (fmap[(size_t)g] >= 0) rf(fmap[(size_t)g]) = lam * Fext((Eigen::Index)g) - fint((Eigen::Index)g);
+                ldlt.compute(Kff);
+                if (ldlt.info() != Eigen::Success) break;
+                const VecX dub = ldlt.solve(rf);
+                const VecX dt  = ldlt.solve(Fext_f);
+                if (!dub.allFinite() || !dt.allFinite()) break;
+                const real a = dt.squaredNorm();                 // cylindrical constraint: a dl^2 + b dl + c = 0
+                const VecX Dub = Du + dub;
+                const real b = 2.0 * Dub.dot(dt);
+                const real c = Dub.squaredNorm() - Dl * Dl;
+                real disc = b * b - 4.0 * a * c; if (disc < 0) disc = 0;
+                const real sq = std::sqrt(disc);
+                const real dl1 = (-b + sq) / (2.0 * std::max<real>(1e-300, a));
+                const real dl2 = (-b - sq) / (2.0 * std::max<real>(1e-300, a));
+                const real cos1 = Du.dot(Dub + dl1 * dt), cos2 = Du.dot(Dub + dl2 * dt);
+                const real dlam = (cos1 >= cos2) ? dl1 : dl2;     // root closest to the incoming direction
+                const VecX du = dub + dlam * dt;
+                applyInc(du, uu, RR);
+                Du += du; lam += dlam;
+                if (anyPrescribed) applyPrescribed(lam, uu, RR);
+                ++totalIters;
+                const real Frn = std::max<real>(1e-300, (lam * Fext_f).norm());
+                lastRel = rf.norm() / Frn;
+                if (lastRel < opts.tolR || du.norm() < opts.tolU * std::max<real>(1.0, Du.norm())) { conv = true; break; }
+            }
+            lambda = lam;
+            dutPrev = dut; firstStep = false;
+            R.pathLambda.push_back(lambda);
+            R.pathDisp.push_back(uu[(size_t)mdof]);
+            R.totalIterations = totalIters;
+            R.lastResidual = lastRel;
+            if (!conv) { R.converged = false; R.loadStepsCompleted = step - 1; recoverState(uu, RR, lambda); return R; }
+            R.loadStepsCompleted = step;
+        }
+        if (!R.diverged) R.converged = true;
+        recoverState(uu, RR, lambda);
+        return R;
+    }
 
     // --- driver state: translations in u (accumulated), rotations in Rnode (SO(3), spatial update) ---
     std::vector<real> u((size_t)N, 0.0);
@@ -295,32 +484,16 @@ CorotationalResult runCorotational(const FrameModel& model, const CorotationalOp
 
     for (int s = 1; s <= steps; ++s) {
         const real lambda = real(s) / real(steps);
+        if (anyPrescribed) applyPrescribed(lambda, u, Rnode);
         bool stepConverged = false;
 
         for (int it = 1; it <= std::max(1, opts.maxIter); ++it) {
-            VecX fint = VecX::Zero(N);
-            std::vector<Triplet> trips; trips.reserve(elems.size() * 144);
-            for (auto& el : elems) {
-                Eigen::Matrix<real, 12, 1> fe; Eigen::Matrix<real, 12, 12> Ke;
-                crCompute3D(el, model, u, Rnode, fe, Ke);
-                for (int a = 0; a < 12; ++a) {
-                    fint((Eigen::Index)el.gmap[a]) += fe(a);
-                    for (int c = 0; c < 12; ++c) trips.emplace_back(el.gmap[a], el.gmap[c], Ke(a, c));
-                }
-            }
+            VecX fint; SpMat Kff;
+            assemble(u, Rnode, fint, Kff, opts.consistentTangent);
 
             VecX rf = VecX::Zero(nf);
             for (int g = 0; g < N; ++g)
                 if (fmap[(size_t)g] >= 0) rf(fmap[(size_t)g]) = lambda * Fext((Eigen::Index)g) - fint((Eigen::Index)g);
-
-            std::vector<Triplet> tf; tf.reserve(trips.size());
-            for (const auto& t : trips) {
-                const int fr = fmap[(size_t)t.row()], fc = fmap[(size_t)t.col()];
-                if (fr >= 0 && fc >= 0) tf.emplace_back(fr, fc, t.value());
-            }
-            SpMat Kff((Eigen::Index)nf, (Eigen::Index)nf);
-            Kff.setFromTriplets(tf.begin(), tf.end());
-            Kff.makeCompressed();
 
             LDLTSolver ldlt; ldlt.compute(Kff);
             if (ldlt.info() != Eigen::Success || !ldltPosDef(ldlt, opts.solve.pivotTol)) {
@@ -370,42 +543,8 @@ CorotationalResult runCorotational(const FrameModel& model, const CorotationalOp
     R.totalIterations = totalIters;
     R.lastResidual = lastRel;
 
-    // --- recover finalState (SolveResult): translations from u, rotations from logSO3(Rnode) ---
-    SolveResult& SR = R.finalState;
-    SR.u.assign((size_t)N, 0.0);
-    SR.reactions.assign((size_t)N, 0.0);
-    for (size_t k = 0; k < model.nodes.size(); ++k) {
-        SR.u[(size_t)gdof((int)k, Ux)] = u[(size_t)gdof((int)k, Ux)];
-        SR.u[(size_t)gdof((int)k, Uy)] = u[(size_t)gdof((int)k, Uy)];
-        SR.u[(size_t)gdof((int)k, Uz)] = u[(size_t)gdof((int)k, Uz)];
-        const Vec3e w = logSO3(Rnode[k]);            // total rotation vector (honest: not simply additive)
-        SR.u[(size_t)gdof((int)k, Rx)] = w(0);
-        SR.u[(size_t)gdof((int)k, Ry)] = w(1);
-        SR.u[(size_t)gdof((int)k, Rz)] = w(2);
-    }
-
-    VecX fint = VecX::Zero(N);
-    for (auto& el : elems) {
-        Eigen::Matrix<real, 12, 1> fe; Eigen::Matrix<real, 12, 12> Ke;
-        crCompute3D(el, model, u, Rnode, fe, Ke);
-        for (int a = 0; a < 12; ++a) fint((Eigen::Index)el.gmap[a]) += fe(a);
-    }
-    for (int g = 0; g < N; ++g) SR.reactions[(size_t)g] = fint((Eigen::Index)g) - Fext((Eigen::Index)g);
-
-    SR.memberForces.resize(model.members.size());
-    SR.shellForces.clear();
-    for (size_t e = 0; e < model.members.size(); ++e) SR.memberForces[e].member = model.members[e].id;
-    for (const CrBeam3D& b : elems) {
-        const real Ln = std::max<real>(1e-300, b.Ln);
-        const real Vy = (b.MzI + b.MzJ) / Ln;       // transverse shear from end-moment equilibrium (current chord)
-        const real Vz = -(b.MyI + b.MyJ) / Ln;
-        MemberForcePair& mp = SR.memberForces[(size_t)b.e];
-        mp.member = b.id;
-        // local end forces: N compression-positive, shears Vy/Vz, torsion T, bending My/Mz.
-        mp.endI = MemberEndForces{ -b.Nax,  Vy,  Vz, -b.Tx, b.MyI, b.MzI };
-        mp.endJ = MemberEndForces{ -b.Nax, -Vy, -Vz,  b.Tx, b.MyJ, b.MzJ };
-    }
-    SR.singular = false;
+    // --- recover finalState at lambda = 1 (shared helper; load-stepping and arc-length use the same) ---
+    recoverState(u, Rnode, 1.0);
     return R;
 }
 
