@@ -2,14 +2,14 @@ using UnrealBuildTool;
 
 // FrameCore — engine-agnostic structural solver. The Private *.cpp files use Eigen
 // only through Private/FrameEigen.h; Public headers stay Eigen-free (POD + std).
-// NOTE: this module is authored drop-in-ready but is NOT compiled in milestone 1
-// (no host .uproject yet). The standalone harness under Standalone/ is the gate.
+// The same sources are gated by the standalone C++17 harness and by UE automation;
+// UBT compiles this module as C++20 because the current UE toolchain requires it.
 public class FrameCore : ModuleRules
 {
     public FrameCore(ReadOnlyTargetRules Target) : base(Target)
     {
         PCHUsage    = PCHUsageMode.UseExplicitOrSharedPCHs;
-        CppStandard = CppStandardVersion.Cpp20;   // UE 5.7 / VS2026 no longer allow C++17
+        CppStandard = CppStandardVersion.Cpp20;   // core remains C++17-compatible; UE target uses C++20
         bEnableExceptions = true;   // Eigen may throw / assert
 
         // Shared helpers are hoisted to header-only inlines (FrameTypes.h, PreparedSystemImpl.h,

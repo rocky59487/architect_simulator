@@ -357,6 +357,8 @@ CorotationalResult runCorotational(const FrameModel& model, const CorotationalOp
     };
     auto recoverState = [&](const std::vector<real>& U, const std::vector<Mat3>& Rn, real lam) {
         SolveResult& SR = R.finalState;
+        const bool keepSingular = SR.singular;
+        const std::string keepDiagnostic = SR.diagnostic;
         SR.u.assign((size_t)N, 0.0);
         SR.reactions.assign((size_t)N, 0.0);
         for (size_t k = 0; k < model.nodes.size(); ++k) {
@@ -387,7 +389,8 @@ CorotationalResult runCorotational(const FrameModel& model, const CorotationalOp
             mp.endI = MemberEndForces{ -b.Nax,  Vy,  Vz, -b.Tx, b.MyI, b.MzI };
             mp.endJ = MemberEndForces{ -b.Nax, -Vy, -Vz,  b.Tx, b.MyJ, b.MzJ };
         }
-        SR.singular = false;
+        SR.singular = keepSingular;
+        SR.diagnostic = keepDiagnostic;
     };
 
     // --- S9c: Crisfield cylindrical arc-length (snap-through; load factor lambda is an unknown) ---

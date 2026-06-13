@@ -8,8 +8,19 @@ if(MSVC)
     add_compile_options(/utf-8)
 endif()
 
-# UE-bundled Eigen 3.4.0 (header-only). Override with -DEIGEN_DIR=... if needed.
-set(EIGEN_DIR "E:/project/UE_5.7/Engine/Source/ThirdParty/Eigen" CACHE PATH "Eigen include root")
+# UE-bundled Eigen 3.4.0 (header-only). Override with -DEIGEN_DIR=...
+# or set EIGEN_DIR / UE_ENGINE_ROOT in the environment.
+if(NOT DEFINED EIGEN_DIR)
+    if(DEFINED ENV{EIGEN_DIR})
+        set(_FRAMECORE_EIGEN_DEFAULT "$ENV{EIGEN_DIR}")
+    elseif(DEFINED ENV{UE_ENGINE_ROOT})
+        set(_FRAMECORE_EIGEN_DEFAULT "$ENV{UE_ENGINE_ROOT}/Engine/Source/ThirdParty/Eigen")
+    else()
+        get_filename_component(_FRAMECORE_PROJECT_PARENT "${CMAKE_CURRENT_SOURCE_DIR}/../../../.." ABSOLUTE)
+        set(_FRAMECORE_EIGEN_DEFAULT "${_FRAMECORE_PROJECT_PARENT}/UE_5.7/Engine/Source/ThirdParty/Eigen")
+    endif()
+    set(EIGEN_DIR "${_FRAMECORE_EIGEN_DEFAULT}" CACHE PATH "Eigen include root")
+endif()
 
 set(CORE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../Source/FrameCore")
 file(GLOB CORE_SRC "${CORE_DIR}/Private/*.cpp")

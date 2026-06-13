@@ -188,13 +188,23 @@ BESOResult runBESO(const FrameModel& model, const BESOOptions& opts,
         // the (already-trimmed) structure Collapse, this step removed too much -> roll the batch back
         // and LOCK those bars (protected). LSP-grade robustness, not fail-safe.
         if (opts.redundancyCheckEvery > 0 && (it % opts.redundancyCheckEvery) == 0) {
+            const SolveResult rTrimmed = sess.solve();
+            if (rTrimmed.singular) {
+                for (int e : batch) {
+                    const MemberId id = work.members[(size_t)e].id;
+                    work.members[(size_t)e].active = true;
+                    sess.setMemberActive(id, true);
+                }
+                R.reason = BESOStop::Mechanism;
+                break;
+            }
             // scenario set: active design bars (optionally the highest-D/C `redundancySamples`).
             std::vector<int> scen;
             for (size_t e = 0; e < nMem; ++e)
                 if (isDesign[e] && work.members[e].active) scen.push_back((int)e);
             if (opts.redundancySamples > 0 && (int)scen.size() > opts.redundancySamples) {
                 std::vector<std::pair<real, int>> byDC;
-                for (int e : scen) byDC.emplace_back(memberDC(screen, work, r, (size_t)e), e);
+                for (int e : scen) byDC.emplace_back(memberDC(screen, work, rTrimmed, (size_t)e), e);
                 std::sort(byDC.begin(), byDC.end(), [](auto& A, auto& B) { return A.first > B.first; });
                 scen.clear();
                 for (int k = 0; k < opts.redundancySamples; ++k) scen.push_back(byDC[(size_t)k].second);

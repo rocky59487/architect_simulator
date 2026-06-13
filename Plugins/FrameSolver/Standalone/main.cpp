@@ -1865,6 +1865,15 @@ int main() {
             for (size_t i = 0; i < n; ++i) { num = std::max(num, std::fabs(hm.frames[k].u[i] - hr.frames[k].u[i])); den = std::max(den, std::fabs(hm.frames[k].u[i])); }
         }
         checkTrue("F37 Ritz frames == mode frames (full basis)", num / den < 1e-8, "rel=" + std::to_string(num / den));
+
+        FrameModel mz = m;
+        for (Material& mm : mz.materials) mm.rho = 0.0;
+        DynCollapseOptions oz; oz.dt = 1e-5; oz.maxTime = 5 * oz.dt;
+        const DynCollapseHistory hz = runDynamicCollapse(mz, oz);
+        checkTrue("F37 zero-mass dynamic model is Invalid (not Stable)",
+                  hz.outcome == CollapseOutcome::Invalid &&
+                  hz.diagnostic.find("zero mass") != std::string::npos,
+                  "outcome=" + std::to_string((int)hz.outcome) + " diag=" + hz.diagnostic);
     }
 
     // ---------- F38: DynamicCollapse -- momentum handoff (a fragment detaches WHILE MOVING) ----------
@@ -2340,11 +2349,15 @@ int main() {
         BESOOptions orb = ou; orb.redundancyCheckEvery = 1; orb.redundancySamples = 0; // robust
         orb.redundancy.dlf = 1.0; orb.redundancy.removeThreshold = 1.0;
         const BESOResult Rr = runBESO(m, orb);
+        BESOOptions ors = orb; ors.redundancySamples = 1;             // sampled N2 path (post-trim D/C ranking)
+        const BESOResult Rs = runBESO(m, ors);
 
         checkTrue("F47 unconstrained topology is fragile (a single removal collapses it)",
                   fragile(Ru.finalActive), "");
         checkTrue("F47 robust topology survives every single-member removal",
                   !fragile(Rr.finalActive), "");
+        checkTrue("F47 sampled robust topology survives every single-member removal",
+                  !fragile(Rs.finalActive) && !Rs.protectedMembers.empty(), "");
         checkTrue("F47 robust BESO locked protective members", !Rr.protectedMembers.empty(),
                   "nProtected=" + std::to_string(Rr.protectedMembers.size()));
         int au = 0, ar = 0;

@@ -32,7 +32,7 @@ echo "<model lines>\nEND" | frame_cli.exe
 | `UDL` | `member wx wy wz` | 桿均布(local) |
 | `SPRESS` | `shellId p` | 殼橫向壓力 |
 | `HINGE` | `member dof Mp` | 塑鉸(dof 4/5/10/11,signed Mp;節點側力矩由 caller 的 NLOAD 給) |
-| `OPT` | `enableReleases useTimoshenko pivotTol` | 求解選項 |
+| `OPT` | `enableReleases useTimoshenko pivotTol [useIncompatibleMembrane [useDKQPlate]]` | 求解選項;後兩個 S8 殼旗標 optional、向後相容 |
 | `EIGEN` | `nModes` | 附加模態頻率輸出 |
 | `PDELTA` | `path` | 二階:0=凍結重用、1=K_T 參考;缺/<0=線性 |
 | **`TONLY`** | `[maxIter [allowReact]]` | **S6**:tension-only 主動集 eliminator(讀 `MEMBER … tonly` 桿) |
@@ -53,7 +53,8 @@ echo "<model lines>\nEND" | frame_cli.exe
 | `RF` | `nodeId Fx Fy Fz Mx My Mz` | 反力 |
 | `MF` | `id  Ni Vyi Vzi Ti Myi Mzi  Nj Vyj Vzj Tj Myj Mzj` | 每桿端內力(local;N 壓正) |
 | `SF` | `id Mxx Myy Mxy Qx Qy Nxx Nyy Nxy` | 每殼合力 |
-| `FREQ` | `n omega1 omega2 …` | `EIGEN` 時的模態頻率(rad/s) |
+| `FREQ` | `n omega1 omega2 …` | `EIGEN` 時的模態頻率(rad/s);若模態前置條件失敗則 `FREQ 0` + `FREQERR` |
+| `FREQERR` | `1 diagnostic…` | `EIGEN` 失敗診斷(例如 zero mass);舊解析器可忽略未知行 |
 | `PDSTATUS` | `conv div iters` | `PDELTA` 時領先一行 |
 | **`TONLY`** | `conv cycled iters` | **S6**;後接 `SLACK id…`(鬆弛桿),再標準 `SINGULAR/DISP/RF/MF/SF`(finalState) |
 | **`SLACK`** | `id…` | **S6**:tension-only 收斂時停用的桿 |
@@ -61,6 +62,7 @@ echo "<model lines>\nEND" | frame_cli.exe
 | **`AREA`** | `memberId A DC` | **S6**:優化後面積 + 收斂 D/C |
 | **`WEIGHTVOL`** | `value` | **S6**:材料體積 ΣA·L(mm³) |
 | **`DYNC`** | `outcome nEvents nFrames Tend` | **S6**:outcome 0=Stable 1=Collapsed 2=MaxSteps 3=Invalid |
+| **`DYNERR`** | `outcome diagnostic…` | **S6**:DYNC Invalid/terminal diagnostic;舊解析器可忽略未知行 |
 | **`COROT`** | `conv div stepsDone iters` | **S9/S9b/S9c load-control**;後接標準 `SINGULAR/DISP/RF/MF`(finalState);拒絕時 `conv=div=0`、`SINGULAR 1`、DISP 歸零(不 crash) |
 | **`ARCL`** | `conv div nSteps lambdaPeak` | **S9c arc-length**;後接 `APATH` rows 與標準 `SINGULAR/DISP/RF/MF`;`nSteps` 只計已平衡 path increments |
 | **`APATH`** | `i lambda disp` | **S9c**:第 `i` 個 arc-length 已平衡增量的 load factor 與 monitor DOF displacement |

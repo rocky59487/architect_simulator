@@ -24,10 +24,10 @@ Plugins\FrameSolver\Standalone\build.bat
 | Leg | What runs | Count | What it proves |
 |---|---|---|---|
 | 1. Standalone | `frametest.exe` (fixtures **F1–F54**, built UE-free) | `ALL PASS (failures=0)` | every capability against analytic / literature / invariance oracles, on the pure-C++ build |
-| 2. UE automation | headless `FrameCore.*` tests | **50** tests | the *same* fixtures compiled as a UE module — the dual-build contract holds |
+| 2. UE automation | headless `FrameCore.*` tests | **50** tests | UE-side mirrors of the standalone oracles across the same subsystems — the dual-build contract holds |
 | 3. OpenSees | `Tools/opensees_compare.py` + `pdelta_compare.py` | strict `1e-8` default | agreement with an independent, widely-used FEM code (validation only; never linked) |
 | 4. Deep audit | `linear_deep_audit.exe` | **104** checks | independent re-derivations (sympy/numpy-sourced constants), bit-identity no-op proofs, element-spectrum oracles |
-| 5. CLI round-trip | `Tools/cli_roundtrip.py` | 11 checks | the text/daemon/C-API bridge reproduces engine results bit-for-bit |
+| 5. CLI round-trip | `Tools/cli_roundtrip.py` | 13 checks | the text/daemon/C-API bridge reproduces engine results bit-for-bit and surfaces modal/dynamic precondition failures |
 
 Guard rails: `run_gate.ps1` hard-fails if fewer than `$ExpectedUeTests = 50` UE tests run
 (catches "new test silently not compiled"); the audit prints its own check count rather than

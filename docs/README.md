@@ -1,6 +1,6 @@
 # docs/ 導覽
 
-評審 / 新讀者建議路徑:**根 [`README.md`](../README.md)(這是什麼、能做什麼)→
+評審 / 新讀者建議路徑:**先看 [`README.md`](../README.md)(這是什麼、能做什麼)→
 [`VERIFICATION.md`](VERIFICATION.md)(為什麼可信:能力 → oracle → gate fixture → 實測精度)→
 [`ARCHITECTURE.md`](ARCHITECTURE.md)(怎麼做到:資料模型、求解管線、慣例)**。
 之後再依興趣深入各階段紀錄與規格。

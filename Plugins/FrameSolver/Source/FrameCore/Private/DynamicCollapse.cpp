@@ -35,6 +35,16 @@ SpMat massFF(const PreparedSystem::Impl& S) {
     return reduceFF(M, S.fmap, S.nf);
 }
 
+real massTrace(const SpMat& Mff) {
+    real mtot = 0;
+    for (int i = 0; i < (int)Mff.rows(); ++i) {
+        const real mii = Mff.coeff(i, i);
+        if (!std::isfinite(mii)) return std::numeric_limits<real>::quiet_NaN();
+        mtot += mii;
+    }
+    return mtot;
+}
+
 // Reduced load vector Ff = F_f - K_fc u_c (nodal + active-element equivalent loads + prescribed
 // support term), mirroring Reanalysis.cpp's F-increment assembly.
 VecX reducedLoad(const FrameModel& work, const PreparedSystem::Impl& S) {
@@ -171,6 +181,7 @@ struct ConfigSystem {
     VecX  Fff, u0ff, f, W2;            // f = Phi^T Fff (modal force), W2 = modal omega^2
     MatX  Phi;
     bool ok = false;
+    bool invalid = false;
     std::string diag;
 };
 
@@ -182,10 +193,23 @@ ConfigSystem buildConfig(const FrameModel& work, const DynCollapseOptions& opts,
     PreparedSystem ps = assembleAndFactor(work, opts.solve);
     const PreparedSystem::Impl& S = *ps.impl;
     if (S.singular) { cfg.diag = S.diagnostic.empty() ? "singular configuration" : S.diagnostic; cfg.ps = std::move(ps); return cfg; }
+    if (S.nf <= 0) {
+        cfg.invalid = true;
+        cfg.diag = "no free DOF for dynamic collapse";
+        cfg.ps = std::move(ps);
+        return cfg;
+    }
 
     cfg.N = S.N; cfg.nf = S.nf; cfg.fmap = S.fmap;
     cfg.Kff = reduceFF(S.K, S.fmap, S.nf);
     cfg.Mff = massFF(S);
+    const real mtot = massTrace(cfg.Mff);
+    if (!(mtot > 0) || !std::isfinite(mtot)) {
+        cfg.invalid = true;
+        cfg.diag = "zero mass (set Material.rho > 0 for dynamic collapse)";
+        cfg.ps = std::move(ps);
+        return cfg;
+    }
     cfg.Fff = reducedLoad(work, S);
     cfg.u0ff = S.ldlt.solve(cfg.Fff);
 
@@ -307,7 +331,9 @@ DynCollapseHistory runDynamicCollapse(const FrameModel& model, const DynCollapse
     ConfigSystem cfg = buildConfig(work, opts, nullptr);
     if (!cfg.ok) {
         if (hasInitialEvent) H.events.push_back(ev0);
-        H.outcome = CollapseOutcome::Collapsed; H.diagnostic = "mechanism at t=0: " + cfg.diag; return H;
+        H.outcome = cfg.invalid ? CollapseOutcome::Invalid : CollapseOutcome::Collapsed;
+        H.diagnostic = cfg.invalid ? cfg.diag : ("mechanism at t=0: " + cfg.diag);
+        return H;
     }
     if (hasInitialEvent) {
         ev0.energyAfter = configEnergy(cfg, cfg.u0ff, VecX::Zero(cfg.nf));   // static elastic energy; fragments at rest
@@ -378,7 +404,9 @@ DynCollapseHistory runDynamicCollapse(const FrameModel& model, const DynCollapse
         ConfigSystem cfg2 = buildConfig(work, opts, &uN_f);
         if (!cfg2.ok) {
             ev.energyAfter = fragKE; H.events.push_back(ev);
-            H.outcome = CollapseOutcome::Collapsed; H.diagnostic = "mechanism in the grounded remainder: " + cfg2.diag; return H;
+            H.outcome = cfg2.invalid ? CollapseOutcome::Invalid : CollapseOutcome::Collapsed;
+            H.diagnostic = cfg2.invalid ? cfg2.diag : ("mechanism in the grounded remainder: " + cfg2.diag);
+            return H;
         }
 
         const VecX upff = reduceToFree(uN_f, cfg2.fmap, cfg2.nf);

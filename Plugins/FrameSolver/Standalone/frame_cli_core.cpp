@@ -35,6 +35,15 @@ void appendf(std::string& s, const char* fmt, ...) {
     if (n > 0) s.append(buf, (size_t)std::min(n, (int)sizeof(buf) - 1));
 }
 
+void appendStatusText(std::string& s, const char* tag, int code, const std::string& text) {
+    appendf(s, "%s %d", tag, code);
+    if (!text.empty()) {
+        s.push_back(' ');
+        for (char c : text) s.push_back((c == '\n' || c == '\r') ? ' ' : c);
+    }
+    s.push_back('\n');
+}
+
 struct RawMat { real E, G, rho, nu; bool hasCap; real capC, capT, capS; };
 struct RawSec { real A, Iy, Iz, J, cy, cz, Asy, Asz; };
 struct RawNode { int id; real x, y, z; int f[6]; real p[6]; };
@@ -199,6 +208,7 @@ void runBlock(std::string& out, const Block& b) {
         const DynCollapseHistory H = runDynamicCollapse(model, dco);
         const real tend = H.frames.empty() ? real(0) : H.frames.back().t;
         appendf(out, "DYNC %d %d %d %.12g\n", (int)H.outcome, (int)H.events.size(), (int)H.frames.size(), tend);
+        if (!H.diagnostic.empty()) appendStatusText(out, "DYNERR", (int)H.outcome, H.diagnostic);
         for (const DynCollapseEvent& ev : H.events)
             appendf(out, "DEVENT %.12g %d %d %d\n", ev.t, (int)ev.mode,
                     (int)ev.removedMembers.size(), (int)ev.detached.size());
@@ -245,9 +255,14 @@ void runBlock(std::string& out, const Block& b) {
         const PreparedSystem ps = assembleAndFactor(model, b.opt);
         ModalOptions mo; mo.numModes = b.nModes;
         const ModalResult mr = solveModal(ps, mo);
-        appendf(out, "FREQ %d", (int)mr.modes.size());
-        for (const auto& md : mr.modes) appendf(out, " %.12g", md.omega);
-        out += "\n";
+        if (mr.singular) {
+            appendf(out, "FREQ 0\n");
+            appendStatusText(out, "FREQERR", 1, mr.diagnostic);
+        } else {
+            appendf(out, "FREQ %d", (int)mr.modes.size());
+            for (const auto& md : mr.modes) appendf(out, " %.12g", md.omega);
+            out += "\n";
+        }
     }
 }
 

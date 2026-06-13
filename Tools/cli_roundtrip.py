@@ -52,7 +52,8 @@ def rect(b, d):
 def _parse(rows):
     d = {"VERSION": None, "SINGULAR": None, "DISP": {}, "MF": {},
          "TONLY": None, "SLACK": [], "SIZEOPT": None, "AREA": {}, "WEIGHTVOL": None,
-         "DYNC": None, "DEVENT": [], "DFRAME": [], "COROT": None, "ARCL": None, "_first": None}
+         "DYNC": None, "DYNERR": None, "DEVENT": [], "DFRAME": [],
+         "FREQ": None, "FREQERR": None, "COROT": None, "ARCL": None, "_first": None}
     for t in rows:
         if d["_first"] is None:
             d["_first"] = t[0]
@@ -67,8 +68,11 @@ def _parse(rows):
         elif tag == "AREA":      d["AREA"][int(t[1])] = (float(t[2]), float(t[3]))
         elif tag == "WEIGHTVOL": d["WEIGHTVOL"] = float(t[1])
         elif tag == "DYNC":      d["DYNC"] = (int(t[1]), int(t[2]), int(t[3]), float(t[4]))
+        elif tag == "DYNERR":    d["DYNERR"] = (int(t[1]), " ".join(t[2:]))
         elif tag == "DEVENT":    d["DEVENT"].append([float(t[1]), int(t[2]), int(t[3]), int(t[4])])
         elif tag == "DFRAME":    d["DFRAME"].append([float(t[1]), float(t[2])])
+        elif tag == "FREQ":      d["FREQ"] = (int(t[1]), [float(x) for x in t[2:]])
+        elif tag == "FREQERR":   d["FREQERR"] = (int(t[1]), " ".join(t[2:]))
         elif tag == "COROT":     d["COROT"] = (int(t[1]), int(t[2]), int(t[3]), int(t[4]))
         elif tag == "ARCL":      d["ARCL"] = (int(t[1]), int(t[2]), int(t[3]), float(t[4]))
     return d
@@ -209,6 +213,22 @@ def main():
           dy is not None and dy[0] in (0, 1, 2) and dy[2] > 0 and len(d["DFRAME"]) == dy[2]
           and all(d["DFRAME"][k][0] <= d["DFRAME"][k + 1][0] for k in range(len(d["DFRAME"]) - 1)),
           "DYNC=%s nDFRAME=%d" % (dy, len(d["DFRAME"])))
+
+    dynzero = list(dynbeam)
+    dynzero[0] = "MAT 210000 80769 0"
+    d = run(dynzero)
+    check("DYNC rejects zero active mass with Invalid + DYNERR",
+          d["DYNC"] is not None and d["DYNC"][0] == 3 and d["DYNERR"] is not None
+          and "zero mass" in d["DYNERR"][1],
+          "DYNC=%s DYNERR=%s" % (d["DYNC"], d["DYNERR"]))
+
+    modalzero = cantilever(P, L, side, E)
+    modalzero[0] = "MAT {} {} 0".format(E, 80769.0)
+    d = run(modalzero + ["EIGEN 1"])
+    check("EIGEN zero mass reports FREQ 0 + FREQERR",
+          d["FREQ"] is not None and d["FREQ"][0] == 0 and d["FREQERR"] is not None
+          and "zero mass" in d["FREQERR"][1],
+          "FREQ=%s FREQERR=%s" % (d["FREQ"], d["FREQERR"]))
 
     # ---- 6: J1.5 daemon -- two models through ONE process == two independent cli runs ----
     multi = run_blocks([cantilever(P, L, side, E), x_portal() + ["TONLY"]])

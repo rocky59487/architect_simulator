@@ -3,7 +3,10 @@ REM Builds frame_cli.exe (stdin/stdout solver) for the OpenSees offline comparis
 REM Same FrameCore translation units as build.bat, but main.cpp -> frame_cli.cpp.
 setlocal enabledelayedexpansion
 set "ROOT=%~dp0.."
-set "EIGEN=E:\project\UE_5.7\Engine\Source\ThirdParty\Eigen"
+set "EIGEN=%EIGEN_DIR%"
+if "%EIGEN%"=="" if defined UE_ENGINE_ROOT set "EIGEN=%UE_ENGINE_ROOT%\Engine\Source\ThirdParty\Eigen"
+if "%EIGEN%"=="" set "EIGEN=%~dp0..\..\..\..\UE_5.7\Engine\Source\ThirdParty\Eigen"
+if not exist "%EIGEN%\Eigen" ( echo [build_cli] Eigen include root not found: "%EIGEN%" & exit /b 1 )
 set "VSWHERE=C:\Program Files (x86)\Microsoft Visual Studio\Installer\vswhere.exe"
 
 set "VSDIR="

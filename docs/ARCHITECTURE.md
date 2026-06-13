@@ -275,8 +275,8 @@ plates/shells directly and converges to the exact solution.
 - **`Standalone/linear_deep_audit.cpp`** — **104** independent checks: sympy/numpy-derived
   references, bit-identity no-op proofs for every opt-in flag, the MITC4 element-spectrum
   oracle, and fresh-factorization references for every incremental method.
-- **`Private/Tests/*.cpp`** — UE automation mirrors (`FrameCore.*`), **50** tests, same oracles
-  as the standalone fixtures (the dual-build proof).
+- **`Private/Tests/*.cpp`** — UE automation mirrors (`FrameCore.*`), **50** tests across
+  the same oracle families as the standalone fixtures (the dual-build proof).
 - **`Tools/`** — `opensees_compare.py` (OpenSees cross-validation: beams strict 1e-8; prescribed
   settlement vs `sp()` to 0; the MITC4 shell vs OpenSees' own `ShellMITC4` to ~1e-10 on the
   flat/tilted plates gated here, ~1e-7–1e-8 on skewed/warped meshes in `shell_mitc4_deep_audit.py`;

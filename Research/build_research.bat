@@ -9,7 +9,10 @@ REM   exp_name   build only that experiment (e.g. exp_sparse_buckling)
 setlocal enabledelayedexpansion
 set "ROOT=%~dp0.."
 set "FS=Plugins\FrameSolver"
-set "EIGEN=E:\project\UE_5.7\Engine\Source\ThirdParty\Eigen"
+set "EIGEN=%EIGEN_DIR%"
+if "%EIGEN%"=="" if defined UE_ENGINE_ROOT set "EIGEN=%UE_ENGINE_ROOT%\Engine\Source\ThirdParty\Eigen"
+if "%EIGEN%"=="" set "EIGEN=%~dp0..\..\UE_5.7\Engine\Source\ThirdParty\Eigen"
+if not exist "%EIGEN%\Eigen" ( echo [research] Eigen include root not found: "%EIGEN%" & exit /b 1 )
 set "VSWHERE=C:\Program Files (x86)\Microsoft Visual Studio\Installer\vswhere.exe"
 
 set "SKIPCORE=0"
@@ -65,7 +68,7 @@ cl %CFLAGS% /MP /c /Fo:Research\obj_core\ ^
 if errorlevel 1 ( echo [research] CORE COMPILE FAILED & popd & exit /b 1 )
 
 :exps
-set "EXPS=WS_N_incremental\exp_incremental_refactor WS_B_solver\exp_sparse_buckling WS_B_solver\exp_million_dof WS_B_solver\exp_solver_compare WS_C_pdelta\exp_pdelta_convergence WS_D_tensiononly\exp_tension_only WS_H_sizeopt\exp_size_opt WS_I_beso\exp_beso_truss WS_N_incremental\exp_dynamic_inherit"
+set "EXPS=WS_N_incremental\exp_incremental_refactor WS_B_solver\exp_sparse_buckling WS_B_solver\exp_million_dof WS_B_solver\exp_solver_compare WS_B_solver\exp_matrix_free_operator WS_B_solver\exp_matrix_free_pcg WS_B_solver\exp_bsr6_matvec WS_B_solver\exp_framecore_bsr6_matvec WS_B_solver\exp_threaded_element_apply WS_C_pdelta\exp_pdelta_convergence WS_D_tensiononly\exp_tension_only WS_H_sizeopt\exp_size_opt WS_I_beso\exp_beso_truss WS_N_incremental\exp_dynamic_inherit"
 
 for %%E in (%EXPS%) do (
   set "SRC=Research\%%E.cpp"

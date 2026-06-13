@@ -7,16 +7,35 @@
 #   [5/5] CLI round-trip (S6: frame_cli J1 text bridge end-to-end; VERSION/TONLY/SIZEOPT/DYNC)
 # Prints a combined PASS/FAIL summary and sets the exit code (0 = all green).
 #
-# Usage:  powershell -ExecutionPolicy Bypass -File E:\project\ArchSim\Scripts\run_gate.ps1
+# Usage from repo root:
+#   powershell -ExecutionPolicy Bypass -File Scripts\run_gate.ps1 -RequireOpenSees
+# Optional:
+#   -Root <repo> -Engine <UE root>   (or set UE_ENGINE_ROOT)
 param(
     [switch]$RequireOpenSees,       # CI: fail (not skip) when openseespy is absent
-    [int]$ExpectedUeTests = 50       # guard against silently running only a subset (S10: +1 N-M interaction hinge)
+    [int]$ExpectedUeTests = 50,      # guard against silently running only a subset (S10: +1 N-M interaction hinge)
+    [string]$Root = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path,
+    [string]$Engine = $env:UE_ENGINE_ROOT,
+    [string]$UProject = ''
 )
 $ErrorActionPreference = 'Continue'
 
-$Root   = 'E:\project\ArchSim'
-$Engine = 'E:\project\UE_5.7'
-$UProj  = Join-Path $Root 'ArchSim.uproject'
+$RootPath = Resolve-Path -LiteralPath $Root -ErrorAction SilentlyContinue
+if (-not $RootPath) { Write-Host "Repo root not found: $Root" -ForegroundColor Red; exit 1 }
+$Root = $RootPath.Path
+
+if ([string]::IsNullOrWhiteSpace($Engine)) {
+    $Candidate = Join-Path (Split-Path $Root -Parent) 'UE_5.7'
+    if (Test-Path -LiteralPath $Candidate) { $Engine = $Candidate }
+}
+$EnginePath = Resolve-Path -LiteralPath $Engine -ErrorAction SilentlyContinue
+if (-not $EnginePath) {
+    Write-Host "UE engine root not found. Pass -Engine <UE root> or set UE_ENGINE_ROOT." -ForegroundColor Red
+    exit 1
+}
+$Engine = $EnginePath.Path
+
+$UProj  = if ([string]::IsNullOrWhiteSpace($UProject)) { Join-Path $Root 'ArchSim.uproject' } else { $UProject }
 $UeCmd  = Join-Path $Engine 'Engine\Binaries\Win64\UnrealEditor-Cmd.exe'
 $Log    = Join-Path $Root 'Saved\Logs\ArchSim.log'
 

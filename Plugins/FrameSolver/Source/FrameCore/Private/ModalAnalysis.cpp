@@ -21,6 +21,15 @@ ModalResult solveModal(const PreparedSystem& prepared, const ModalOptions& opts)
     M.setFromTriplets(mtrips.begin(), mtrips.end());
     M.makeCompressed();
 
+    real mtot = 0;
+    for (int g = 0; g < N; ++g)
+        if (S.fmap[g] >= 0) mtot += M.coeff(g, g);
+    if (!(mtot > 0) || !std::isfinite(mtot)) {
+        R.singular = true;
+        R.diagnostic = "zero mass (set Material.rho > 0 for modal)";
+        return R;
+    }
+
     // ---- scale-up path: sparse subspace iteration reusing the LDLT (opt-in). Same modes as
     // the dense path; falls through to dense on non-convergence. ----
     const int kReq = std::min(opts.numModes, nf);
@@ -69,10 +78,6 @@ ModalResult solveModal(const PreparedSystem& prepared, const ModalOptions& opts)
             const int r = it.row();
             if (S.fmap[r] >= 0 && S.fmap[c] >= 0) Mff(S.fmap[r], S.fmap[c]) += it.value();
         }
-
-    real mtot = 0;
-    for (int i = 0; i < nf; ++i) mtot += Mff(i, i);
-    if (mtot <= 0) { R.singular = true; R.diagnostic = "zero mass (set Material.rho > 0 for modal)"; return R; }
 
     // generalized symmetric eigenproblem  K phi = lambda M phi  (lambda = omega^2, ascending)
     Eigen::GeneralizedSelfAdjointEigenSolver<MatX> ges(Kff, Mff);

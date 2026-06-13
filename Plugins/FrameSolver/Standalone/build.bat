@@ -2,7 +2,10 @@
 REM Standalone gate build for FrameCore. Locates VS (preview-aware) and runs cl.
 setlocal enabledelayedexpansion
 set "ROOT=%~dp0.."
-set "EIGEN=E:\project\UE_5.7\Engine\Source\ThirdParty\Eigen"
+set "EIGEN=%EIGEN_DIR%"
+if "%EIGEN%"=="" if defined UE_ENGINE_ROOT set "EIGEN=%UE_ENGINE_ROOT%\Engine\Source\ThirdParty\Eigen"
+if "%EIGEN%"=="" set "EIGEN=%~dp0..\..\..\..\UE_5.7\Engine\Source\ThirdParty\Eigen"
+if not exist "%EIGEN%\Eigen" ( echo [build] Eigen include root not found: "%EIGEN%" & exit /b 1 )
 set "VSWHERE=C:\Program Files (x86)\Microsoft Visual Studio\Installer\vswhere.exe"
 
 set "VSDIR="

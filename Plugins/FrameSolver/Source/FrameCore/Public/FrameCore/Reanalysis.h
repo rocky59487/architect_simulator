@@ -8,20 +8,20 @@ namespace frame {
 // Options for ReSolveSession (S1 ReSolve ladder). POD boundary; SolveOptions threads through to
 // the baseline assembleAndFactor / rebaseline (e.g. enableReleases, useTimoshenko, pivotTol).
 struct ReanalysisOptions {
-    int  maxRank      = 96;      // Tier-1 cumulative rank cap (~16 beams); above -> Tier-3 rebaseline
-    real pcgTol       = 1e-10;   // (Tier-2, reserved) relative residual
-    int  pcgMaxIter   = 500;     // (Tier-2, reserved)
-    bool allowTier2   = true;    // (Tier-2, reserved) when false, above maxRank goes straight to Tier-3
+    int  maxRank      = 96;      // Tier-1 cumulative rank cap (~16 beams); above may use Tier-2
+    real pcgTol       = 1e-10;   // Tier-2 relative residual target
+    int  pcgMaxIter   = 500;     // Tier-2 PCG iteration cap
+    bool allowTier2   = true;    // false: above maxRank goes straight to Tier-3
     real mechPivotTol = 1e-10;   // Tier-1 capacitance |piv|min/|piv|max below this -> mechanism
     SolveOptions solve;          // threaded into the baseline assembleAndFactor / rebaseline
 };
 
 // Per-solve diagnostics.
 struct ReanalysisStats {
-    int  tier        = 0;        // tier taken: 0 = no increment, 1 = Woodbury, 3 = rebaseline
+    int  tier        = 0;        // tier taken: 0 = no increment, 1 = Woodbury, 2 = PCG, 3 = rebaseline
     int  rank        = 0;        // current accumulated low-rank update rank
-    int  pcgIters    = 0;        // (Tier-2, reserved)
-    real relResidual = 0;        // (Tier-2, reserved)
+    int  pcgIters    = 0;        // Tier-2 iterations, 0 outside Tier-2
+    real relResidual = 0;        // Tier-2 relative residual, 0 outside Tier-2
     bool refactored  = false;    // this solve triggered a rebaseline (Tier-3)
     bool mechanism   = false;    // Tier-1 capacitance singular (the removed set forms a mechanism)
 };
@@ -33,16 +33,14 @@ struct ReanalysisStats {
 //   Tier-1  rank <= maxRank   -> EXACT Woodbury low-rank update on the baseline factor; the
 //                                capacitance matrix is singular  <=>  K' is singular  <=>  the
 //                                removed set made a mechanism (detected from the factor, not topology).
-//   Tier-3  rank >  maxRank    -> rebaseline (fresh assembleAndFactor on the current active set),
+//   Tier-2  rank <= 2*maxRank -> stale-LDLT-preconditioned PCG on assembled K'_ff (tolerance-grade).
+//   Tier-3  larger/failed PCG  -> rebaseline (fresh assembleAndFactor on the current active set),
 //                                which is always correct.
-//
-// (Tier-2 stale-LDLT preconditioned CG — the middle regime — is a follow-up commit; until it lands,
-// `allowTier2`/`pcg*` are reserved and the ladder steps straight from Tier-1 to Tier-3 rebaseline.)
 //
 // The caller's model is never mutated (an internal working copy carries the active flags). Honest
 // scope: SAME-TOPOLOGY increments only — the node set, support flags, and material/section VALUES
-// must be unchanged (those need a fresh assembleAndFactor). Tier-1 is exact: vs a fresh
-// assembleAndFactor+solveLoad it agrees to factorization round-off (~1e-13 on the test models).
+// must be unchanged (those need a fresh assembleAndFactor). Tier-1 is exact; Tier-2 is deterministic
+// and tolerance-grade; Tier-3 is the always-correct fallback.
 class FRAMECORE_API ReSolveSession {
 public:
     explicit ReSolveSession(const FrameModel& base, const ReanalysisOptions& opts = {});

@@ -10,12 +10,14 @@ deliberately small, engine-agnostic, and — the actual point of the project —
 an independent oracle for every capability it claims**.
 
 The public API uses only plain C++/POD types (no UE, no Eigen leakage), so the same source
-compiles as a standalone console gate *and* as an Unreal Engine module.
+compiles as a standalone console gate *and* as an Unreal Engine module. The core remains
+C++17-compatible; the UE module target is compiled as C++20 because of the current UBT/toolchain.
 
 > **Status (2026-06, S1–S10 complete):** the five-leg verification gate is green —
 > standalone `ALL PASS` (fixtures **F1–F54**) · **50** UE automation tests ·
 > **OpenSees** strict cross-validation PASS · deep audit **104** independent checks ·
-> CLI round-trip ALL PASS. One command reproduces it:
+> CLI round-trip ALL PASS. One repo-relative command reproduces it (`-Engine` or `UE_ENGINE_ROOT`
+> can point at a non-sibling Unreal install):
 > `powershell -ExecutionPolicy Bypass -File Scripts\run_gate.ps1 -RequireOpenSees`.
 > The capability → oracle → measured-agreement map is **[`docs/VERIFICATION.md`](docs/VERIFICATION.md)**.
 
@@ -253,7 +255,7 @@ Plugins/FrameSolver/
                                         collapse, reanalysis, corotational, optimization)
     Private/*.cpp                       implementation (+ Private/FrameEigen.h: the single
                                         Eigen include site, dual-build guarded)
-    Private/Tests/*.cpp                 50 UE automation tests (mirror the standalone oracles)
+    Private/Tests/*.cpp                 50 UE automation tests (UE-side oracle mirrors)
   Standalone/                           console gates + CLI/C-API drivers (see its README)
   Grasshopper/                          C# reference client for the text bridge
 Scripts/run_gate.ps1                    the one-click five-leg gate
