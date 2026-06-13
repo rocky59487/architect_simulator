@@ -1,5 +1,10 @@
 # 後續開發 Agent 提示詞 — S5→S11(先補十項 spec → 實作)+ 並行線
 
+> **📜 歷史文件(主線已收尾,勿當現行起點)**:本檔是 S5–S10 開發輪的工作提示詞,所述狀態
+> (F1–F43、UE 42、audit 76)已過時。主線 S1–S10 已全部完成(2026-06-13,`81740e4`,五腿 gate:
+> F1–F54 / UE 50 / OpenSees / audit 104 / CLI);僅 S11(MITC9i 高階殼)為本檔仍未實作的選項。
+> 現行狀態見根 `README.md`、`docs/VERIFICATION.md` 與 `docs/README.md`。本檔僅供開發過程考據。
+
 > 把以下整段當作新 agent 的起手提示詞。語言一律中文(程式碼/識別字/commit message 英文)。
 > 接續 `AGENT_PROMPT_S2_S4.md`(S2–S4 已全部完成並 push)。
 

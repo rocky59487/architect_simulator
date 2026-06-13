@@ -1,143 +1,182 @@
 # FrameCore — Structural Mechanics Engine
 
-A self-contained **C++17 + Eigen** 3-D linear-elastic **beam-column finite-element engine**.
-It is the structural core of an "architect simulator" graduation project: you describe a
-frame (nodes, members, sections, supports, loads), and it returns nodal displacements,
-member end forces, support reactions, a **mechanism / instability** verdict, and an elastic
-**demand/capacity (D/C)** screen. It also computes **continuous surfaces directly** with a
-**MITC4 Reissner–Mindlin flat-shell element** (membrane + plate bending + drilling), for true
-plate/shell analysis; a legacy **grillage idealization** (a woven beam grid) is retained as a
-cheap approximation alongside it.
+A self-contained **C++17 + Eigen** 3-D structural finite-element engine: beam-columns,
+MITC4 flat shells, a full linear-analysis suite, a progressive- and dynamic-collapse line,
+incremental reanalysis, second-order and large-displacement (co-rotational) analysis,
+tension-only members, plastic hinges with N–M interaction, sizing and topology optimization,
+and a text/C-API bridge for external clients (Grasshopper). It is the structural core of an
+"architect simulator" graduation project, built as a **research-grade engine prototype**:
+deliberately small, engine-agnostic, and — the actual point of the project — **anchored to
+an independent oracle for every capability it claims**.
 
-The engine is deliberately small, **rigorously validated**, and **engine-agnostic**: the
-public API uses only plain C++/POD types (no UE, no Eigen leakage), so the same source
+The public API uses only plain C++/POD types (no UE, no Eigen leakage), so the same source
 compiles as a standalone console gate *and* as an Unreal Engine module.
 
-> **Status:** clean, audited baseline + a full linear-analysis suite + a **progressive-collapse
-> driver** (element removal, debris connectivity for the physics-engine handoff, shell failure
-> screen, event-to-event plastic hinges) + a **continuous dynamic-collapse driver** (modal-space
-> Newmark, cross-event state inheritance, momentum-preserving debris handoff). Verification gate
-> is green (`standalone ALL PASS (F1–F39)` · `40 UE automation tests` · `OpenSees strict
-> cross-validation PASS` · `deep audit 71 checks`), including same-element agreement with OpenSees `ShellMITC4` (~1e-10 on
-> flat/tilted plates; ~1e-7–1e-8 on skewed + warped meshes), natural frequencies vs OpenSees
-> `eigen` (~1e-11), and a formed-hinge state vs an independent OpenSees formulation (~1e-12).
-> Note: these are the *measured* agreements; the gate **tolerances** are looser on purpose
-> (shell `1e-7`, modal `1e-4`) to leave float / library-version headroom.
+> **Status (2026-06, S1–S10 complete):** the five-leg verification gate is green —
+> standalone `ALL PASS` (fixtures **F1–F54**) · **50** UE automation tests ·
+> **OpenSees** strict cross-validation PASS · deep audit **104** independent checks ·
+> CLI round-trip ALL PASS. One command reproduces it:
+> `powershell -ExecutionPolicy Bypass -File Scripts\run_gate.ps1 -RequireOpenSees`.
+> The capability → oracle → measured-agreement map is **[`docs/VERIFICATION.md`](docs/VERIFICATION.md)**.
 
 ---
 
-## What it computes
+## Capability map
+
+The engine is organized as layers, each behind the same two seams (`IElement` for element
+types, `PreparedSystem` for factorization reuse), and each gated by its own oracles.
+
+### 1 · Linear core
 
 | Capability | Notes |
 |---|---|
-| 3-D linear-elastic direct-stiffness solve | 12×12 Euler–Bernoulli beam-column; sparse assembly; `SimplicialLDLT` |
-| **Timoshenko** shear-flexible element | optional (`SolveOptions.useTimoshenko`); reduces to Euler–Bernoulli as slenderness grows |
-| **End releases** / static indeterminacy | per-member `release[12]`; static condensation of the released sub-block (stiffness **and** fixed-end forces) |
-| Sections | rectangular and **circular** (A, Iy, Iz, J, shear areas, extreme-fibre distances) |
-| Loads | nodal forces/moments (global) + member UDL (local) |
-| **Mechanism / instability detection** | from the LDLᵀ factorization (near-zero / negative pivots), **not** from connectivity — refuses to report forces on an unstable model |
-| Member-end force / reaction recovery | local `{N,Vy,Vz,T,My,Mz}` at both ends; global reactions `R = K·u − F` |
-| **Elastic D/C screen** (`ElasticAllowable`) | combined axial + biaxial bending + transverse shear (peak-factored) + torsion vs allowable capacities; reports the governing failure mode |
-| **MITC4 flat-shell element** | 4-node Reissner–Mindlin facet: plane-stress membrane + plate bending with **MITC4 assumed transverse shear** (no shear locking) + Hughes–Brezzi **drilling**, assembled as 24 DOF and rotated into 3-D; recovers `{Mxx,Myy,Mxy,Qx,Qy,Nxx,Nyy,Nxy}` |
-| **Grillage plate idealization** | a simply-supported isotropic plate → ν-inflated woven beam grid; a cheaper beam-grid approximation kept alongside the shell |
+| 3-D linear-elastic direct stiffness | 12×12 Euler–Bernoulli beam-column; sparse assembly; `SimplicialLDLT` |
+| Timoshenko shear flexibility | optional; reduces to Euler–Bernoulli as slenderness grows |
+| End releases / static indeterminacy | per-member `release[12]`; static condensation of stiffness **and** fixed-end forces |
+| **Mechanism / instability detection** | from the LDLᵀ factorization (near-zero / negative pivots), **not** connectivity — refuses to report forces on an unstable model |
+| **MITC4 flat shell** (24 DOF) | Reissner–Mindlin facet: membrane + plate bending with MITC4 assumed shear (no locking) + Hughes–Brezzi drilling; recovers `{Mxx,Myy,Mxy,Qx,Qy,Nxx,Nyy,Nxy}` |
+| Shell upgrades (S8, opt-in) | **QM6** incompatible membrane (substantially reduces in-plane locking: Cook's −0.9 % vs Q4 −3.2 %; passes the weak patch test for general quads) and **DKQ** thin plate (Kirchhoff fast path); both default-off, **bit-identical** to baseline when off |
+| Elastic D/C screen | combined axial + biaxial bending + peak-factored shear + torsion vs allowable capacities; reports the governing mode |
+| Grillage plate idealization | ν-inflated woven beam grid; kept as a cheap approximation alongside the true shell |
+| Member end forces / reactions | local `{N,Vy,Vz,T,My,Mz}` at both ends; `R = K·u − F` |
 
-### Analysis types (beyond one-shot static)
+### 2 · Linear analysis suite
 
 | Analysis | Notes |
 |---|---|
-| **Load cases + combinations** | `LoadCase` containers; `combine(cases, factors)` linear superposition (e.g. 1.2D+1.6L); self-weight `addSelfWeight` derived from `Material.rho` |
-| **factorize-once-solve-many** | `assembleAndFactor` → opaque `PreparedSystem`; `solveLoad` reuses the LDLᵀ factorization for each load / settlement change (interactive UE5 re-solves) |
-| **Prescribed support settlement** | non-zero imposed support displacements (closed the long-standing oracle gap; matches OpenSees `sp` to 0) |
-| **Pattern loading + envelopes** | `envelope(cases)` component-wise max/min for the most-unfavourable live-load arrangement |
-| **Influence lines / moving loads** | `reactionInfluenceLine` marches a unit load reusing the factorization; cross-checked by Müller-Breslau |
-| **Modal analysis** | consistent mass; `solveModal` generalized eigenproblem `Kφ=ω²Mφ` → natural frequencies + mode shapes |
-| **Linear buckling** | geometric stiffness `Kg` from axial force; `solveBuckling` → critical load factor (Euler); opt-in sparse subspace path for large models |
-| **P-Δ (second order)** | `runPDelta` (`PDeltaAnalysis.h`): frozen pseudo-load iteration reusing the K_e factorization (default, **zero re-factor**) **or** the K_T = K_e+Kg refactor reference; reproduces the beam-column amplification δ = H(tan kL − kL)/(Pk) and the linear solve bit-for-bit at P=0; reports divergence past P_cr |
-| **Tension-only members** | `runTensionOnly` (`TensionOnly.h`): `Member.tensionOnly` cables / slender X-braces drop out under compression and re-activate on elongation; active-set iteration whose inner re-solves reuse the factorization via a `ReSolveSession` (rank-6 Woodbury per flip); the converged state equals **omitting** the slack members bit-for-bit; transition-hash cycle guard + monotone fallback guarantee finite termination |
-| **Response spectrum (seismic)** | `solveResponseSpectrum` modal participation + SRSS/CQC; the spectrum curve is a caller-supplied input (not tied to one code) |
-| **Real-time transient** | `solveModalStepResponse` modal superposition + Newmark-β; O(nModes)/step for UE5 sway/vibration |
+| Load cases, combinations, envelopes | `combine` / `envelope`; self-weight from `Material.rho` |
+| **Factorize-once, solve-many** | `assembleAndFactor` → opaque `PreparedSystem`; `solveLoad` reuses the LDLᵀ per load/settlement change — the interactive re-solve path |
+| Prescribed support settlement | matches OpenSees `sp()` to 0 |
+| Influence lines / moving loads | unit load marched on the shared factorization; Müller-Breslau cross-check |
+| Modal analysis | `Kφ=ω²Mφ`, consistent mass; dense default + opt-in sparse path; vs OpenSees `eigen` ~1e-11 |
+| Linear buckling | geometric stiffness from axial force → Euler factor; opt-in sparse subspace path (F34) |
+| Response spectrum | modal participation + SRSS/CQC (the code spectrum curve is an input) |
+| Real-time transient | modal superposition + Newmark-β, O(nModes)/step |
 
-### Progressive collapse (the C-line)
+### 3 · Progressive- & dynamic-collapse line
 
 | Capability | Notes |
 |---|---|
-| **Element removal** | `Member.active` / `ShellQuad.active`: an inactive element leaves K, sheds its baked loads, recovers zero forces, and is part of the `solveLoad` reuse fingerprint |
-| **Safety margins** | `worstUtilization` (worst D/C + elastic safety factor 1/maxDC) and `pivotMargin` (min/max LDLᵀ pivot — a continuous proximity-to-mechanism warning) |
-| **Debris connectivity** | `analyzeConnectivity`: grounded vs detached components of the active-element graph; each detached `FragmentCluster` carries id lists + closed-form mass / com / inertia tensor — the **UE5 Chaos handoff** data (rigid-body fall/rolling is the physics engine's job, by design) |
-| **Collapse driver** | `runProgressiveCollapse`: GSA-style LSP as sequential linear analysis — remove the governing element while D/C > threshold, clean up detached debris each step (pin + shed loads), re-factor, re-solve; dual terminal (Stable / Collapsed) + step budget; `dlf` sudden-removal amplification (default 2.0); `initialRemovals` scenarios; deterministic tie-breaks; per-step displacement snapshots for replay |
-| **Shell failure screen** | `checkShellSurface` / `worstShellUtilization`: surface von Mises (σ = N/t ± 6M/t², centre + corners, both faces) vs `Capacity.vm`; the driver can condemn facets |
-| **Plastic hinges (event-to-event)** | `PlasticHinge` model state (release + signed residual `Mp = fy·Z`, both channels documented in `Hinge.h`); `CollapseOptions.plasticHinges` makes hinge-capable members ductile in bending — hinges form at `|M| ≥ Mp` until a hinge **mechanism**; reproduces the classic `w* = 16Mp/L²` plastic collapse load to ±2 % |
-| **Dynamic collapse (S2)** | `runDynamicCollapse`: continuous modal-space Newmark (β=¼) over a sequence of brittle removal events, with **cross-event state inheritance** (M-orthonormal projection onto the post-event basis) and **momentum-preserving debris handoff** (`FragmentCluster.vel`/`angVel` from the consistent-mass linear/angular momentum at the detach instant); load-dependent **Ritz** basis (Wilson) with the per-event truncation residual reported; replay frames `(u,v)`. Fixes the "zero initial velocity" handoff limit of the static driver. Each event re-factors fresh; inter-event steps are `O(basisSize)` |
+| Element removal | `Member.active` / `ShellQuad.active`; part of the reuse fingerprint |
+| Safety margins | `worstUtilization` (worst D/C) + `pivotMargin` (continuous proximity-to-mechanism) |
+| Debris connectivity | grounded vs detached components; each `FragmentCluster` carries closed-form mass/com/inertia — the UE5 **Chaos handoff** (rigid-body fall is the physics engine's job, by design) |
+| **Collapse driver** | GSA-style LSP sequential linear analysis: remove the governing element while D/C > threshold, clean up debris, re-solve; `dlf` sudden-removal amplification; deterministic tie-breaks; per-step replay snapshots |
+| Shell failure screen | surface von Mises (both faces, centre + corners) vs `Capacity.vm` |
+| Plastic hinges (event-to-event) | hinges form at `\|M\| ≥ Mp` until a hinge mechanism; reproduces `w* = 16Mp/L²` to ±2 % |
+| **N–M interaction (S10, opt-in)** | `Mp_eff(N) = Mp·max(0, 1−(N/Ny)²)` — exact for rectangles (first-principles neutral-axis shift), conservative for circles; default-off is **bit-identical** to the fixed-`Mp` driver |
+| **Dynamic collapse (S2)** | continuous modal-space Newmark across removal events, **cross-event state inheritance** (M-orthonormal projection) + **momentum-preserving debris handoff** (`FragmentCluster.vel/angVel`); load-dependent Ritz basis with the truncation residual reported per event |
 
-### Scope boundaries (read this — the engine is honest about what it is *not*)
+### 4 · Reanalysis & nonlinear line
 
-- The D/C check is an **elastic / allowable-stress screen**, **not** RC ultimate strength.
-  Transverse shear is screened on the **peak** stress (1.5·V/A rectangle, 4⁄3·V/A circle);
-  rectangular **torsion** uses a conservative diagonal-corner heuristic (circular torsion is
-  exact, `T·r/J`).
-- The grillage is a **beam-grid approximation** of a plate: center deflection lands within
-  ~2 % of Kirchhoff plate theory and is mesh-stable, but transverse bending moments are
-  **over-estimated** (the grillage analogy trades the Poisson cross-moment for extra twist).
-  It is an engineering idealization, not an exact plate solver.
-- The **MITC4 shell** is a **4-node bilinear flat facet**: curved surfaces are approximated by
-  flat panels, so there is a faceting error that vanishes under mesh refinement (the curved
-  benchmarks report the convergence). It reproduces constant curvature/strain **exactly** on
-  regular/parallelogram meshes; general (non-parallelogram) quadrilaterals show an O(h) patch
-  residual that converges away. The drilling DOF is a **Hughes–Brezzi** treatment (it makes a
-  coplanar shell non-singular and vanishes in constant-strain states, so it does not pollute
-  the patch tests). It is **linear-elastic, small-deformation**. At the *element* level the
-  plate-bending block carries one inherent low-energy (near-zero, non-rigid) mode beyond the
-  six rigid-body modes — a known MITC4 trait, **not** a distortion artefact; adjacent elements
-  constrain it on assembly, so every benchmark above is non-singular. It is documented here
-  rather than hidden.
-- The dynamics, buckling and response-spectrum analyses are all **linear**: modal analysis and
-  modal-superposition transients assume **linear-elastic** behaviour and **proportional** damping;
-  linear buckling gives the **onset** eigenvalue (Euler), not a nonlinear post-buckling path.
-  `runPDelta` is a **Theory-II linearization**: the axial force is frozen at the first-order solve
-  and the geometric stiffness is a small-sway correction — **not** large displacement (corotational
-  analysis is a later milestone). It converges below `P_cr` and reports `diverged` above it rather
-  than a silent wrong answer; shells do not contribute `Kg` (the same limitation as buckling). The
-  frozen pseudo-load path matches the K_T refactor reference to ~1e-12 and the analytic beam-column
-  closed form to ~1e-5; cross-checked against OpenSees `PDelta` geomTransf. The modal eigensolver is
-  **dense** (suited to the modest models of an interactive sim; a sparse Lanczos path is the
-  scale-up). The response spectrum does the modal combination only — the **code spectrum curve
-  is an input**, not built in.
-- The **progressive-collapse driver is LSP-grade sequential linear analysis**, not nonlinear
-  collapse simulation: linear elastic between events, no inertia beyond the scalar `dlf`, no
-  membrane/catenary action (literature places LSP at roughly ±30 % on collapse extent — expect
-  conservative results). The **plastic hinge** layer is the textbook event-to-event device
-  (every solve stays linear): no hinge unloading/reversal, uniaxial `Mp`, no N–M interaction,
-  zero hinge length — it is **not** true elastoplasticity, and there are still **no fiber
-  sections / pushover** (deliberately excluded). The shell screen checks surface von Mises
-  only (no transverse-shear screen, no plate buckling/ultimate). The **static** driver hands
-  debris to the physics layer from rest (a static engine estimates no separation velocities).
-- The **dynamic-collapse driver** (`runDynamicCollapse`, S2) is **linear-elastic in modal space
-  between events** — the failure criterion is the same screening D/C (not a code check), events
-  trigger on a whole step (O(dt)), and the Chaos handoff is one-way (a fragment does not feed
-  back after leaving). Truncation error is reported per event via `truncationResidual` (a full
-  basis is exact; a truncated basis can miss high-frequency content). The fragment **own-axis**
-  angular momentum uses the slender-rod closed form (the FE section polar term is dropped —
-  negligible for slender members). Plastic-hinge **dynamics** are reserved (S2.1); the velocity
-  handoff fixes the static driver's "from rest" limit.
+| Capability | Notes |
+|---|---|
+| **ReSolve ladder (S1)** | three-tier incremental reanalysis for interactive editing: Tier-1 rank-k **Woodbury** (formula-exact; ~1e-12 of fresh — float path, not bit-identical), Tier-2 **stale-LDLᵀ PCG** (tolerance-grade), Tier-3 rebaseline (always-correct fallback); mechanism detection preserved across tiers |
+| **P-Delta (S3)** | Theory-II second order: frozen pseudo-load iteration reusing the existing LDLᵀ (zero re-factor) **or** a K_T re-factor reference — the two paths cross-check to ~1e-13; P=0 is bit-identical to linear; past P_cr it reports `diverged` instead of a silent wrong answer |
+| **Tension-only members (S4)** | cables / slender X-braces drop out under compression; active-set iteration whose inner re-solves ride the ReSolve ladder (rank-6 per flip); converged state == omitting the slack members; cycle guard + monotone fallback ensure finite termination |
+| **Co-rotational large displacement (S9/S9b/S9c)** | geometrically nonlinear beam driver: planar → general 3-D (torsion + biaxial + SO(3) finite rotations, vs OpenSees corotational 1.22e-9) → **arc-length snap-through** path following (limit load vs OpenSees `ArcLength` 6.4e-3), consistent FD tangent, member UDL, prescribed large displacement; elastica benchmarks to ~1e-4 of Mattiasson's tables |
+
+### 5 · Optimization
+
+| Capability | Notes |
+|---|---|
+| **FSD sizing (S5)** | fully-stressed-design stress-ratio resizing + similar-section scaling + multi-load-case envelope; 10-bar truss lands 1 % above the pin-jointed literature optimum *because* the engine carries real joint bending (documented) |
+| **BESO topology (S7)** | evolutionary hard-kill on `Member.active`, sensitivity = element strain energy (`Σα = ½F·u` to ~4e-14 on UDL-free members), compliance-best fallback, mechanism guard |
+| **N2 collapse-robustness constraint (S7)** | optional: candidate topologies are screened by the collapse driver; the constrained result survives every single-member removal where the unconstrained one dies to one |
+
+### 6 · Ecosystem (S6)
+
+| Capability | Notes |
+|---|---|
+| `frame_cli` text bridge | stdin/stdout wire protocol ([`docs/CLI_PROTOCOL.md`](docs/CLI_PROTOCOL.md)) covering statics, shells, dynamics, collapse, tension-only, sizing, co-rotational, arc-length |
+| Daemon mode | multi-request block streaming over one process — bit-identical to independent runs |
+| C API DLL | `frame_capi.dll` shares the same protocol core; bit-identical to the CLI (ctypes-verified) |
+| Grasshopper client | C# reference client (`Plugins/FrameSolver/Grasshopper/`); the packaged `.gha` component is **not** shipped (not gated — stated honestly) |
+
+---
+
+## Why trust it (the point of the project)
+
+Every capability is anchored to an **independent oracle**, not a self-consistent re-run:
+closed-form solutions, published benchmarks (independently re-derived before use), OpenSees
+cross-validation, an independent dense solver inside the gate, **bit-identity no-op proofs**
+for every opt-in feature, and rotation-equivariance checks. The full evidence chain —
+five gate legs, oracle taxonomy, capability → fixture → *measured* agreement — lives in
+**[`docs/VERIFICATION.md`](docs/VERIFICATION.md)**. Highlights:
+
+- MITC4 shell vs OpenSees' **own `ShellMITC4`**: ~1e-10 (flat/tilted), ~1e-7–1e-8 (skewed+warped).
+- 3-D co-rotational vs OpenSees `geomTransf Corotational`: 1.22e-9; arc-length limit load vs
+  `integrator ArcLength`: 6.4e-3.
+- Every incremental method (ReSolve, P-Delta frozen path, tension-only) is checked against a
+  fresh-factorization reference at ~1e-12 or better.
+- Measured agreements are reported separately from gate tolerances (which are looser on
+  purpose, for float/library headroom).
+
+**Positioning, honestly:** OpenSees is the *reference*, not a competitor — FrameCore's niche
+is an embeddable, engine-agnostic core with a POD API, interactive factorization-reuse, and
+a physics-engine debris handoff. The S1–S10 line was developed against a **Karamba3D
+benchmarking roadmap** (`docs/KARAMBA3D_ROADMAP.md`): some capabilities track it
+(second-order analysis, sizing/topology optimization, a parametric-CAD bridge), some lie
+outside its documented feature set in specific research directions (collapse dynamics,
+interactive reanalysis), and some of Karamba3D's strengths (EC3 design checks, the mature
+Grasshopper ecosystem) are explicitly not claimed.
+
+## Scope boundaries (read this — the engine is honest about what it is *not*)
+
+- **D/C is an elastic / allowable-stress screen**, not RC ultimate strength or a design-code
+  check. Shear is screened on the peak stress; rectangular torsion uses a conservative
+  corner heuristic.
+- **The MITC4 shell is a flat 4-node facet**: curved surfaces converge under refinement
+  (benchmarks report it); one inherent low-energy element mode is documented and pinned by a
+  spectrum oracle. QM6/DKQ help membranes / thin plates respectively; DKQ has deliberately
+  **no** transverse shear. The grillage over-estimates transverse moments (~2 % deflection).
+- **Dynamics, buckling, response spectrum are linear** (proportional damping; buckling is the
+  onset eigenvalue). **P-Delta is a Theory-II linearization** (axial force frozen at first
+  order, small sway) — large displacement belongs to the co-rotational driver.
+- **The co-rotational driver is beams-only, small-strain / large-rotation**: nodal loads,
+  member UDL (initial-configuration equivalent) and prescribed displacement; no shells, no
+  hinge/tension-only coupling, no snap-back / bifurcation branching (cylindrical arc-length
+  follows the primary path); the consistent tangent is finite-difference, not analytic.
+- **The collapse driver is LSP-grade sequential linear analysis** (linear between events, no
+  inertia beyond scalar `dlf`, no membrane/catenary; literature places LSP at roughly ±30 %
+  on collapse extent — expect conservative results). **Hinges are event-to-event**: no
+  unloading/reversal, zero hinge length; S10 adds *uniaxial* N–M interaction only — no
+  My–Mz biaxial coupling, no N–M tangent. **No fiber sections / pushover, deliberately.**
+- **The dynamic-collapse driver is linear-elastic in modal space between events**; events
+  trigger on a whole step (O(dt)); truncated Ritz bases report their residual; the Chaos
+  handoff is one-way.
+- **ReSolve Tier-1 is formula-exact but not bit-identical** (rank-k Woodbury; ~1e-12 of a
+  fresh factor+solve, the residual being floating-point path difference). **Tier-2 is
+  tolerance-grade** (stale-factor PCG, ~1e-11 residual class). Only **Tier-3** (full
+  rebaseline) is correct by construction. The ladder assumes geometry/supports/sections
+  unchanged — anything else rebaselines automatically.
+- **FSD is the optimum only for statically determinate structures** (heuristic fixed point
+  otherwise); no lateral-torsional buckling, no displacement constraints. **BESO is a
+  heuristic** (no global-optimality claim); its sensitivity is linear-elastic and is
+  energy-exact only for UDL-free members (for a member under UDL the computed `½Qᵀu` is an
+  approximate screen, no quantified oracle — see `PROGRESS_S7.md`).
+- The **tension-only** model is an axial-sign active set with **no universal convergence
+  guarantee**: a cycle-hash guard detects loops and switches to a monotone (deactivate-only)
+  fallback that terminates in ≤ nTO+1 steps. No pretension, no slack length, no cable sag.
+
+Per-stage limitation lists (more detailed than the above) close every
+`docs/PROGRESS_S*.md`.
 
 ---
 
 ## Build & test
 
-**Standalone gate (fastest — seconds):** compiles FrameCore + the analytic-oracle fixtures
-and runs them.
+**Standalone gate (fastest — seconds):** compiles FrameCore + the oracle fixtures and runs them.
 
 ```bat
 Plugins\FrameSolver\Standalone\build.bat
 ```
-Expected: each `[PASS] Fn …` then `ALL PASS (failures=0)`, exit 0. (Needs Visual Studio with
-the C++ toolset; the script locates it via `vswhere`.)
+Expected: `[PASS] Fn …` lines, then `ALL PASS (failures=0)`, exit 0. (Needs Visual Studio
+with the C++ toolset; located via `vswhere`.)
 
-**One-click full gate** (standalone + UE headless automation + OpenSees cross-validation):
+**One-click five-leg gate** (standalone + UE automation + OpenSees + deep audit + CLI):
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File Scripts\run_gate.ps1
-# CI: -RequireOpenSees makes a missing openseespy a hard failure instead of a soft skip
+powershell -ExecutionPolicy Bypass -File Scripts\run_gate.ps1 -RequireOpenSees
 ```
 
 **Unreal Engine** (the engine as a UE module): open `ArchSim.uproject`, or headless:
@@ -147,42 +186,30 @@ Engine\Build\BatchFiles\Build.bat ArchSimEditor Win64 Development -project=...\A
 Engine\Binaries\Win64\UnrealEditor-Cmd.exe ...\ArchSim.uproject -ExecCmds="Automation RunTests FrameCore; Quit" -unattended -nullrhi -nopause
 ```
 
----
+> `run_gate.ps1` runs the UE automation but does **not** rebuild the UE module — rebuild
+> first (command above) after touching engine code, or the automation runs a stale binary.
+> The `$ExpectedUeTests = 50` guard catches a silently-missing test.
 
-## How it is validated (the point of the project)
+**Try the engine without writing C++** — the text bridge solves a model from stdin:
 
-Every capability is anchored to an **independent oracle**, not just a self-consistent re-run:
+```bat
+Plugins\FrameSolver\Standalone\build_cli.bat
+(
+  echo MAT 210000 80769 7850
+  echo SEC 10000 8.333e6 8.333e6 1.406e7 50 50 8333 8333
+  echo NODE 0 0 0 0  1 1 1 1 1 1
+  echo NODE 1 2000 0 0  0 0 0 0 0 0
+  echo MEMBER 0 0 1 0 0  0 0 1
+  echo NLOAD 1 0 0 -1000 0 0 0
+  echo END
+) | Plugins\FrameSolver\Standalone\frame_cli.exe
+```
 
-- **Closed-form analytic solutions** — cantilever `PL³/3EI` & root moment `PL`; simply-supported
-  UDL `5wL⁴/384EI`, `wL²/8`, `wL/2`; propped-cantilever-via-release `5wL/8`, `3wL/8`, `wL²/8`;
-  Timoshenko `PL³/3EI + PL/GAₛ`; circular `I = πr⁴/4`; quarter-circle arch convergence;
-  grillage center deflection vs Kirchhoff plate theory.
-- **Shell oracles** — the MITC4 **patch test** (constant curvature *and* constant membrane
-  strain reproduced to machine precision on regular & parallelogram meshes); simply-supported
-  and clamped square plates vs Kirchhoff thin-plate theory (within ~0.1–0.3 %, but note the
-  Mindlin element converges to a slightly *softer* solution and **overshoots** the Kirchhoff
-  coefficient — the residual is the Kirchhoff-vs-Mindlin model gap, not a monotone convergence
-  error, so it does not shrink monotonically with mesh refinement); a thin-plate **no-shear-locking**
-  check; and the two MacNeal–Harder curved-shell benchmarks — **Scordelis-Lo roof** (0.83 % at
-  N=24) and **pinched cylinder** (98.8 % of the `1.8248e-5` reference at N=32, converging from
-  below). A flat-plate-with-free-drilling case is the **coplanar non-singular** gate.
-- **Rotation equivariance** — rotate the whole model by an arbitrary `R`; displacements must
-  transform as `R·u` (catches transform / off-diagonal errors a norm-only check would miss).
-  The shell variant rotates a clamped plate into an arbitrary 3-D orientation and checks the
-  centre displacement magnitude is preserved (exercises the facet 3-D rotation).
-- **An independent dense Gaussian solver** inside the gate (not Eigen) cross-checks results
-  where it matters.
-- **OpenSees** offline cross-validation (`Tools/opensees_compare.py`) — strict `1e-8` agreement
-  by default for the beam models, `--relaxed` for cross-platform float drift. The MITC4 shell is
-  cross-checked against OpenSees' **own `ShellMITC4`** (the same element): node displacements
-  agree to **~1e-10 on flat/tilted plates** (the `opensees_compare` gate case) and to
-  **~1e-7–1e-8 on skewed + warped meshes** (the `shell_mitc4_deep_audit` cross-check, gated at
-  `1e-7`). OpenSees is a **validation tool only**; never shipped or linked.
+A 2 m cantilever with a 1 kN tip load — the `DISP` row for node 1 reports the
+`-PL³/3EI` tip deflection.
 
-See **[`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md)** for the data model, solve pipeline, sign
-/ unit / DOF conventions, and the element abstraction.
-
----
+(Full wire protocol — shells, modal, collapse, sizing, co-rotational, arc-length — in
+[`docs/CLI_PROTOCOL.md`](docs/CLI_PROTOCOL.md).)
 
 ## Minimal use (C++)
 
@@ -204,7 +231,7 @@ m.members = { Member(0, 0, 1, 0, 0) };              // matIdx = 0, secIdx = 0
 NodalLoad p;  p.node = 1;  p.comp[Uz] = -1000.0;    // 1 kN tip load
 m.nodalLoads = { p };
 
-SolveResult r = solve(m);                           // SolveOptions optional (releases / Timoshenko)
+SolveResult r = solve(m);                           // SolveOptions optional
 if (!r.singular) {
     double tip = r.disp(1, Uz);                     // = -PL^3/3EI
     DemandResult d = ElasticAllowable{}.checkSection(r.memberForces[0].endI, sec, mat.cap);
@@ -212,12 +239,9 @@ if (!r.singular) {
 }
 ```
 
-> **Material/Section by index:** `Member`/`ShellQuad` reference their material & section by
-> **index** (`matIdx`/`secIdx`) into `FrameModel::materials`/`sections`, not by raw pointer — so
-> adding nodes/members/materials can never dangle them (no "reserve before capture" rule).
-> `validate()` range-checks the indices.
-
----
+> **Material/Section by index:** `Member`/`ShellQuad` reference material & section by
+> **index** (`matIdx`/`secIdx`) into `FrameModel::materials`/`sections` — adding
+> nodes/members/materials can never dangle them; `validate()` range-checks the indices.
 
 ## Repository layout
 
@@ -225,39 +249,40 @@ if (!r.singular) {
 ArchSim.uproject                       UE host project (engine-as-module shell)
 Plugins/FrameSolver/
   Source/FrameCore/                     the engine (pure C++17 + Eigen, UE-agnostic)
-    Public/FrameCore/*.h                public API: FrameModel, Node, Material, Section,
-                                        Member, Load, FrameSolver, SolveOptions/Result,
-                                        ISectionStrength, ElasticAllowable, Grillage, ...
+    Public/FrameCore/*.h                POD-only public API (model, solver, analyses,
+                                        collapse, reanalysis, corotational, optimization)
     Private/*.cpp                       implementation (+ Private/FrameEigen.h: the single
-                                        Eigen include, dual-build guarded)
-    Private/Tests/*.cpp                 UE automation tests (mirror the standalone oracles)
-  Standalone/                           the console gate: build.bat (frametest), build_cli.bat
-                                        (frame_cli, the OpenSees driver), main.cpp fixtures
-Scripts/run_gate.ps1                    one-click standalone + UE + OpenSees gate
-Tools/                                  engine-validation tools (all drive frame_cli.exe):
-                                        opensees_compare, independent_precision_audit,
-                                        complex_structure_benchmark, grillage_curve_audit
-docs/ARCHITECTURE.md                    data model, solve pipeline, conventions
+                                        Eigen include site, dual-build guarded)
+    Private/Tests/*.cpp                 50 UE automation tests (mirror the standalone oracles)
+  Standalone/                           console gates + CLI/C-API drivers (see its README)
+  Grasshopper/                          C# reference client for the text bridge
+Scripts/run_gate.ps1                    the one-click five-leg gate
+Tools/                                  validation tools (drive frame_cli.exe): opensees_compare,
+                                        pdelta_compare, cli_roundtrip, precision audits
+docs/                                   see docs/README.md — architecture, verification map,
+                                        wire protocol, per-stage progress records, specs
 ```
 
----
+## Documentation map
 
-## Roadmap
+| Document | What it is |
+|---|---|
+| [`docs/VERIFICATION.md`](docs/VERIFICATION.md) | **the evidence chain**: capability → oracle → gate fixture → measured agreement |
+| [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) | data model, solve pipeline, conventions, element abstraction |
+| [`docs/CLI_PROTOCOL.md`](docs/CLI_PROTOCOL.md) | the `frame_cli` wire protocol |
+| per-stage records ([`docs/README.md`](docs/README.md) indexes `PROGRESS_S1.md` … `S10.md`) | what each stage built, its oracles, its honest limits |
+| [`docs/README.md`](docs/README.md) | full docs index — including which documents are historical records |
 
-The continuous-surface goal (MITC4 shell), the full **linear-analysis suite** (load cases /
-combinations / self-weight, factorize-once-solve-many, settlement, envelopes, influence lines,
-modal, buckling, response spectrum, real-time dynamics) and the **progressive-collapse line**
-(element removal → safety margins → debris connectivity → LSP collapse driver → shell failure
-→ event-to-event plastic hinges) are done — each behind the existing `IElement` /
-`PreparedSystem` seams and gated by its own independent oracle (closed-form + OpenSees
-cross-checks). Possible next steps, in rough order of value: the UE5 visualization layer
-consuming the POD results (collapse replay, `FragmentCluster` → Chaos debris, D/C heat-maps);
-per-member force diagrams (BMD/SFD) and redundancy reporting for the UI; shell geometric
-stiffness (plate buckling); a sparse shift-invert buckling solver; a warping-aware /
-higher-order membrane (QM6) to cut the curved-surface error. True material nonlinearity
-(fiber sections / pushover) stays deliberately excluded.
+## Roadmap (unimplemented, in rough order of value)
+
+- **Visualization data line (C6–C8):** along-member BMD/SFD diagrams, utilization fields,
+  redundancy reporting for a UI.
+- **UE5 visualization layer:** collapse replay from `CollapseStep` snapshots,
+  `FragmentCluster` → Chaos debris, D/C heat-maps — consuming the existing POD results.
+- **S11 — MITC9i higher-order shell** (last on purpose: nine engine seams must move first).
+- True material nonlinearity (fiber sections / pushover) stays **deliberately excluded**.
 
 ## License / use
 
-Graduation-project code. FrameCore depends only on Eigen (MPL2, header-only). OpenSees is used
-for offline validation only and is **not** redistributed or linked into the engine.
+Graduation-project code. FrameCore depends only on Eigen (MPL2, header-only). OpenSees is
+used for offline validation only and is **not** redistributed or linked into the engine.

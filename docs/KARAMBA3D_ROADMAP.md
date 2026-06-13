@@ -1,5 +1,9 @@
 # FrameCore × Karamba3D — 對標研究 + 獨創算法路線 + 開發主線(2026-06-10 研究輪定稿)
 
+> **📜 狀態(2026-06-13)**:本報告規劃的主線 **S1–S10 已全部實作完成**(`81740e4`);僅 S11 未實作。
+> 本檔保留為**研究史料**(對標事實、novelty 定位、宣稱紀律的原始查證);現行能力與驗證見根
+> `README.md` 與 `docs/VERIFICATION.md`。
+
 > 本檔 = 研究輪主報告。細節:`docs/research/WS_*.md`(文獻查證)、`docs/research/WS_R2_experiments.md`
 > (實驗數據,全部可重跑)、`docs/specs/S1..S4_*.md`(交接級實作規格)、`docs/specs/S5_S11_skeletons.md`、
 > `docs/PERFORMANCE_BASELINE.md`(速度基線)。基準 commit:`733833d`。

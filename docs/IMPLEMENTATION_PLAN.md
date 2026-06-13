@@ -1,5 +1,10 @@
 # FrameCore 實作計畫(Implementation Plan)
 
+> **📜 狀態(2026-06-13)**:本計畫的主線 **S1–S10 已全部實作完成**(`81740e4`,五腿 gate 全綠:
+> standalone F1–F54 / UE 50 / OpenSees / audit 104 / CLI round-trip);僅 S11(MITC9i)未實作(殿後選項)。
+> 本檔保留為**計畫史料**(目標/依賴/驗收門檻的原始定義);現行能力與驗證見根 `README.md` 與
+> `docs/VERIFICATION.md`,各階段實際完成紀錄見 `docs/PROGRESS_S*.md`。
+
 > **這份是什麼**:把 `81639c1` 研究輪的全部產出(對標報告 + 獨創算法路線 + S1–S11 主線 + 實驗數據)
 > 收斂成**一份可直接照著動工的開發計畫**。摘要級——每階段只給「目標 / 依賴 / 產出 / oracle+gate
 > 摘要 / 驗收門檻 / 風險」;逐位元的 API 簽名、數值細節、檔案清單在各 spec,本檔以連結指回。
@@ -47,7 +52,7 @@ OpenSees strict)。
 | **S2** | N4 動量繼承連續動力倒塌(Ritz 基底 + 碎塊帶初速 Chaos 交接) | ✅ [S2](specs/S2_dynamic_collapse.md) | **N4 跨事件繼承(主打)** |
 | **S3** | P-Delta 二階(N3 凍結分解 + Wilson 參考,雙路徑互鎖) | ✅ [S3](specs/S3_pdelta.md) | N3 架構整合 |
 | **S4** | Tension-only 桿件(ReSolve 內迴圈) | ✅ [S4](specs/S4_tension_only.md) | — |
-| **S5** | FSD 尺寸優化(stress-ratio;初版無 LTB,誠實標) | ✅ [PROGRESS](PROGRESS_S7.md) | — |
+| **S5** | FSD 尺寸優化(stress-ratio;初版無 LTB,誠實標) | ✅ [PROGRESS](PROGRESS_S5.md) | — |
 | **S6** | GH 對接 MVP:CLI 橋 → daemon 模式 → C API | ✅ J1/J1b/J1.5/J2 | — |
 | **S7** | BESO 拓撲優化 + **N2 倒塌韌性約束版** | ✅ [S7](PROGRESS_S7.md) | N2 方法整合 |
 | **S8** | 殼:QM6 opt-in 膜 → DKQ 薄板快路 | ✅ [S8](specs/S8_shell.md) | — |

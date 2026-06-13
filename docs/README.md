@@ -1,0 +1,49 @@
+# docs/ 導覽
+
+評審 / 新讀者建議路徑:**根 [`README.md`](../README.md)(這是什麼、能做什麼)→
+[`VERIFICATION.md`](VERIFICATION.md)(為什麼可信:能力 → oracle → gate fixture → 實測精度)→
+[`ARCHITECTURE.md`](ARCHITECTURE.md)(怎麼做到:資料模型、求解管線、慣例)**。
+之後再依興趣深入各階段紀錄與規格。
+
+## 現行權威文件(隨引擎同步維護)
+
+| 文件 | 內容 |
+|---|---|
+| [`VERIFICATION.md`](VERIFICATION.md) | **證據鏈總表**:五腿 gate、oracle 分類、每個能力的實測精度 |
+| [`ARCHITECTURE.md`](ARCHITECTURE.md) | 資料模型、求解管線、符號/單位/DOF 慣例、元素抽象、模組表 |
+| [`CLI_PROTOCOL.md`](CLI_PROTOCOL.md) | `frame_cli` 線協議(文字橋 / daemon / C API 共用) |
+| [`PERFORMANCE_BASELINE.md`](PERFORMANCE_BASELINE.md) | 效能基線與同機驗收錨點(`frame_perf.exe`) |
+
+## 各階段工程紀錄(完成後凍結;含各自的 oracle 實測與誠實邊界)
+
+| 階段 | 紀錄 | 規格 |
+|---|---|---|
+| S1 ReSolve 三層重解階梯 + 稀疏屈曲 | [`PROGRESS_S1.md`](PROGRESS_S1.md) | [`specs/S1_resolve_ladder.md`](specs/S1_resolve_ladder.md) |
+| S2 連續動力倒塌(動量繼承) | [`PROGRESS_S2.md`](PROGRESS_S2.md) | [`specs/S2_dynamic_collapse.md`](specs/S2_dynamic_collapse.md) |
+| S3 P-Delta 二階 | [`PROGRESS_S3.md`](PROGRESS_S3.md) | [`specs/S3_pdelta.md`](specs/S3_pdelta.md) |
+| S4 Tension-only 桿 | [`PROGRESS_S4.md`](PROGRESS_S4.md) | [`specs/S4_tension_only.md`](specs/S4_tension_only.md) |
+| S5 FSD 尺寸優化 | [`PROGRESS_S5.md`](PROGRESS_S5.md) | [`specs/S5_sizeopt.md`](specs/S5_sizeopt.md) |
+| S6 Grasshopper / CLI 橋 | [`PROGRESS_S6.md`](PROGRESS_S6.md) | [`specs/S6_gh_bridge.md`](specs/S6_gh_bridge.md) |
+| S7 BESO 拓撲優化 + N2 韌性約束 | [`PROGRESS_S7.md`](PROGRESS_S7.md) | [`specs/S7_beso.md`](specs/S7_beso.md) |
+| S8 殼升級(QM6 / DKQ,opt-in) | [`PROGRESS_S8.md`](PROGRESS_S8.md) | [`specs/S8_shell.md`](specs/S8_shell.md) |
+| S9 平面 co-rotational | [`PROGRESS_S9.md`](PROGRESS_S9.md) | [`specs/S9_corotational.md`](specs/S9_corotational.md) |
+| S9b 3D 通用 co-rotational | [`PROGRESS_S9b.md`](PROGRESS_S9b.md) | [`specs/S9b_corotational3d.md`](specs/S9b_corotational3d.md) |
+| S9c 弧長 snap-through 收尾 | [`PROGRESS_S9c.md`](PROGRESS_S9c.md) | [`specs/S9c_arclength.md`](specs/S9c_arclength.md) |
+| S10 N–M 互動塑鉸 | [`PROGRESS_S10.md`](PROGRESS_S10.md) | [`specs/S10_nm_interaction.md`](specs/S10_nm_interaction.md) |
+
+S 系列之前的線性套件(8 段)與崩塌 C 線(6 階段)沒有獨立 PROGRESS 檔——其能力、oracle 與
+邊界已整併入根 README 與 `VERIFICATION.md` §3.1–§3.3,演進史在 git log。
+
+## 史料(point-in-time 定稿,僅供考據,不反映現況)
+
+| 文件 | 性質 |
+|---|---|
+| [`IMPLEMENTATION_PLAN.md`](IMPLEMENTATION_PLAN.md) | 2026-06-10 研究輪收斂出的開發計畫(S1–S11 的原始目標/驗收定義);主線 S1–S10 已全部完成 |
+| [`KARAMBA3D_ROADMAP.md`](KARAMBA3D_ROADMAP.md) | 對標研究主報告(對標事實、novelty 先行技術定位、宣稱紀律) |
+| [`research/WS_*.md`](research/) | 研究輪文獻查證與可重跑實驗(`WS_R2_experiments.md`) |
+| [`specs/S5_S11_skeletons.md`](specs/S5_S11_skeletons.md) | S5–S11 規格骨架(S5–S10 已被正式 spec 取代;S11 仍是骨架) |
+| `AGENT_PROMPT_S2_S4.md` / `AGENT_PROMPT_S9.md` / `AGENT_PROMPT_S5_S11.md` | 各開發輪的 agent 工作提示詞(檔首已標歷史狀態) |
+
+> 慣例:史料**不回頭改寫內文**(保留當時的狀態數字與判斷),只在檔首加狀態 banner。
+> 宣稱分級 `[VERIFIED]` / `[NEW CODE]` / `[THEORY]` / `[UNKNOWN]` 的定義見
+> `KARAMBA3D_ROADMAP.md` §0,沿用於全部 specs 與 PROGRESS。

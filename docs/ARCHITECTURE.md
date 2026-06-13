@@ -1,9 +1,12 @@
 # FrameCore — Architecture
 
-FrameCore is a 3-D linear-elastic direct-stiffness FEM with beam-column **and** MITC4 flat-shell
-elements. This document covers the conventions, data model, solve pipeline, element abstraction
-(beam + shell), strength screen, the grillage idealization, and the validation framework. See
-[`../README.md`](../README.md) for the high-level overview and scope boundaries.
+FrameCore is a 3-D direct-stiffness FEM with beam-column **and** MITC4 flat-shell elements,
+plus a set of analysis drivers layered on the same core (linear suite, collapse, reanalysis,
+P-Delta, tension-only, co-rotational, optimization — see the capability map in
+[`../README.md`](../README.md)). This document covers the conventions, data model, solve
+pipeline, element abstraction (beam + shell), strength screen, the grillage idealization,
+and the validation framework. The capability → oracle → measured-agreement evidence chain is
+[`VERIFICATION.md`](VERIFICATION.md).
 
 ---
 
@@ -31,8 +34,8 @@ elements. This document covers the conventions, data model, solve pipeline, elem
 | `Node` | `id`, position, `fixed[6]` (boundary mask), `prescribed[6]` (imposed support displacements); `fixAll()` |
 | `Material` | `E`, `G`, **`nu`** (Poisson, used by the shell constitutive; beams ignore it), density, `Capacity{comp,tens,shear,bend=min(comp,tens),tors=shear}` (allowable stresses) |
 | `Section` | `A, Iy, Iz, J, cy, cz, Asy, Asz, shape`; section moduli `Wy()=Iy/cy`, `Wz()=Iz/cz`; factories `Rectangular(b,d)` and `Circular(r)` (Iy=Iz=πr⁴/4, J=2I); the factories also set the Timoshenko shear areas `Asy/Asz` |
-| `Member` | `id`, end node ids `i,j`, `const Material*`, `const Section*`, `refVec`, `release[12]` |
-| `ShellQuad` | `id`, 4 corner node ids `n[4]` (CCW about +normal), `const Material*` (needs `nu`), thickness `t` — a MITC4 flat-shell facet |
+| `Member` | `id`, end node ids `i,j`, `matIdx`/`secIdx` (indices into the model pools), `refVec`, `release[12]`, `active` (collapse-line removal), `tensionOnly` (S4) — both flags are part of the `solveLoad` reuse fingerprint |
+| `ShellQuad` | `id`, 4 corner node ids `n[4]` (CCW about +normal), `matIdx` (material needs `nu`), thickness `t`, `active` — a MITC4 flat-shell facet |
 | `NodalLoad` | node id + 6-component global force/moment |
 | `MemberUDL` | member id + local distributed load `w_local` (force/length) |
 | `ShellPressure` | shell id + transverse pressure `p` (along the facet normal) |
@@ -93,6 +96,13 @@ normal); `T = diag(R,…)` (eight 3×3 blocks) rotates the 24-DOF local stiffnes
 as for the beam. `recover` returns the **element-centre** stress resultants
 `{Mxx,Myy,Mxy,Qx,Qy,Nxx,Nyy,Nxy}` (a single Gauss point at the centroid — the average for a
 linearly-varying field, **not** nodal/peak values; no nodal extrapolation is performed).
+
+Two **opt-in S8 variants** live behind `SolveOptions` flags and are bit-identical to the
+baseline when off: `useIncompatibleMembrane` swaps the membrane block for a **QM6**
+(Wilson–Taylor) incompatible-modes formulation (substantially reduces in-plane bending
+locking; passes the weak patch test for general quads), and
+`useDKQPlate` swaps the plate block for a **DKQ** (Batoz–Tahar) discrete-Kirchhoff thin
+plate (no transverse shear by construction — a thin-plate fast path, not the main element).
 
 **Known element-level trait (disclosed, monitored).** The local 24×24 stiffness carries the 6
 true rigid-body zero modes **plus one inherent low-energy (near-zero, non-rigid) plate-bending
@@ -175,7 +185,12 @@ The analysis modules (each a free function + POD result, **no `solve()` flag blo
 | Collapse driver | `runProgressiveCollapse` (`Collapse.h`) | sequential linear analysis: apply event → connectivity cleanup (pin debris nodes, shed their loads) → fresh factor + solve → screen → next event; dual terminal Stable/Collapsed + MaxSteps; deterministic tie-breaks |
 | Plastic hinges | `PlasticHinge` (`Hinge.h`, model state) + `CollapseOptions.plasticHinges` | release + signed residual `Mp = fy·Z` baked into the element condensation (element channel) + joint moment `−Mp·ê` (node channel); event-to-event until a hinge mechanism |
 | Dynamic collapse (S2) | `runDynamicCollapse` (`DynamicCollapse.h`) | continuous modal-space Newmark (β=¼) over removal events; cross-event inheritance `q'=Φ'ᵀM'u`, `q̇'=Φ'ᵀM'v` onto a fresh post-event Ritz/pure-mode basis; per-event fresh factor; replay frames `(u,v)`; terminal Stable (kinetic quiescence) / Collapsed (mechanism) / MaxSteps |
-| Fragment momentum (S2) | `fillFragmentVelocity` (`FragmentMomentum.h`, shared with the driver) | fragment-local consistent mass → linear `p` / angular `L` at the detach instant → `FragmentCluster.vel = p/m`, `angVel = I⁻¹L`; the dynamic debris handoff (the static driver leaves these zero) |
+| Fragment momentum (S2) | `runDynamicCollapse` (internal helper `fillFragmentVelocity`, `Private/FragmentMomentum.h`) | fragment-local consistent mass → linear `p` / angular `L` at the detach instant → `FragmentCluster.vel = p/m`, `angVel = I⁻¹L`; the dynamic debris handoff (the static driver leaves these zero). Angular momentum uses a **rod-model** approximation (FE cross-section polar inertia omitted — accurate for slender members) |
+| Incremental reanalysis (S1) | `ReSolveSession` (`Reanalysis.h`) | three-tier ladder for interactive topology edits: Tier-1 rank-k **Woodbury** on the baseline LDLᵀ (exact), Tier-2 **stale-LDLᵀ-preconditioned PCG** (tolerance-grade), Tier-3 rebaseline (always-correct fallback); mechanism detection preserved on every tier |
+| N–M interaction hinges (S10) | `reducedPlasticMoment` (`NMInteraction.h`) + `CollapseOptions.nmInteraction` | axially-reduced plastic moment `Mp_eff(N)=Mp·max(0,1−(N/Ny)²)` in the hinge trigger/residual (exact for rectangles, conservative for circles); header-only; default off is bit-identical to the fixed-`Mp` driver |
+| FSD sizing (S5) | `runSizeOptimization` (`SizeOpt.h`) | fully-stressed-design stress-ratio resizing with similar-section scaling, multi-load-case envelope D/C, optional discrete section table (round-up), FNV-1a oscillation guard |
+| BESO topology (S7) | `runBESO`, `memberStrainEnergy` (`Topology.h`) | evolutionary hard-kill on `Member.active`; sensitivity = element strain energy; history averaging; compliance-best fallback; mechanism guard; optional **N2** collapse-robustness constraint (candidate topologies screened by the collapse driver) |
+| Co-rotational large displacement (S9/S9b/S9c) | `runCorotational` (`CorotationalAnalysis.h`) | geometrically nonlinear beam driver (separate from the linear `IElement` pipeline): SO(3) finite rotations per node, NR + load stepping, or Crisfield cylindrical **arc-length** for snap-through (`useArcLength`); optional FD-consistent tangent; member UDL + prescribed displacement; rejects shells/hinges/releases/tension-only by guard |
 
 ### The collapse line (C1–C5, stages 1–4b)
 
@@ -194,7 +209,8 @@ The analysis modules (each a free function + POD result, **no `solve()` flag blo
   so the grounded remainder never reads a spurious mechanism, and their loads leave with them.
 - **Honesty**: the driver is GSA-LSP-grade (linear between events, scalar `dlf` for dynamics,
   no membrane/catenary); the hinge layer is event-to-event sequential linear analysis (no
-  unloading, uniaxial Mp, no N–M interaction) — every solve stays linear by construction.
+  unloading, zero hinge length; S10 adds opt-in *uniaxial* N–M interaction via `Mp_eff(N)` —
+  still no My–Mz biaxial coupling, no N–M tangent) — every solve stays linear by construction.
 
 Units for mass/self-weight: the engine is consistent **N-mm-tonne-s**, so `Material.rho` (kg/m³)
 is bridged by `×1e-12` (→ tonne/mm³). The self-weight and modal oracles validate this conversion
@@ -248,26 +264,33 @@ plates/shells directly and converges to the exact solution.
   circular arch; shells: square/clamped plate, plate & membrane patch, Scordelis-Lo roof, pinched
   cylinder, rigid model rotation). Shared by both the standalone gate and the UE automation tests,
   so a green standalone run exercises the *same* solver path UE compiles.
-- **`Standalone/main.cpp`** — F1…F25 fixtures vs closed-form oracles, benchmark references, and
-  patch tests (see README §validation), printing `[PASS]/[FAIL]` and `ALL PASS (failures=n)`.
-  F13–F16 cover the MITC4 shell; F17–F25 cover the linear-analysis suite (superposition + self-
-  weight, factorize-once + settlement, pattern envelope, influence lines, modal, buckling,
-  response spectrum, transient).
-- **`Standalone/frame_cli.cpp`** — a stdin/stdout solver driver used by the Python validation
-  tools (parses a model incl. `SMAT/SHELL/SPRESS` + node `prescribed` + `EIGEN`, solves, prints
-  displacements + member/shell forces + `FREQ`).
-- **`Private/Tests/*.cpp`** — UE automation mirrors (`FrameCore.*`), **26** tests (4 `Shell.*`,
-  the load/solver/modal/buckling/response-spectrum/dynamics suite), same oracles.
+- **`Standalone/main.cpp`** — fixtures **F1…F54** vs closed-form oracles, benchmark references,
+  patch tests, and per-stage drivers (collapse, reanalysis, P-Delta, tension-only, FSD, BESO,
+  co-rotational, N–M hinges), printing `[PASS]/[FAIL]` and `ALL PASS (failures=n)`. The full
+  fixture → capability → measured-agreement map is [`VERIFICATION.md`](VERIFICATION.md).
+- **`Standalone/frame_cli.cpp`** + `frame_cli_core.{h,cpp}` + `frame_capi.cpp` — the
+  stdin/stdout solver driver (wire protocol: [`CLI_PROTOCOL.md`](CLI_PROTOCOL.md)), its shared
+  protocol core, and the C-API DLL built on the same core; used by the Python validation tools
+  and the Grasshopper bridge.
+- **`Standalone/linear_deep_audit.cpp`** — **104** independent checks: sympy/numpy-derived
+  references, bit-identity no-op proofs for every opt-in flag, the MITC4 element-spectrum
+  oracle, and fresh-factorization references for every incremental method.
+- **`Private/Tests/*.cpp`** — UE automation mirrors (`FrameCore.*`), **50** tests, same oracles
+  as the standalone fixtures (the dual-build proof).
 - **`Tools/`** — `opensees_compare.py` (OpenSees cross-validation: beams strict 1e-8; prescribed
   settlement vs `sp()` to 0; the MITC4 shell vs OpenSees' own `ShellMITC4` to ~1e-10 on the
   flat/tilted plates gated here, ~1e-7–1e-8 on skewed/warped meshes in `shell_mitc4_deep_audit.py`;
-  natural frequencies vs `eigen -cMass` to ~1e-11; `--relaxed` for cross-platform drift) — note
-  these are *measured* agreements; the gate tolerances are looser on purpose (shell 1e-7, modal
-  1e-4) to leave float/library headroom,
-  `independent_precision_audit.py`, `complex_structure_benchmark.py`, `grillage_curve_audit.py`
-  — all black-box the engine through `frame_cli.exe`.
-- **`Scripts/run_gate.ps1`** — runs all three legs and prints a combined verdict + exit code
-  (`-RequireOpenSees` to make a missing OpenSees a hard failure for CI).
+  natural frequencies vs `eigen -cMass` to ~1e-11; 3-D co-rotational vs `geomTransf Corotational`
+  to 1.22e-9; arc-length limit load vs `integrator ArcLength` to 6.4e-3; `--relaxed` for
+  cross-platform drift) — note these are *measured* agreements; the gate tolerances are looser
+  on purpose (shell 1e-7, modal 1e-4) to leave float/library headroom. Plus `pdelta_compare.py`,
+  `cli_roundtrip.py` (gate leg 5), `independent_precision_audit.py`,
+  `complex_structure_benchmark.py`, `grillage_curve_audit.py` — all black-box the engine
+  through `frame_cli.exe`.
+- **`Scripts/run_gate.ps1`** — runs all **five** legs (standalone, UE automation, OpenSees,
+  deep audit, CLI round-trip) and prints a combined verdict + exit code; `$ExpectedUeTests = 50`
+  guards against a silently-missing UE test; `-RequireOpenSees` makes a missing OpenSees a hard
+  failure for CI.
 
 ---
 
