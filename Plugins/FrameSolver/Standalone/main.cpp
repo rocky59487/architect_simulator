@@ -21,6 +21,7 @@
 #include "FrameCore/Topology.h"
 #include "FrameCore/NMInteraction.h"
 #include "FrameCore/MemberGeometry.h"
+#include "FrameCore/HpSolver.h"
 #include "FrameTestFixtures.h"
 
 #include <vector>
@@ -2949,6 +2950,65 @@ int main() {
                   hOff.steps[0].formedHinges.empty(), hOff.diagnostic);
         std::printf("   N-M hinge load bracketed: Stable@0.99w* / Collapsed@1.01w* (N-M on); same load Stable (N-M off); Mp_eff/Mp=%.3f\n",
                     MpEff / MpZ);
+    }
+
+    // ---------- F55: opt-in HP-FEM PCG lane (solveLoadHP) vs LDLT oracle ----------
+    // A1 of the production HP-FEM integration: the opt-in matrix-free PCG lane must return
+    // a SolveResult equal to the direct LDLT solve (same RHS / reactions / member forces),
+    // defer to LDLT on a mechanism, and be a drop-in equal to solveLoad when disabled.
+    {
+        std::printf("[F55] HP-FEM opt-in lane: solveLoadHP (matrix-free PCG) vs LDLT oracle\n");
+        HpSolveOptions hp; hp.enabled = true;   // pcgTol=1e-10, maxIter=500, fallbackOnFail=true
+        auto hpVsLdlt = [&](const char* tag, const SolveResult& got, const SolveResult& ref) {
+            if (got.singular) { checkTrue(tag, false, "HP unexpectedly singular: " + got.diagnostic); return; }
+            double un = 1e-30, du = 0, rn = 1e-30, dr = 0, mn = 1e-30, dm = 0;
+            for (real v : ref.u) un = std::max(un, std::fabs((double)v));
+            for (size_t k = 0; k < got.u.size(); ++k) du = std::max(du, std::fabs((double)got.u[k] - (double)ref.u[k]));
+            for (real v : ref.reactions) rn = std::max(rn, std::fabs((double)v));
+            for (size_t k = 0; k < got.reactions.size(); ++k) dr = std::max(dr, std::fabs((double)got.reactions[k] - (double)ref.reactions[k]));
+            for (size_t e = 0; e < ref.memberForces.size(); ++e) {
+                const MemberEndForces gI = got.memberForces[e].endI, rI = ref.memberForces[e].endI;
+                const MemberEndForces gJ = got.memberForces[e].endJ, rJ = ref.memberForces[e].endJ;
+                const real ga[12] = { gI.N,gI.Vy,gI.Vz,gI.T,gI.My,gI.Mz, gJ.N,gJ.Vy,gJ.Vz,gJ.T,gJ.My,gJ.Mz };
+                const real rb[12] = { rI.N,rI.Vy,rI.Vz,rI.T,rI.My,rI.Mz, rJ.N,rJ.Vy,rJ.Vz,rJ.T,rJ.My,rJ.Mz };
+                for (int i = 0; i < 12; ++i) { mn = std::max(mn, std::fabs((double)rb[i])); dm = std::max(dm, std::fabs((double)ga[i] - (double)rb[i])); }
+            }
+            const bool ok = (du/un <= 1e-8) && (dr/rn <= 1e-8) && (dm/mn <= 1e-8);
+            checkTrue(tag, ok, "uRel=" + std::to_string(du/un) + " Rrel=" + std::to_string(dr/rn) +
+                      " mfRel=" + std::to_string(dm/mn) + " | " + got.diagnostic);
+        };
+        // FA cantilever tip load
+        { FrameModel m; fixtures::cantileverTipLoad(m, 1000.0, 2000.0, mat, sec);
+          PreparedSystem ps = assembleAndFactor(m);
+          hpVsLdlt("F55-FA cantilever", solveLoadHP(ps, m, hp), solveLoad(ps, m)); }
+        // FB simply-supported UDL (equivalent-nodal-load path)
+        { FrameModel m; fixtures::simplySupportedUDL(m, 5.0, 3000.0, mat, sec);
+          PreparedSystem ps = assembleAndFactor(m);
+          hpVsLdlt("F55-FB SS+UDL", solveLoadHP(ps, m, hp), solveLoad(ps, m)); }
+        // FC settlement (nonzero prescribed DOF -> exercises the CSC prescribed reduce).
+        // Guard that the case is non-degenerate: the free midspan must actually move, else
+        // the prescribed-reduce path would be vacuously "equal" with a zero RHS.
+        { FrameModel m; fixtures::clampedSettlement(m, 3000.0, 5.0, mat, sec);
+          PreparedSystem ps = assembleAndFactor(m);
+          const SolveResult ref = solveLoad(ps, m);
+          double freeNorm = 0; for (int d = 0; d < 6; ++d) freeNorm = std::max(freeNorm, std::fabs(ref.disp(1, d)));
+          checkTrue("F55-FC settlement moves free node", freeNorm > 1e-9, "freeNorm=" + std::to_string(freeNorm));
+          hpVsLdlt("F55-FC settlement", solveLoadHP(ps, m, hp), ref); }
+        // FE released member (enableReleases -> condensed kl/Qf must flow through the apply)
+        { FrameModel m; fixtures::proppedCantileverRelease(m, 5.0, 3000.0, mat, sec);
+          SolveOptions so; so.enableReleases = true;
+          PreparedSystem ps = assembleAndFactor(m, so);
+          hpVsLdlt("F55-FE release", solveLoadHP(ps, m, hp), solveLoad(ps, m)); }
+        // FD mechanism -> the HP lane must report singular (it defers to the LDLT pivot guard)
+        { FrameModel m; fixtures::mechanism(m, mat, sec);
+          PreparedSystem ps = assembleAndFactor(m);
+          const SolveResult got = solveLoadHP(ps, m, hp);
+          checkTrue("F55-FD mechanism -> singular", got.singular, got.diagnostic); }
+        // disabled lane is a drop-in equal to solveLoad (LDLT)
+        { FrameModel m; fixtures::cantileverTipLoad(m, 1000.0, 2000.0, mat, sec);
+          PreparedSystem ps = assembleAndFactor(m);
+          HpSolveOptions off; off.enabled = false;
+          hpVsLdlt("F55 disabled==LDLT", solveLoadHP(ps, m, off), solveLoad(ps, m)); }
     }
 
     std::printf("\n%s  (failures=%d)\n", g_fail == 0 ? "ALL PASS" : "FAILURES", g_fail);

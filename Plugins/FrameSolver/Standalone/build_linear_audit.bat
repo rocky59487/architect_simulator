@@ -41,6 +41,7 @@ cl /nologo /EHsc /std:c++17 /O2 /MD /utf-8 /DEIGEN_MPL2_ONLY /DFRAMECORE_BUILD_S
    Source\FrameCore\Private\BeamColumnElement.cpp ^
    Source\FrameCore\Private\MITC4ShellElement.cpp ^
    Source\FrameCore\Private\FrameSolver.cpp ^
+   Source\FrameCore\Private\HpSolver.cpp ^
    Source\FrameCore\Private\ElasticAllowable.cpp ^
    Source\FrameCore\Private\Grillage.cpp ^
    Source\FrameCore\Private\SelfWeight.cpp ^
