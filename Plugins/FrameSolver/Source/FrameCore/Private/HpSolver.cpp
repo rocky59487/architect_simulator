@@ -109,59 +109,67 @@ SolveResult solveLoadHP(const PreparedSystem& prepared, const FrameModel& model,
 
     VecX uf;
     bool pcgConverged = false;
+    bool indefinite = false;      // matrix-free operator hit pAp<=0 / rzNew<=0 (not SPD)
     int pcgIters = 0;
     const bool tryPcg = opts.enabled && !hasShell && S.nf > 0;
     if (tryPcg) {
         VecX x = VecX::Zero(S.nf);
         VecX r = Ff;                                // r = Ff - K_ff * x0, with x0 = 0
-        const real bnorm = std::max<real>(real(1e-300), Ff.norm());
-        // x0 = 0 already solves a zero RHS (e.g. a load-free settlement that does not excite
-        // the free DOFs); otherwise iterate, counting a step only after x actually advances and
-        // testing convergence right after, so the reported iteration count is honest.
-        pcgConverged = static_cast<double>(r.norm() / bnorm) <= opts.pcgTol;
-        VecX z(S.nf), p(S.nf), Ap(S.nf);
-        precond(r, z);
-        p = z;
-        real rz = r.dot(z);
-        while (!pcgConverged && pcgIters < opts.pcgMaxIter) {
-            applyKff(p, Ap);
-            const real pAp = p.dot(Ap);
-            if (!(pAp > real(0)) || !std::isfinite(static_cast<double>(pAp))) break;
-            const real alpha = rz / pAp;
-            x.noalias() += alpha * p;
-            r.noalias() -= alpha * Ap;
-            ++pcgIters;                             // a real CG step has advanced x
-            if (static_cast<double>(r.norm() / bnorm) <= opts.pcgTol) { pcgConverged = true; break; }
+        const real bnorm = Ff.norm();
+        if (!(bnorm > real(0))) {
+            // A zero RHS has the exact solution x = 0 (e.g. a load-free settlement that does
+            // not excite the free DOFs). Take it directly so the convergence test never divides
+            // by a clamped tiny bnorm (which could false-converge in the denormal range).
+            pcgConverged = true;                    // x stays 0 = exact solution
+        } else {
+            // bnorm > 0 makes the relative-residual test well-posed. Count a step only AFTER x
+            // advances and test convergence right after, so the iteration count is honest.
+            pcgConverged = static_cast<double>(r.norm() / bnorm) <= opts.pcgTol;
+            VecX z(S.nf), p(S.nf), Ap(S.nf);
             precond(r, z);
-            const real rzNew = r.dot(z);
-            if (!(rzNew > real(0)) || !std::isfinite(static_cast<double>(rzNew))) break;
-            p = z + (rzNew / rz) * p;
-            rz = rzNew;
+            p = z;
+            real rz = r.dot(z);
+            while (!pcgConverged && pcgIters < opts.pcgMaxIter) {
+                applyKff(p, Ap);
+                const real pAp = p.dot(Ap);
+                if (!(pAp > real(0)) || !std::isfinite(static_cast<double>(pAp))) { indefinite = true; break; }
+                const real alpha = rz / pAp;
+                x.noalias() += alpha * p;
+                r.noalias() -= alpha * Ap;
+                ++pcgIters;                         // a real CG step has advanced x
+                if (static_cast<double>(r.norm() / bnorm) <= opts.pcgTol) { pcgConverged = true; break; }
+                precond(r, z);
+                const real rzNew = r.dot(z);
+                if (!(rzNew > real(0)) || !std::isfinite(static_cast<double>(rzNew))) { indefinite = true; break; }
+                p = z + (rzNew / rz) * p;
+                rz = rzNew;
+            }
         }
-        if (pcgConverged && x.allFinite()) uf = x;
+        if (pcgConverged && x.allFinite()) uf = x;  // PCG result, finite by this guard
         else pcgConverged = false;
     }
 
     std::string note;
     if (pcgConverged) {
+        // uf == x, already verified finite above; no LDLT solve involved on this path.
         note = "[HpSolver] matrix-free PCG converged in " + std::to_string(pcgIters) + " iter";
     } else {
         const std::string why = !opts.enabled ? "HP lane disabled"
                               : hasShell       ? "shell element present (A1 is frame-only)"
-                                               : "PCG did not converge to tol";
+                              : indefinite     ? "matrix-free operator not positive-definite (pAp<=0)"
+                                               : "PCG did not converge within pcgMaxIter";
         if (opts.enabled && !opts.fallbackOnFail) {
             R.singular = true;
             R.diagnostic = "solveLoadHP: " + why + "; fallback disabled";
             return R;
         }
-        uf = S.ldlt.solve(Ff);
+        uf = S.ldlt.solve(Ff);                      // the oracle / safety net
+        if (S.ldlt.info() != Eigen::Success || !uf.allFinite()) {
+            R.singular = true;
+            R.diagnostic = "solveLoadHP: LDLT fallback produced non-finite displacements (mechanism)";
+            return R;
+        }
         note = "[HpSolver] LDLT (" + why + ")";
-    }
-
-    if (S.ldlt.info() != Eigen::Success || !uf.allFinite()) {
-        R.singular = true;
-        R.diagnostic = "solveLoadHP: solve produced non-finite displacements (mechanism)";
-        return R;
     }
 
     // ---- scatter / reactions / recover: verbatim from solveLoad ---------------------

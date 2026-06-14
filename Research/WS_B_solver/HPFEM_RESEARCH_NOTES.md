@@ -417,3 +417,68 @@ cover the actual contact set. The production fallback should key on the projecti
 gate: in vs out initialRel differ by 8-9 orders, so a 1e-6 threshold separates them with
 wide margin; out-of-subspace frames fall back to ordinary PCG (still correct, baseline cost)
 or LDLT.
+
+## 2026-06-14 Session 4: production A1 safety testing + unification decision
+
+The production opt-in HP lane (A1: solveLoadHP, serial matrix-free PCG + Jacobi precond,
+LDLT fallback) was stress-tested vs the direct LDLT across a wide case matrix
+(`Standalone/hp_stress.cpp`, a diagnostic build via `build_hp_stress.bat` — NOT a gate leg)
+and adversarially reviewed by 4 independent agents, to decide what a "single unified solve
+engine" should actually be.
+
+### hp_stress results (pass=5 slow=31 fail=0)
+
+ZERO correctness failures. solveLoadHP matches solveLoad to <=1e-8 (u/reactions/member
+forces) or defers to LDLT on every case:
+- correctness fixtures (cantilever / SS+UDL / axial / settlement / release / two-span /
+  curved arch): vsLdlt 1e-12..1e-16.
+- boundary: mechanism / torsion-release / fully-constrained -> HP reports singular (defers
+  to the LDLT pivot guard); shell-only -> LDLT fallback (A1 frame-only).
+- coverage (adversarial gaps): settlement+load, multi-material, inactive member, self-
+  weight, grillage 4x4, truss-pin axial — all vsLdlt <=2e-12.
+- PERFORMANCE: A1 is SLOWER than LDLT on every non-trivial case. Small 4-6x; mesh-scale
+  N16=64it/57x, N32=161it/142x; N64+ (nf>=390) the Jacobi PCG does NOT converge in 500 iters
+  and falls back to LDLT (429-454x). Repeated 200-frame loop: 28x slower (A1 has no seeded
+  recycling). Robust to scale/E (iter ~63 stable), degrades only with mesh size.
+
+### Adversarial review (4 lenses) — the unification decision
+
+A1 has NO regime where HP beats LDLT (small=slow, large=non-convergent, repeated=no seed).
+Findings that reshaped the goal:
+- LDLT is structurally irreplaceable as the singularity/mechanism detector — PCG cannot
+  detect a mechanism, it only fails to converge.
+- The banded coarse correction only helps a tower's floor-block-tridiagonal structure; for
+  1D / arbitrary-topology problems there is no floor aggregation, so even A2 will NOT make
+  HP replace LDLT for arbitrary mid/large problems.
+- The A2 seeded win (~19x/frame WITH projection) needs the CALLER to supply a low-dim load
+  subspace + enough frames to amortize the seed — it cannot be transparently auto-detected,
+  and accumulating a stateful seeded basis breaks the const PreparedSystem PIMPL invariant.
+- Therefore "remove opt-in, auto-pick the core inside one solve()" adds complexity + breaks
+  the PIMPL + has ~zero value (auto-pick would always pick LDLT today). The cleanest
+  architecture is exactly the current TWO-LANE one: clean solve/solveLoad (LDLT, all
+  features) + an explicit opt-in HP accelerator (= Lane A/B in this doc).
+
+DECISION: keep the two-lane architecture; do NOT force an "auto-unified" solve. Make the
+engine stronger via A2 (the real perf win in HP's niche) exposed through a natural
+seeded-session API, not by hiding the choice.
+
+### A1 hardening (3 correctness majors from the review, all fixed; five-leg gate still green)
+
+- bnorm no longer clamps to 1e-300: a zero RHS takes the exact x=0 directly (removes a
+  denormal-range false-convergence path); a nonzero RHS uses bnorm=||Ff|| (well-posed).
+- pAp<=0 / rzNew<=0 sets an `indefinite` flag so the diagnostic distinguishes "operator not
+  positive-definite" from a genuine max-iter non-convergence.
+- the unconditional post-solve `S.ldlt.info()` check (sticky Success on the PCG path) is
+  removed; each path validates its own uf (PCG via x.allFinite, fallback via ldlt.info +
+  allFinite).
+
+### What can unify vs what must stay LDLT (data-backed)
+
+MUST keep LDLT (internal exact core + singularity detector): mechanism/singular detection;
+shells (frame-only); arbitrary mid/large problems (A1 non-convergent; A2 coarse only helps
+towers); near-singular; all single/arbitrary loads (reused LDLT ~18x, unbeatable); every
+S1-S10 analysis (ReSolve/P-Delta/tension-only/co-rotational/collapse are LDLT-based); the
+bit-stable five-leg gate path.
+HP can win (A2 only): game per-frame repeated LOW-DIM load sequences (seeded ~19x, needs a
+load-subspace hint); very large first solves at the LDLT factor wall (nf>~18k, 17-40x);
+very large memory-wall problems (nf>~186k, LDLT infeasible).
