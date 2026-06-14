@@ -22,6 +22,7 @@
 #include "FrameCore/NMInteraction.h"
 #include "FrameCore/MemberGeometry.h"
 #include "FrameCore/HpSolver.h"
+#include "FrameCore/HpSession.h"
 #include "FrameTestFixtures.h"
 
 #include <vector>
@@ -3009,6 +3010,139 @@ int main() {
           PreparedSystem ps = assembleAndFactor(m);
           HpSolveOptions off; off.enabled = false;
           hpVsLdlt("F55 disabled==LDLT", solveLoadHP(ps, m, off), solveLoad(ps, m)); }
+    }
+
+    // ---------- F56: seeded HP-FEM session (HpSession) vs LDLT oracle ----------
+    // A2c of the production HP-FEM integration: the seeded session must (A) hit the Galerkin
+    // projection at ~0 PCG iters for a load IN the seeded subspace, (B) gate to a full PCG for a
+    // load that LEAVES it (still correct), (C) be a drop-in equal to solveLoad when disabled or
+    // un-seeded, (D) reject a model whose fingerprint changed, and (E) auto-expand the basis cap so
+    // FIFO never drops a seed. All paths match the direct LDLT solve to a 1e-6 tolerance gate.
+    {
+        std::printf("[F56] HP-FEM seeded session: HpSession (Galerkin projection + warm PCG) vs LDLT oracle\n");
+
+        // A horizontal cantilever along +X (node0 encastre, nodes 1..n free) gives a multi-dimensional
+        // load family to seed and to leave. id == index here, so gdof(index, dof) addresses the load.
+        const int  nseg  = 6;
+        const real Lspan = 3000.0;
+        auto buildCant = [&](FrameModel& m) {
+            m = FrameModel{};
+            m.materials = { mat }; m.sections = { sec };
+            Node n0(0, 0, 0, 0); n0.fixAll();
+            m.nodes = { n0 };
+            for (int k = 1; k <= nseg; ++k) m.nodes.push_back(Node(k, Lspan * real(k) / real(nseg), 0, 0));
+            for (int k = 0; k < nseg; ++k) m.members.push_back(Member(k, k, k + 1, 0, 0));
+        };
+        // A 6N global load vector: a single Uz load at node index `nd`.
+        auto unitUz = [&](const FrameModel& m, int nd, real mag) {
+            std::vector<real> lv((size_t)(6 * (int)m.nodes.size()), 0.0);
+            lv[(size_t)gdof(nd, Uz)] = mag;
+            return lv;
+        };
+        // Set the model's single nodal Uz load at node index `nd`.
+        auto setLoad = [&](FrameModel& m, int nd, real mag) {
+            NodalLoad nl; nl.node = m.nodes[(size_t)nd].id; nl.comp[Uz] = mag; m.nodalLoads = { nl };
+        };
+        // Compare an HpSession result to the LDLT oracle (u / reactions / member forces), 1e-6 gate.
+        auto hpSessVsLdlt = [&](const char* tag, const SolveResult& got, const SolveResult& ref) {
+            if (got.singular) { checkTrue(tag, false, "HpSession unexpectedly singular: " + got.diagnostic); return; }
+            double un = 1e-30, du = 0, rn = 1e-30, dr = 0, mn = 1e-30, dm = 0;
+            for (real v : ref.u) un = std::max(un, std::fabs((double)v));
+            for (size_t k = 0; k < got.u.size(); ++k) du = std::max(du, std::fabs((double)got.u[k] - (double)ref.u[k]));
+            for (real v : ref.reactions) rn = std::max(rn, std::fabs((double)v));
+            for (size_t k = 0; k < got.reactions.size(); ++k) dr = std::max(dr, std::fabs((double)got.reactions[k] - (double)ref.reactions[k]));
+            for (size_t e = 0; e < ref.memberForces.size(); ++e) {
+                const MemberEndForces gI = got.memberForces[e].endI, rI = ref.memberForces[e].endI;
+                const MemberEndForces gJ = got.memberForces[e].endJ, rJ = ref.memberForces[e].endJ;
+                const real ga[12] = { gI.N,gI.Vy,gI.Vz,gI.T,gI.My,gI.Mz, gJ.N,gJ.Vy,gJ.Vz,gJ.T,gJ.My,gJ.Mz };
+                const real rb[12] = { rI.N,rI.Vy,rI.Vz,rI.T,rI.My,rI.Mz, rJ.N,rJ.Vy,rJ.Vz,rJ.T,rJ.My,rJ.Mz };
+                for (int i = 0; i < 12; ++i) { mn = std::max(mn, std::fabs((double)rb[i])); dm = std::max(dm, std::fabs((double)ga[i] - (double)rb[i])); }
+            }
+            const bool ok = (du/un <= 1e-6) && (dr/rn <= 1e-6) && (dm/mn <= 1e-6);
+            checkTrue(tag, ok, "uRel=" + std::to_string(du/un) + " Rrel=" + std::to_string(dr/rn) +
+                      " mfRel=" + std::to_string(dm/mn) + " | " + got.diagnostic);
+        };
+
+        FrameModel mSeed; buildCant(mSeed);
+        PreparedSystem ps = assembleAndFactor(mSeed);
+        HpSessionOptions opt;                                   // enabled, basisMax=64, projGateTol=1e-6, warmIter=3
+        HpSession sess(ps, opt);
+        checkTrue("F56 session valid (frame-only, non-singular)", sess.valid(), sess.diagnostic());
+        // seed the Uz load family at nodes 1 and n (gravity + a far contact, conceptually)
+        std::vector<std::vector<real>> seeds = { unitUz(mSeed, 1, 1.0), unitUz(mSeed, nseg, 1.0) };
+        checkTrue("F56 setLoadBasis(2) ok", sess.setLoadBasis(seeds), sess.diagnostic());
+
+        // (A) IN-subspace: a pure multiple of seed1 -> Galerkin projection is exact (~0 PCG iters)
+        {
+            FrameModel m; buildCant(m); setLoad(m, 1, 1234.0);
+            HpSessionStats st;
+            const SolveResult got = sess.solveFrame(m, &st);
+            hpSessVsLdlt("F56-A in-subspace (node1)", got, solveLoad(ps, m));
+            checkTrue("F56-A used seeded projection", st.usedProjection, "initialRel=" + std::to_string((double)st.initialRel));
+            checkTrue("F56-A near-zero PCG iters (in-subspace)", st.pcgIters <= 1, "iters=" + std::to_string(st.pcgIters));
+        }
+        // (A2) IN-subspace linear combination of BOTH seeds
+        {
+            FrameModel m; buildCant(m);
+            NodalLoad a; a.node = m.nodes[1].id;            a.comp[Uz] =  800.0;
+            NodalLoad b; b.node = m.nodes[(size_t)nseg].id; b.comp[Uz] = -500.0;
+            m.nodalLoads = { a, b };
+            HpSessionStats st;
+            const SolveResult got = sess.solveFrame(m, &st);
+            hpSessVsLdlt("F56-A2 in-subspace (combo)", got, solveLoad(ps, m));
+            checkTrue("F56-A2 used seeded projection (combo)", st.usedProjection, "initialRel=" + std::to_string((double)st.initialRel));
+        }
+        // (B) OUT-of-subspace: a load at an unseeded node leaves the subspace -> gate -> full PCG, still correct
+        {
+            FrameModel m; buildCant(m); setLoad(m, 2, 1000.0);
+            HpSessionStats st;
+            const SolveResult got = sess.solveFrame(m, &st);
+            hpSessVsLdlt("F56-B out-of-subspace (node2)", got, solveLoad(ps, m));
+            checkTrue("F56-B gate -> full PCG (not projection)", st.usedPcg && !st.usedProjection,
+                      "initialRel=" + std::to_string((double)st.initialRel) + " iters=" + std::to_string(st.pcgIters));
+            checkTrue("F56-B initialRel above projGateTol", (double)st.initialRel >= opt.projGateTol,
+                      "initialRel=" + std::to_string((double)st.initialRel));
+        }
+        // (C) DISABLED lane is a drop-in equal to solveLoad (LDLT)
+        {
+            HpSessionOptions off = opt; off.enabled = false;
+            HpSession sOff(ps, off);
+            FrameModel m; buildCant(m); setLoad(m, 1, 1234.0);
+            HpSessionStats st;
+            const SolveResult got = sOff.solveFrame(m, &st);
+            hpSessVsLdlt("F56-C disabled==LDLT", got, solveLoad(ps, m));
+            checkTrue("F56-C used LDLT (disabled)", st.usedLdlt && !st.usedProjection && !st.usedPcg, got.diagnostic);
+        }
+        // (C2) ENABLED but UN-SEEDED (empty basis) -> LDLT drop-in
+        {
+            HpSession sEmpty(ps, opt);   // setLoadBasis never called
+            FrameModel m; buildCant(m); setLoad(m, 1, 1234.0);
+            HpSessionStats st;
+            const SolveResult got = sEmpty.solveFrame(m, &st);
+            hpSessVsLdlt("F56-C2 empty-basis==LDLT", got, solveLoad(ps, m));
+            checkTrue("F56-C2 used LDLT (empty basis)", st.usedLdlt && st.basisSize == 0, got.diagnostic);
+        }
+        // (D) FINGERPRINT guard: a structural change since assembleAndFactor -> singular (re-run required)
+        {
+            FrameModel m; buildCant(m); setLoad(m, 1, 1234.0);
+            m.sections[0].Iz *= 1.5;   // structural change -> fingerprint differs from the prepared system
+            HpSessionStats st;
+            const SolveResult got = sess.solveFrame(m, &st);
+            checkTrue("F56-D fingerprint mismatch -> singular", got.singular, got.diagnostic);
+        }
+        // (E) basisMax AUTO-EXPAND: seeding 5 modes with basisMax=3 must keep all 5 (FIFO would drop 2)
+        {
+            HpSessionOptions small = opt; small.basisMax = 3;
+            HpSession s5(ps, small);
+            std::vector<std::vector<real>> five = {
+                unitUz(mSeed, 1, 1.0), unitUz(mSeed, 2, 1.0), unitUz(mSeed, 3, 1.0),
+                unitUz(mSeed, 4, 1.0), unitUz(mSeed, 5, 1.0) };
+            checkTrue("F56-E setLoadBasis(5) ok", s5.setLoadBasis(five), s5.diagnostic());
+            FrameModel m; buildCant(m); setLoad(m, 1, 1000.0);
+            HpSessionStats st;
+            s5.solveFrame(m, &st);
+            checkClose("F56-E basisMax auto-expanded to 5 (FIFO would cap at 3)", (double)st.basisSize, 5.0, 0.5);
+        }
     }
 
     std::printf("\n%s  (failures=%d)\n", g_fail == 0 ? "ALL PASS" : "FAILURES", g_fail);

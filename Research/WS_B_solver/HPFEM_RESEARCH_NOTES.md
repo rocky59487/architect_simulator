@@ -584,3 +584,43 @@ A2c serial has no large-problem win (honest; ~19x needs A2a); frame-only (shell 
 ONLY the wins (deflation / sparse-finer-coarse / symApply are negative results, never port);
 never touch default solve/solveLoad/solveLoadHP; LDLT stays oracle/safety-net; strict
 A2c -> A2a -> A2b order, each its own five-leg gate + commit.
+
+## 2026-06-14 Session 6: A2c implemented (seeded HpSession API, serial, five-leg green)
+
+A2c done exactly per the Session-5 blueprint. New `Public/FrameCore/HpSession.h` (zero Eigen,
+POD options/stats, move-only PIMPL modeled on ReSolveSession) + `Private/HpSession.cpp` (all
+Eigen confined). The session holds a NON-owning `const PreparedSystem::Impl*` (std::span-like
+lifetime contract), an A-orthonormal seeded load-response basis (RecycleBasis ported verbatim
+from exp_parallel_pcg.cpp L1062-1113, research-only timers stripped), and the A1 serial element
+apply + Jacobi. `setLoadBasis` reduces each 6N nodal load -> ldlt.solve -> A-orthonormalize, with
+`effectiveBasisMax = max(basisMax, #seeds)` so FIFO never evicts a seed. `solveFrame` reuses the
+RHS / prescribed-reduce / scatter / reactions (K*u-F) / recover VERBATIM from solveLoad (marked
+"sync if changed"); the ONLY departure is `x0 = Galerkin projection`, `initialRel = ||Ff-K x0||/
+||Ff||`, gate `initialRel < projGateTol` -> warm PCG (<=pcgWarmIter, residual net atop x0) else
+full PCG, with LDLT the always-correct fallback. `canHp = enabled && baseValid && nf>0 &&
+!basis.empty()` (disabled / un-seeded / shell -> LDLT drop-in); zero-RHS -> uf=0; fingerprint
+guard every frame.
+
+F56 standalone gate (5 sub-checks, all PASS): A in-subspace -> usedProjection, initialRel=0,
+0 PCG iters; A2 in-subspace combo of both seeds -> projection; B out-of-subspace (unseeded node)
+-> gate -> full PCG 17 iters, initialRel=2.12; C disabled==LDLT + C2 empty-basis==LDLT (basisSize
+0); D fingerprint mismatch -> singular; E basisMax=3 + 5 seeds -> auto-expanded basisSize=5 (FIFO
+would cap at 3). All HP-vs-LDLT rels 0.000000 (1e-6 gate). FIVE-LEG GREEN: standalone F1-F56,
+UE 50 (no new UE test, $ExpectedUeTests stays 50), OpenSees PASS, deep audit 104, CLI round-trip.
+UE rebuilt first (HpSession.cpp auto-excluded from FrameCore unity, compiles under FRAMECORE_UE).
+
+Adversarial check (2 parallel agents, both clean / no MAJOR): (1) line-by-line vs solveLoad /
+HpSolver.cpp / exp_parallel_pcg.cpp confirmed verbatim RHS/scatter/recover, A1 iter-count order,
+RecycleBasis math equivalence, gate boundaries, PIMPL/move/lifetime, zero Eigen leak, 3 build.bat
+synced; (2) independent numpy recompute: ||VtKV - I|| = 4.3e-16 (K-orthonormality), in-subspace
+Galerkin residual 4.8e-16 (=> 0-iter exact), out-of-subspace 0.95 (=> gate fires) — matches the
+C++ gate values. 3 cosmetic MINORs noted for a future batch (no correctness impact): (i)
+HpSession.cpp scaleRef guard lacks a why-comment; (ii) the LDLT note string lists "shell" among
+reasons though shell takes the canHp=false path; (iii) a fully-degenerate seed set leaves diag
+unchanged (cannot happen in practice — baseValid already rejects a singular PreparedSystem).
+
+Go/no-go confirmed honest: A2c serial has NO large-problem win (per Session 5: serial apply ~14ms
+> LDLT backsub 10.9ms at nf~18720); A2c delivers the API + correctness + small-problem (nf<~2000)
+2-3x + the paving for A2a. The real game-scale ~19x needs A2a (ThreadApplyPool + ElementBlock12 +
+parallel block6), which swaps only HpSession.cpp's Impl internals — HpSession.h API unchanged.
+Then A2b (banded coarse, towers only). Next session: A2a.
