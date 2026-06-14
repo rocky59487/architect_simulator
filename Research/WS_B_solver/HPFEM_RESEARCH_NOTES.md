@@ -690,3 +690,46 @@ exercises the banded factor + graceful path correctly, but genuine coarsening (m
 storey -> 6-DOF group) is a benchmark concern, not a gate one. **A2 (A2c serial + A2a parallel +
 A2b coarse) is complete.** Next: pre-release refactor (clean the 3-stage build-up) + perf
 micro-tuning + exhaustive audit / multi-scenario benchmark + V2 release.
+
+### 2026-06-14 Session 7: release-prep — refactor + perf + exhaustive audit + benchmark (NOT released)
+
+Pre-release pass on the shipped HP lane: refactor 7135230, displacementsOnly+benchmark f6c370c, audit
+fixes 08be128, cache-Fequiv 461e368. All on research/hpfem-solver-v1; NO tag, NO merge to main.
+
+Refactor (7135230): dropped dead research-port residue (RecycleBasis accepted/rejected, ElementOperator
+hasShell), normalized comments to the shipped feature (no A2c/A2a/A2b stage tags / research line numbers).
+Zero behavior change.
+
+Perf (results-identical to solveLoad): (1) fold Kx0 into the seeded projection — x0=Σ(v_i·Ff)v_i AND
+Kx0=Σ(v_i·Ff)av_i from the stored av_i=K v_i, so the initial residual costs NO apply (in-subspace frame
+= 0 applies); (2) skip the O(nnz) prescribed reduce when no support is settled; (3) displacementsOnly
+(f6c370c) opt-in fill-only-u, skip reactions+recovery for per-frame visuals; (4) cache the structure-
+fixed distributed-load equiv forces in the ctor (461e368) — loop-invariant motion of
+addEquivalentNodalLoads out of the per-frame path.
+
+Benchmark (hp_bench.cpp, production HpSession vs reused-LDLT solveLoad, per-frame median) — the HONEST
+end-to-end picture, NOT the research solve-only ~19x. nf=384/1536/6144/24576: full-result ~1.6-2.0x,
+displacements-only ~4.9-6.7x (small/med) / ~4.4x (large); out-of-subspace (unseeded) is the worst case,
+40-700x SLOWER (LDLT fallback's domain). The end-to-end win is diluted by reactions (K*u-F) + element
+recovery — O(nnz)/O(elements) sweeps common to both paths — so displacementsOnly (skip them) is the
+real headline and caching Fequiv lifts it further. solve/solveLoad stay default+oracle; HP is opt-in,
+never degrades, wins only in the seeded niche.
+
+Exhaustive audit (3 parallel agents). 5 MAJOR fixed (08be128 + earlier): (1) ThreadApplyPool ctor now
+joins already-spawned workers + rethrows on a std::thread spawn failure (was std::terminate); HpSession
+ctor catches -> serial fallback. (2-5 honesty) "markedly faster" -> measured ~1.6x/~5x; "bit-consistent"
+-> tolerance-equal for the threaded reduction; solveFrame doc warns displacementsOnly is NOT a drop-in
+(reactions zero / forces empty); HpSolver.h drops "A1 (this milestone)"; diagnostic string drops "A2".
+Gate gaps closed: F56-J (shell -> valid()=false -> LDLT) + F56-K (frame UDL cached-Fequiv). F1-F56
+(A..K) + UE 50 + OpenSees + audit 104 + CLI all green.
+
+USER DECISION (2026-06-14): do NOT release V2 yet; keep on research/hpfem-solver-v1, no tag/merge. The
+end-to-end niche (~1.6x full / ~5x disp) is not "completely better than the original" — it is a seeded-
+niche accelerator with a never-degrade LDLT fallback. Continue optimizing first.
+
+Future optimization candidates: (a) parallel element force recovery (the full-result path's O(elements)
+bottleneck) — needs the pool to hold the IElement vector, not just the ElementOperator (recover writes
+disjoint memberForces[e]); (b) reactions = K*u-F on the constrained rows only (free-DOF reactions ~0 by
+equilibrium); (c) a genuine multi-node-per-storey tower benchmark for the A2b coarse. ROOT LIMIT
+unchanged: a non-seeded arbitrary RHS cannot beat a reused LDLT backsub at this scale — the win is the
+seeded niche + displacementsOnly + cached distributed loads.
