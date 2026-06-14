@@ -3195,6 +3195,57 @@ int main() {
             }
             std::printf("   A2a parallel(threads=8) apply+block6 matches serial & LDLT (in/out subspace); ~19x perf in HPFEM_RESEARCH_NOTES\n");
         }
+        // (G) A2b BANDED COARSE: a tower (multi-storey, distinct node z) builds a block-tridiagonal
+        //     coarse correction (banded, floors>1); a 1D cantilever (all nodes z=0) degrades
+        //     gracefully to floors==1. Both stay correct vs LDLT on out-of-subspace frames.
+        {
+            auto unitDof = [&](const FrameModel& m, int nd, int dof, real mag) {
+                std::vector<real> lv((size_t)(6 * (int)m.nodes.size()), 0.0);
+                lv[(size_t)gdof(nd, dof)] = mag; return lv;
+            };
+            // vertical column along +Z: node0 base encastre, nodes 1..nstory at distinct z -> one free
+            // node per floor -> the coarse matrix is block-tridiagonal in the floor ordering.
+            const int  nstory = 8;
+            const real hstory = 1000.0;
+            FrameModel mTower;
+            mTower.materials = { mat }; mTower.sections = { sec };
+            Node t0(0, 0, 0, 0); t0.fixAll(); mTower.nodes = { t0 };
+            for (int k = 1; k <= nstory; ++k) mTower.nodes.push_back(Node(k, 0, 0, hstory * real(k)));
+            for (int k = 0; k < nstory; ++k) mTower.members.push_back(Member(k, k, k + 1, 0, 0));
+            PreparedSystem psT = assembleAndFactor(mTower);
+
+            HpSession sT(psT, opt);
+            checkTrue("F56-G tower session valid", sT.valid(), sT.diagnostic());
+            sT.setLoadBasis({ unitDof(mTower, 1, Ux, 1.0), unitDof(mTower, nstory, Ux, 1.0) });
+            const HpCoarseInfo ci = sT.prepareCoarse(mTower);
+            checkTrue("F56-G tower coarse built + banded (block-tridiagonal)", ci.built && ci.banded, sT.diagnostic());
+            checkTrue("F56-G tower floors == nstory (per-storey aggregation)", ci.floors == nstory,
+                      "floors=" + std::to_string(ci.floors));
+            {
+                FrameModel m = mTower;
+                NodalLoad nl; nl.node = mTower.nodes[(size_t)(nstory / 2)].id; nl.comp[Ux] = 700.0; m.nodalLoads = { nl };
+                HpSessionStats st;
+                const SolveResult got = sT.solveFrame(m, &st);
+                hpSessVsLdlt("F56-G tower coarse out-of-subspace vs LDLT", got, solveLoad(psT, m));
+                checkTrue("F56-G tower coarse active in out-of-subspace PCG", st.usedCoarse,
+                          "usedPcg=" + std::to_string((int)st.usedPcg) + " usedCoarse=" + std::to_string((int)st.usedCoarse));
+            }
+            // graceful degradation: a 1D horizontal cantilever (all z=0) -> floors==1, still correct
+            {
+                FrameModel mFlat; buildCant(mFlat);
+                PreparedSystem psF = assembleAndFactor(mFlat);
+                HpSession sF(psF, opt);
+                sF.setLoadBasis({ unitUz(mFlat, 1, 1.0), unitUz(mFlat, nseg, 1.0) });
+                const HpCoarseInfo cf = sF.prepareCoarse(mFlat);
+                checkTrue("F56-G cantilever coarse graceful (floors==1)", cf.built && cf.floors == 1,
+                          "built=" + std::to_string((int)cf.built) + " floors=" + std::to_string(cf.floors));
+                FrameModel m = mFlat; setLoad(m, 2, 900.0);
+                HpSessionStats st;
+                const SolveResult got = sF.solveFrame(m, &st);
+                hpSessVsLdlt("F56-G cantilever graceful out-of-subspace vs LDLT", got, solveLoad(psF, m));
+            }
+            std::printf("   A2b coarse: tower banded(floors=%d) on out-of-subspace; 1D cantilever degrades to block6; both == LDLT\n", ci.floors);
+        }
     }
 
     std::printf("\n%s  (failures=%d)\n", g_fail == 0 ? "ALL PASS" : "FAILURES", g_fail);

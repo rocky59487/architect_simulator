@@ -115,6 +115,7 @@ struct ElementOperator {
 
     size_t numBlocks() const { return blocks.size(); }
     const std::array<int, 12>& ridOf(size_t bi) const { return blocks[bi].rid; }
+    real kEntry(size_t bi, int r, int c) const { return blocks[bi].k[static_cast<size_t>(r * 12 + c)]; }
 
     // Build from the prepared elements. Frame-only: a non-12-DOF element (shell) -> hasShell -> false.
     bool build(const PreparedSystem::Impl& S) {
@@ -223,6 +224,180 @@ bool buildBlock6(const std::vector<std::array<real, 36>>& diag6,
     }
     return true;
 }
+
+// ---- coarse-grid correction (A2b; ported from exp_parallel_pcg.cpp Preconditioner coarse) -------
+// Floor-aggregation by node z (one 6-DOF coarse group per z-level) + a block-Thomas LDL^T (banded)
+// factor of the aggregated coarse matrix when it is block-tridiagonal in the floor ordering (a
+// tower), else a dense LDL^T. correct(r, z) adds z += P (Kc^{-1} (P^T r)), P = floor prolongation.
+// A non-tower model yields floors==1 (or a non-block-tridiagonal Kc -> dense), so the correction
+// degrades to a near-no-op and the block6 / scalar Jacobi carries the solve. Serial (main thread).
+struct CoarseOperator {
+    int  dim    = 0;       // coarse DOF count (0 = inactive)
+    bool banded = false;
+    int  floors = 0;
+    int  fb     = 0;       // floor-block size (= 6; one 6-DOF coarse group per level)
+    std::vector<int>               blockToGroup;   // reduced 6-block -> coarse group (-1 = unmapped)
+    std::vector<Eigen::LDLT<MatX>> Dfac;           // banded: diagonal floor-block factors
+    std::vector<MatX>              Esub;           // banded: sub-diagonal multipliers
+    MatX                           denseInv;       // dense fallback inverse
+    mutable VecX rc, zc, cg, ch;                   // coarse-solve scratch (main thread only)
+
+    bool active() const { return dim > 0 && !blockToGroup.empty(); }
+
+    void reset() {
+        dim = 0; banded = false; floors = 0; fb = 0;
+        blockToGroup.clear(); Dfac.clear(); Esub.clear(); denseInv.resize(0, 0);
+    }
+
+    // Build the floor-aggregated coarse operator from the element blocks + node z coordinates.
+    // Returns true if a usable correction is active (banded for a tower, else dense).
+    bool build(const ElementOperator& op, const FrameModel& model, const std::vector<int>& fmap,
+               int maxDenseDofs) {
+        reset();
+        const int nf = op.nf;
+        if (nf <= 0 || nf % 6 != 0) return false;
+        const int nb = nf / 6;
+        blockToGroup.assign(static_cast<size_t>(nb), -1);
+
+        // A node maps to a reduced 6-block iff all 6 of its DOFs are free and contiguous.
+        auto blockForNode = [&](size_t ni) -> int {
+            int block = -1;
+            for (int d = 0; d < 6; ++d) {
+                const int g = gdof(static_cast<int>(ni), d);
+                const int f = fmap[static_cast<size_t>(g)];
+                if (f < 0) return -1;
+                if (d == 0) { if (f % 6 != 0) return -1; block = f / 6; }
+                else if (f != block * 6 + d) return -1;
+            }
+            return block;
+        };
+
+        // distinct z-levels (sorted) over the mappable nodes
+        std::vector<real> levels;
+        for (size_t ni = 0; ni < model.nodes.size(); ++ni) {
+            if (blockForNode(ni) < 0) continue;
+            const real z = model.nodes[ni].pos.z;
+            bool found = false;
+            for (real e : levels)
+                if (std::abs(e - z) <= real(1e-7) * std::max<real>(real(1), std::abs(z))) { found = true; break; }
+            if (!found) levels.push_back(z);
+        }
+        std::sort(levels.begin(), levels.end());
+        if (levels.empty()) return false;
+        auto groupForZ = [&](real z) -> int {
+            int best = 0; real bd = std::abs(z - levels[0]);
+            for (int i = 1; i < static_cast<int>(levels.size()); ++i) {
+                const real d = std::abs(z - levels[static_cast<size_t>(i)]);
+                if (d < bd) { best = i; bd = d; }
+            }
+            return best;
+        };
+        floors = static_cast<int>(levels.size());
+        fb = 6;                                       // one 6-DOF coarse group per level
+        const int nc = floors * fb;
+        if (nc > std::max(maxDenseDofs, nf)) { reset(); return false; }   // dense memory guard
+
+        for (size_t ni = 0; ni < model.nodes.size(); ++ni) {
+            const int block = blockForNode(ni);
+            if (block < 0 || block >= nb) continue;
+            blockToGroup[static_cast<size_t>(block)] = groupForZ(model.nodes[ni].pos.z);
+        }
+        for (int bi = 0; bi < nb; ++bi)
+            if (blockToGroup[static_cast<size_t>(bi)] < 0) { reset(); return false; }
+
+        // Kc = P^T K P: aggregate every element's reduced entries into their floor groups.
+        MatX Kc = MatX::Zero(nc, nc);
+        for (size_t bi = 0; bi < op.numBlocks(); ++bi) {
+            const std::array<int, 12>& rid = op.ridOf(bi);
+            for (int r = 0; r < 12; ++r) {
+                const int rr = rid[static_cast<size_t>(r)]; if (rr < 0) continue;
+                const int gr = blockToGroup[static_cast<size_t>(rr / 6)]; if (gr < 0) continue;
+                const int cr = gr * 6 + rr % 6;
+                for (int c = 0; c < 12; ++c) {
+                    const int cc = rid[static_cast<size_t>(c)]; if (cc < 0) continue;
+                    const int gc = blockToGroup[static_cast<size_t>(cc / 6)]; if (gc < 0) continue;
+                    Kc(cr, gc * 6 + cc % 6) += op.kEntry(bi, r, c);
+                }
+            }
+        }
+        dim = nc;
+        if (buildBanded(Kc, nc)) { banded = true; return true; }   // tower: block-tridiagonal
+        Eigen::LDLT<MatX> ldlt(Kc);                                // else dense fallback
+        if (ldlt.info() != Eigen::Success) { reset(); return false; }
+        denseInv = ldlt.solve(MatX::Identity(nc, nc));
+        if (!denseInv.allFinite()) { reset(); return false; }
+        return true;
+    }
+
+    // block-Thomas LDL^T factor; false (clears factors) if Kc is not block-tridiagonal or a block
+    // is not SPD -> caller uses the dense fallback.
+    bool buildBanded(const MatX& Kc, int nc) {
+        auto bail = [this]() { Dfac.clear(); Esub.clear(); return false; };
+        if (fb <= 0 || nc % fb != 0) return bail();
+        const int L = nc / fb;
+        const real ref = Kc.cwiseAbs().maxCoeff();
+        const real tol = real(1e-9) * std::max<real>(real(1), ref);
+        real maxOff = 0;
+        for (int i = 0; i < L; ++i)
+            for (int j = 0; j < L; ++j)
+                if (std::abs(i - j) > 1)
+                    maxOff = std::max(maxOff, Kc.block(i * fb, j * fb, fb, fb).cwiseAbs().maxCoeff());
+        if (maxOff > tol) return bail();              // not block-tridiagonal -> dense fallback
+        Dfac.assign(static_cast<size_t>(L), Eigen::LDLT<MatX>());
+        Esub.assign(static_cast<size_t>(L), MatX::Zero(fb, fb));
+        Dfac[0].compute(Kc.block(0, 0, fb, fb));
+        if (Dfac[0].info() != Eigen::Success) return bail();
+        for (int i = 1; i < L; ++i) {
+            const MatX Bi = Kc.block(i * fb, (i - 1) * fb, fb, fb);     // A_{i,i-1}
+            Esub[static_cast<size_t>(i)] = Dfac[static_cast<size_t>(i - 1)].solve(Bi.transpose()).transpose();
+            const MatX Di = Kc.block(i * fb, i * fb, fb, fb) - Esub[static_cast<size_t>(i)] * Bi.transpose();
+            Dfac[static_cast<size_t>(i)].compute(Di);
+            if (Dfac[static_cast<size_t>(i)].info() != Eigen::Success) return bail();
+        }
+        // one-time self-check: the block-Thomas factor must solve Kc accurately (reproducible probe).
+        VecX probe(nc);
+        for (int i = 0; i < nc; ++i)
+            probe(i) = std::sin(real(0.013) * static_cast<real>(i + 1)) +
+                       real(0.4) * std::cos(real(0.207) * static_cast<real>(i + 3)) +
+                       ((i & 1) ? real(-0.25) : real(0.25));
+        rc = probe; bandedSolve();
+        const double resid = static_cast<double>((Kc * zc - probe).norm() /
+                                                 std::max<real>(real(1e-300), probe.norm()));
+        if (resid > 1e-8) return bail();
+        return true;
+    }
+
+    // forward (L g = rc), diagonal (D h = g), back (L^T zc = h); fills zc from rc via cg/ch.
+    void bandedSolve() const {
+        const int L = floors;
+        cg.resize(dim); ch.resize(dim); zc.resize(dim);
+        cg.segment(0, fb) = rc.segment(0, fb);
+        for (int i = 1; i < L; ++i)
+            cg.segment(i * fb, fb).noalias() =
+                rc.segment(i * fb, fb) - Esub[static_cast<size_t>(i)] * cg.segment((i - 1) * fb, fb);
+        for (int i = 0; i < L; ++i)
+            ch.segment(i * fb, fb) = Dfac[static_cast<size_t>(i)].solve(cg.segment(i * fb, fb));
+        zc.segment((L - 1) * fb, fb) = ch.segment((L - 1) * fb, fb);
+        for (int i = L - 2; i >= 0; --i)
+            zc.segment(i * fb, fb).noalias() =
+                ch.segment(i * fb, fb) - Esub[static_cast<size_t>(i + 1)].transpose() * zc.segment((i + 1) * fb, fb);
+    }
+
+    // z += P (Kc^{-1} (P^T r)) — restrict the residual to floor groups, coarse-solve, prolong back.
+    void correct(const VecX& r, VecX& z) const {
+        rc.setZero(dim);
+        for (int bi = 0; bi < static_cast<int>(blockToGroup.size()); ++bi) {
+            const int g = blockToGroup[static_cast<size_t>(bi)]; if (g < 0) continue;
+            for (int d = 0; d < 6; ++d) rc(g * 6 + d) += r(bi * 6 + d);
+        }
+        if (banded) bandedSolve();
+        else        zc.noalias() = denseInv * rc;
+        for (int bi = 0; bi < static_cast<int>(blockToGroup.size()); ++bi) {
+            const int g = blockToGroup[static_cast<size_t>(bi)]; if (g < 0) continue;
+            for (int d = 0; d < 6; ++d) z(bi * 6 + d) += zc(g * 6 + d);
+        }
+    }
+};
 
 // ---- persistent worker pool (ported verbatim from exp_parallel_pcg.cpp L658-815) ----------------
 // Warm threads serve two jobs over the element operator: (1) a matrix-free apply (each worker
@@ -405,6 +580,7 @@ struct HpSession::Impl {
     ElementOperator                   op;                  // per-element dense operator (frame-only)
     std::vector<std::array<real, 36>> blockInv6;           // block6 Jacobi (empty -> scalar Jacobi)
     bool                              useBlock6 = false;
+    CoarseOperator                    coarse;               // A2b coarse correction (inactive until prepareCoarse)
     // Declared AFTER op so it is DESTROYED FIRST: ~ThreadApplyPool joins the workers (which hold a
     // reference to op) before op itself is torn down.
     std::unique_ptr<ThreadApplyPool>  pool;
@@ -460,6 +636,7 @@ struct HpSession::Impl {
         } else {
             for (int i = 0; i < op.nf; ++i) zz(i) = (op.diag(i) != real(0)) ? rr(i) / op.diag(i) : rr(i);
         }
+        if (coarse.active()) coarse.correct(rr, zz);   // A2b coarse-grid correction (out-of-subspace relief)
     }
 };
 
@@ -502,6 +679,29 @@ bool HpSession::setLoadBasis(const std::vector<std::vector<real>>& loadVectors) 
         P.basis.add(resp, [&](const VecX& q, VecX& Aq) { P.applyKff(q, Aq); });
     }
     return true;
+}
+
+HpCoarseInfo HpSession::prepareCoarse(const FrameModel& model) {
+    Impl& P = *p_;
+    HpCoarseInfo info;
+    if (!P.baseValid) return info;
+    const PreparedSystem::Impl& S = *P.ps_raw;
+    // The model's node coordinates define the floor aggregation; its fingerprint must still match the
+    // prepared system or the coarse map would not line up with K_ff.
+    if (modelFingerprint(model) != S.fingerprint) {
+        P.diag = "HpSession::prepareCoarse: model changed since assembleAndFactor (fingerprint mismatch)";
+        return info;
+    }
+    const bool ok = P.coarse.build(P.op, model, S.fmap, /*maxDenseDofs=*/P.op.nf);
+    info.built  = ok;
+    info.banded = P.coarse.banded;
+    info.floors = P.coarse.floors;
+    info.dim    = P.coarse.dim;
+    P.diag = "HpSession: coarse " +
+             std::string(!ok ? "unavailable (block6/scalar carries the solve)"
+                        : P.coarse.banded ? "banded block-Thomas (floors=" + std::to_string(P.coarse.floors) + ")"
+                                          : "dense (dim=" + std::to_string(P.coarse.dim) + ")");
+    return info;
 }
 
 SolveResult HpSession::solveFrame(const FrameModel& model, HpSessionStats* stats) {
@@ -586,6 +786,7 @@ SolveResult HpSession::solveFrame(const FrameModel& model, HpSessionStats* stats
         bool conv = static_cast<double>(r.norm() / bnorm) <= P.opts.pcgTol;
         int  iters = 0;
         if (!conv) {
+            st.usedCoarse = P.coarse.active();   // the (coarse-augmented) preconditioner is exercised here
             VecX z(S.nf), p(S.nf), Ap(S.nf);
             P.precond(r, z);
             p = z;

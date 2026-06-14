@@ -34,6 +34,17 @@ struct HpSessionStats {
     int  pcgIters       = 0;       // PCG iterations taken on this frame
     real initialRel     = 0;       // ||Ff - K x0|| / ||Ff|| of the seeded initial guess
     int  basisSize      = 0;       // current seeded-basis dimension
+    bool usedCoarse     = false;   // the A2b coarse-grid correction was active in this frame's PCG
+};
+
+// Result of prepareCoarse (A2b). POD. A genuine multi-storey tower yields banded==true with
+// floors>1; a 1D / arbitrary-topology model degrades gracefully (floors==1 or built==false -> the
+// block6 / scalar preconditioner carries the solve unaided).
+struct HpCoarseInfo {
+    bool built  = false;   // a usable coarse correction was built and is now active
+    bool banded = false;   // block-tridiagonal block-Thomas factor (else dense fallback)
+    int  floors = 0;       // number of aggregated z-levels (>1 = genuine multi-storey structure)
+    int  dim    = 0;       // coarse DOF count
 };
 
 // Stateful seeded HP-FEM solve session (A2c). Models ReSolveSession: PIMPL, all Eigen confined
@@ -83,6 +94,16 @@ public:
     // not 6N. Rebuilds the basis, auto-expanding the cap to hold every seed (FIFO eviction would
     // otherwise silently drop early seeds and break the in-subspace guarantee).
     bool setLoadBasis(const std::vector<std::vector<real>>& loadVectors);
+
+    // Optionally build a coarse-grid correction for the preconditioner (A2b): floor-aggregation by
+    // node z (one 6-DOF coarse group per z-level) + a block-Thomas (banded) factor when the
+    // aggregated coarse matrix is floor-block-tridiagonal (a tower), else a dense factor. This only
+    // accelerates OUT-of-subspace PCG; in-subspace frames are 0-iter and never touch the
+    // preconditioner. A 1D / arbitrary-topology model degrades gracefully (the block6/scalar Jacobi
+    // carries the solve). Requires valid() and nf%6==0. The model must be structurally identical to
+    // assembleAndFactor (its node coordinates define the aggregation). Idempotent; opt-in — a session
+    // that never calls this just uses the plain block6/scalar preconditioner.
+    HpCoarseInfo prepareCoarse(const FrameModel& model);
 
     // Solve the CURRENT model's NODAL loads + PRESCRIBED values, reusing the factorization. The
     // SolveResult (u / reactions / member+shell forces) matches solveLoad to tolerance (PCG tol /

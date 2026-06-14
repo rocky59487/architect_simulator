@@ -657,3 +657,36 @@ block-Jacobi (rel 1.2e-18; cond block6 1.019 < scalar 1.062 < none 5.083). 1 cos
 CoreMinimal.h min/max macro is a theoretical std::max poisoning risk, but the gate (UE + standalone)
 proves no actual contamination. The ~19x perf itself is the research benchmark (Session 4); the gate
 verifies correctness, not wall-time. Next: A2b (banded coarse, towers only).
+
+### 2026-06-14 Session 6 (cont.): A2b implemented (banded coarse, five-leg green)
+
+A2b done — an optional multi-level coarse-grid correction for the seeded HpSession's
+preconditioner, swapping only HpSession.cpp internals plus a new opt-in `prepareCoarse(model)`
+method (HpSession.h gains POD `HpCoarseInfo{built,banded,floors,dim}`; HpSessionStats gains
+`usedCoarse`). CoarseOperator (anon namespace) ports buildCoarse/buildBandedFactor/bandedApply
+from exp_parallel_pcg.cpp, simplified to floor-only aggregation (bx=by=1, one 6-DOF coarse group
+per node-z level): build Kc = PᵀKP from the element blocks, then a block-Thomas LDLᵀ factor when
+Kc is floor-block-tridiagonal (a tower), else a dense LDLT. correct() does z += P (Kc⁻¹ (Pᵀr)).
+The graceful 3-tier degradation is built in: banded fail -> dense -> over-cap / non-mappable node
+-> coarse inactive -> the block6/scalar Jacobi carries the solve. The correction is additive atop
+block6 and only runs inside the PCG preconditioner, so in-subspace 0-iter frames never touch it
+(coarse has no effect on the headline). prepareCoarse needs the model (node z defines the
+aggregation) and re-checks the fingerprint. Opt-in: a session that never calls it uses plain
+block6/scalar.
+
+F56-G: a tower (8 storeys, distinct node z) builds a banded factor (floors=8), out-of-subspace
+coarse-PCG matches LDLT (uRel=0, usedCoarse=1, 16 iter); a 1D horizontal cantilever (all z=0)
+degrades to floors=1 and still matches LDLT (uRel=0). FIVE-LEG GREEN: standalone F1-F56, UE 50,
+OpenSees, deep audit 104, CLI. Adversarial agent: no MAJOR (floor-aggregation, Kc=PᵀKP, block-
+Thomas Eᵢ=BᵢD⁻¹/Dᵢ=Kᵢᵢ−EᵢBᵢᵀ + self-check, bandedSolve sweeps, restrict/prolong symmetry,
+graceful fallback, mutable-scratch single-thread, zero Eigen leak all verified vs research); 2
+cosmetic MINORs (dense maxDenseDofs guard is loose at =nf; the banded bail leaves floors/fb set —
+neither affects correctness, both for the cleanup pass).
+
+Honest scope: coarse only helps TOWER out-of-subspace frames; the headline (in-subspace 0-iter)
+is unaffected, and 1D / arbitrary topology auto-degrades to block6. The F56-G tower has one node
+per storey, so its coarse aggregation is per-node (coarse ≈ K_ff, no real coarsening) — it
+exercises the banded factor + graceful path correctly, but genuine coarsening (many nodes per
+storey -> 6-DOF group) is a benchmark concern, not a gate one. **A2 (A2c serial + A2a parallel +
+A2b coarse) is complete.** Next: pre-release refactor (clean the 3-stage build-up) + perf
+micro-tuning + exhaustive audit / multi-scenario benchmark + V2 release.
