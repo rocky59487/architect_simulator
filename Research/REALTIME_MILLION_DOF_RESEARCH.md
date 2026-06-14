@@ -53,3 +53,38 @@ research-only(評估階段不進五腿 gate、不改 default solve);現有 LDLT 
 
 ## 建議第一步
 小原型:可調規模 3D structured 彈性 grid(~1萬→10萬 DOF),量:(a) Eigen SimplicialLDLT factor 時間 + 記憶體 vs 規模 + ordering(natural / AMD / 若可接 METIS);(b) backsub 時間 vs 規模;(c) 外推百萬 DOF 的 factor setup / 記憶體 / backsub。若 ordering 單步就大幅推牆 → 可能不需工業庫。據此寫 **go/no-go:單一 direct 能否 scale 到百萬 DOF 即時** → 能則 HP 退役、引擎統一。**先評估,別造大輪子。** 用 Workflow / 平行 agent + 對抗式查核維持誠實。
+
+---
+
+## go/no-go 結果(2026-06-14)— factor 假牆擊穿,判定「部分 GO」
+
+**原型**:`Research/WS_B_solver/exp_supernodal_compare.cpp`(+ `exp_cholmod_smoke.cpp` link smoke / `build_supernodal.bat` 自包含 build / `run_supernodal.ps1` 掃描 driver);conda env `framecore-direct`(conda-forge `suitesparse`+`metis`,Eigen 自帶 `CholmodSupport`/`MetisSupport` wrapper)。混合建築 = `makeTower` frame + 每層每 bay 一 MITC4 shell 樓板(載重仍 nodal-only,過 `assertNodalOnly`);同一 K_ff 上比 `SimplicialLDLT`(AMD) / `SimplicialLDLT`(METIS) / `CholmodSupernodalLLT`。機器 Ryzen 9 8940HX / 31.2 GiB。
+
+**實測(6 規模 nf 8.9k→191k)**:
+
+| nf | AMD factor | CHOLMOD factor | CHOLMOD/AMD | CHOLMOD backsub | peak |
+|---|---|---|---|---|---|
+| 17,160 | 6.1 s | 0.22 s | 27.8x | 5.7 ms | 362 MiB |
+| 31,824 | 23.3 s | 0.51 s | 45.2x | 13.8 ms | 842 MiB |
+| 191,400 | (略,太慢) | 6.07 s | — | 132.8 ms | 10.0 GiB |
+
+**外推百萬(numpy log-log,高端段)**:AMD factor exp **3.03** → ~262 h;CHOLMOD factor exp **1.56** → ~80 s;backsub exp 1.26 → ~1.05 s;factor 駐留 ~19 GiB;peak ~117 GiB。
+
+**五判準**:① factor ≥10x ✓✓✓(假牆是真假牆) ② exp ≤1.7 ✓(~1.4) ③ backsub ≤100ms **✗**(百萬 ~1s) ④ 記憶體 fit 32GB **✗**(百萬 peak ~117GB;實測這台上限 ~190k) ⑤ res ≤1e-9 ◐(≤113k OK,191k=1.6e-9 需 iterative refinement)。
+
+**可達邊界(32GB + 混合建築)**:每幀即時(backsub ≤100ms)~150k;互動(~1s)~390k(peak 限)/ 近百萬(駐留,需優化臨時記憶體);factor 百萬 ~80s 可行。
+
+**判定**:**部分 GO**。factor 核心問題**解決**(HP 的 factor-bypass 理由消失 → 中小規模 CHOLMOD 全面勝 HP → 對實際建築規模「廢雙車道、統一單一 direct」成立);百萬 + 即時 + 1e-9 是單機**物理牆**(記憶體 + backsub,非算法問題)。
+
+## 下一步:自建 BLAS3-accelerated supernodal(新大階段)
+
+**決策(使用者)**:CHOLMOD 當**參考**(效能對標 + 正確性 oracle),自建 supernodal direct、dense block 走 **OpenBLAS 之類 BLAS3 kernel**(`dpotrf`/`dsyrk`/`dgemm`/`dtrsm`)逼近甚至超越 CHOLMOD。動機:避開 CHOLMOD supernodal 模組 GPL,改用 BSD 的 OpenBLAS;拿到 supernodal 的 BLAS3 速度。
+- 核心:supernode 偵測(elimination tree + 合併)+ fill-reducing ordering(METIS or 自寫 ND)+ left/right-looking supernodal Cholesky,dense panel 交 BLAS3。
+- 鐵則張力:OpenBLAS 是依賴(BSD,較乾淨);Eigen 仍 Private;production 整合需 dual-build。
+- research-only 起步,過五腿 gate 才入生產。HP 雙車道退役。
+
+## 進度(2026-06-14,research-only,未 commit)
+
+- **M0 PASS**:OpenBLAS 裝進 conda env `framecore-direct`(headers 在 `Library/include/openblas/`、`openblas.lib` 為 MSVC 可用 ar 格式、DLL + MinGW runtime(libgcc/quadmath/winpthread)在 bin)。`exp_openblas_smoke.cpp` 四個 API(dgemm/dpotrf/dtrsm/dsyrk)link + 正確,**dgemm 378 GFLOPS**(Ryzen 9 8940HX Zen4;這是超越 MKL-backed CHOLMOD 的依據)。**durable**:`lapacke.h`→`lapack.h` 用 C99 `_Complex`,MSVC C++ 不支援 → 不 include lapacke.h,自宣告 `extern "C" int LAPACKE_dpotrf(int,char,int,double*,int)` + `#define LAPACK_COL_MAJOR 102`;`metis.h` C4005 用 `/wd4005` 壓。
+- **M1 symbolic PASS**:`sn_chol.h`(header-only,raw CSC 輸入,只依賴 metis):`analyze` = extractLower → `METIS_NodeND` → permuteFull → etree(Davis cs_etree,用 strict-upper i<k)→ symbolic factorization(L pattern per col,etree children merge)。`exp_sn_chol.cpp`:natural & METIS 的 L fill 對 Eigen `SimplicialLDLT`(Natural/Metis)**EXACT MATCH**(ratio 1.000,連 METIS perm/iperm 約定都對);METIS 砍 fill 50–67%。**durable**:Eigen `matrixL()` 是單位下三角,對角隱含不存,`nonZeros()` 已是 strict-lower(對比別多減 n)。build:`build_supernodal.bat sn`(重用 `obj_sn_core`,需先 `compare` 建 core)。
+- **下一步 M1 numeric**:supernode 偵測(需 etree postorder 讓 supernode 連續)+ left-looking 數值分解 + OpenBLAS panel(`LAPACKE_dpotrf`/`cblas_dtrsm`/`cblas_dsyrk`)+ scatter-gather 相對索引(最高 bug 風險,用 `assert(S.rowIdx[rel]==A.rowIdx[..])` 防靜默錯)+ backsub。對 CHOLMOD oracle 驗 res≤1e-9 / 解差≤1e-8,factor 時間對標(誠實:fundamental supernode 預期慢 CHOLMOD 2–5x,M3 amalgamation+並行才逼近)。
