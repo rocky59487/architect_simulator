@@ -3246,6 +3246,22 @@ int main() {
             }
             std::printf("   A2b coarse: tower banded(floors=%d) on out-of-subspace; 1D cantilever degrades to block6; both == LDLT\n", ci.floors);
         }
+        // (H) PRESCRIBED displacement (settlement): exercises the anyPresc=true RHS-reduce path. The
+        //     perf optimization skips that O(nnz) sweep ONLY when no support carries a nonzero
+        //     prescribed value, so this guards the non-skipped branch. A pure-nodal seed cannot span
+        //     a settlement response, so the frame leaves the subspace -> PCG/LDLT; result == solveLoad.
+        {
+            FrameModel mS; buildCant(mS);
+            mS.nodes[3].fixed[Uz] = true; mS.nodes[3].prescribed[Uz] = 5.0;   // impose a settlement at node 3
+            PreparedSystem psS = assembleAndFactor(mS);
+            HpSession sS(psS, opt);
+            sS.setLoadBasis({ unitUz(mS, 1, 1.0), unitUz(mS, nseg, 1.0) });
+            HpSessionStats st;
+            const SolveResult got = sS.solveFrame(mS, &st);
+            double freeNorm = 0; for (int d = 0; d < 6; ++d) freeNorm = std::max(freeNorm, std::fabs(got.disp(1, d)));
+            checkTrue("F56-H settlement moves a free node (non-degenerate)", freeNorm > 1e-9, "freeNorm=" + std::to_string(freeNorm));
+            hpSessVsLdlt("F56-H settlement (anyPresc reduce path) vs LDLT", got, solveLoad(psS, mS));
+        }
     }
 
     std::printf("\n%s  (failures=%d)\n", g_fail == 0 ? "ALL PASS" : "FAILURES", g_fail);

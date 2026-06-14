@@ -1,25 +1,27 @@
 //
-// Seeded HP-FEM solve session (A2c serial + A2a parallel: matrix-free element apply, Galerkin
-// projection onto a seeded load-response basis, block6 / scalar Jacobi, frame-only, LDLT fallback).
-// See Public/FrameCore/HpSession.h.
+// Seeded HP-FEM solve session — see Public/FrameCore/HpSession.h.
 //
-// Design contract: solveFrame must return a SolveResult bit-equivalent to solveLoad() except for
-// the solve step itself. The RHS assembly, prescribed reduction, scatter, reactions (K*u - F) and
-// element recovery below are therefore copied verbatim from FrameSolver.cpp::solveLoad (mirrored in
-// HpSolver.cpp::solveLoadHP) — the ONLY departure is replacing `S.ldlt.solve(Ff)` with a seeded
-// Galerkin projection + matrix-free preconditioned conjugate gradient. The LDLT factor remains the
-// oracle and the fallback. Eigen and the threading are confined to this Private .cpp; the public
-// header is POD.
+// A stateful accelerator for a FIXED factorized structure solved repeatedly under a low-dimensional
+// load family (the game-engine niche: gravity + a few contacts). solveFrame reuses the SAME RHS
+// assembly, prescribed reduction, scatter, reactions (K*u - F) and element recovery as solveLoad —
+// copied verbatim below and marked "sync if changed" — and replaces ONLY the linear solve with:
 //
-// A2c (threads=1): serial per-element dense apply (ElementBlock12) + Jacobi precond (block6 when
-// nf%6==0, else scalar). A2a (threads>1): a persistent ThreadApplyPool parallelizes the element
-// apply (per-thread accumulation + touched-DOF reduction) and the block6 map — the seeded basis and
-// the LDLT stay single-threaded (Eigen is not thread-safe). ElementBlock12 / ElementOperator /
-// ThreadApplyPool are ported from Research/WS_B_solver/exp_parallel_pcg.cpp; the element blocks are
-// built from the PreparedSystem's prepared elements (S.elems), not re-derived, so the matrix-free
-// apply is bit-consistent with the LDLT operator K_ff. RecycleBasis is likewise ported (timers
-// stripped). Only the research WINS are ported here (the symmetric-apply / finer-coarse / deflation
-// experiments were net-neutral or negative and stay in research).
+//   1. a seeded, A-orthonormal (K-inner-product) basis of load responses, whose Galerkin initial
+//      guess is exact when the load lies in the seeded subspace (=> ~0 PCG iterations);
+//   2. a matrix-free preconditioned conjugate gradient that refines an out-of-subspace guess —
+//      per-element dense apply, a block6 (or scalar) Jacobi, and an optional floor-aggregated
+//      coarse-grid correction; the apply and the block6 map parallelize across a persistent worker
+//      pool when opts.threads > 1;
+//   3. the PreparedSystem's LDLT factorization as the always-correct oracle and fallback.
+//
+// The matrix-free operator is built from the prepared elements (S.elems), so it is bit-consistent
+// with K_ff and the accelerated result matches the direct solve to tolerance. Eigen and the
+// threading are confined to this Private .cpp; the public header is POD. The seeded basis and the
+// LDLT stay single-threaded (Eigen is not thread-safe) — only the element apply + block6 map run on
+// the pool. The matrix-free apply, worker pool, block6 and coarse-grid components are adapted from
+// the validated solver-research prototype in Research/WS_B_solver; the net-neutral / negative
+// experiments there (symmetric apply, finer / sparse coarse, spectral deflation) are deliberately
+// not carried over.
 //
 #include "FrameCore/HpSession.h"
 #include "PreparedSystemImpl.h"   // PreparedSystem::Impl (K/fmap/nf/ldlt/elems/...) + FrameEigen.h
@@ -41,24 +43,30 @@ namespace frame {
 
 namespace {
 
-// ---- A-orthonormal seeded basis (ported from exp_parallel_pcg.cpp L1062-1113) -------------------
-// Invariant: v_i^T K v_j = delta_ij (research cross-check ||VtKV - I|| = 3.4e-15), so initialGuess(b)
-// = sum_i (v_i . b) v_i is the EXACT Galerkin solution whenever K^{-1} b lies in span{v_i} (=> ~0 PCG
-// iters in-subspace). Research-only timers removed; the math is unchanged.
+// ---- A-orthonormal seeded basis (K-inner-product Gram-Schmidt) ----------------------------------
+// Invariant: v_i^T K v_j = delta_ij (cross-checked ||VtKV - I|| ~ 3.4e-15), so initialGuess(b) =
+// sum_i (v_i . b) v_i is the EXACT Galerkin solution whenever K^{-1} b lies in span{v_i} (=> ~0 PCG
+// iterations in-subspace).
 struct RecycleBasis {
     int maxSize = 0;
     std::vector<VecX> v;    // K-orthonormal responses
     std::vector<VecX> av;   // av[i] = K * v[i]
-    int accepted = 0;
-    int rejected = 0;
 
     RecycleBasis() = default;
     explicit RecycleBasis(int maxBasis) : maxSize(maxBasis) {}
 
-    VecX initialGuess(int n, const VecX& b) const {
-        VecX x = VecX::Zero(n);
-        for (size_t i = 0; i < v.size(); ++i) x.noalias() += v[i].dot(b) * v[i];
-        return x;
+    // Galerkin projection x0 = sum_i (v_i . b) v_i, together with its image Kx0 = K x0 =
+    // sum_i (v_i . b) av_i — assembled for FREE from the stored av_i = K v_i, so the caller gets
+    // the initial residual (b - Kx0) WITHOUT a matrix-free apply. The per-frame apply is the
+    // bottleneck, so this makes an in-subspace (converged) frame cost ZERO applies.
+    void initialGuess(int n, const VecX& b, VecX& x0, VecX& Kx0) const {
+        x0  = VecX::Zero(n);
+        Kx0 = VecX::Zero(n);
+        for (size_t i = 0; i < v.size(); ++i) {
+            const real c = v[i].dot(b);
+            x0.noalias()  += c * v[i];
+            Kx0.noalias() += c * av[i];
+        }
     }
 
     // Append a response x (= K^{-1} b for some seed load b), A-orthonormalizing it against the
@@ -79,8 +87,7 @@ struct RecycleBasis {
         const double scaleRef = std::max(1e-300, static_cast<double>(x.norm()));
         if (!(normA2 > real(0)) || !std::isfinite(static_cast<double>(normA2)) ||
             static_cast<double>(q.norm()) <= 1e-12 * scaleRef) {
-            ++rejected;
-            return;
+            return;   // linearly dependent / null seed -> reject
         }
         const real inv = real(1) / std::sqrt(normA2);
         q  *= inv;
@@ -91,16 +98,15 @@ struct RecycleBasis {
         }
         v.push_back(std::move(q));
         av.push_back(std::move(Aq));
-        ++accepted;
     }
 };
 
-// ---- per-element dense operator (ported from exp_parallel_pcg.cpp ElementBlock12/ElementOperator) -
+// ---- per-element dense operator (matrix-free K_ff) ----------------------------------------------
 // A dense 12x12 per beam-column element with its 12 reduced-DOF indices (rid[i] < 0 = constrained /
-// unused). Summing the element-local dense matvecs equals K_ff * x by construction. Built from the
-// prepared elements' assemble() triplets (the exact triplets reduceFF builds K_ff from), so the
-// apply matches the LDLT operator to the last bit. accumulateRange uses element-local dense matvec
-// to avoid the random-access scatter of a COO apply (the research win).
+// unused). Summing the element-local dense matvecs equals K_ff * x by construction: it is built from
+// the prepared elements' assemble() triplets (the exact triplets reduceFF builds K_ff from), so the
+// apply matches the LDLT operator to the last bit. accumulateRange uses an element-local dense matvec
+// to avoid the random-access scatter of a COO apply.
 struct ElementBlock12 {
     std::array<int, 12>   rid{};   // reduced-DOF index per local slot (-1 = constrained / unused)
     std::array<real, 144> k{};     // dense 12x12, row-major
@@ -111,13 +117,12 @@ struct ElementOperator {
     std::vector<ElementBlock12>       blocks;
     VecX                              diag;    // scalar Jacobi diagonal
     std::vector<std::array<real, 36>> diag6;   // 6x6 diagonal blocks (block6); empty if nf%6 != 0
-    bool                              hasShell = false;
 
     size_t numBlocks() const { return blocks.size(); }
     const std::array<int, 12>& ridOf(size_t bi) const { return blocks[bi].rid; }
     real kEntry(size_t bi, int r, int c) const { return blocks[bi].k[static_cast<size_t>(r * 12 + c)]; }
 
-    // Build from the prepared elements. Frame-only: a non-12-DOF element (shell) -> hasShell -> false.
+    // Build from the prepared elements. Frame-only: returns false on a non-12-DOF element (shell).
     bool build(const PreparedSystem::Impl& S) {
         nf = S.nf;
         diag = VecX::Zero(nf);
@@ -129,7 +134,7 @@ struct ElementOperator {
         blocks.clear();
         blocks.reserve(S.elems.size());
         for (const auto& el : S.elems) {
-            if (el->localDof() != 12) { hasShell = true; return false; }
+            if (el->localDof() != 12) return false;   // shell present -> frame-only, caller routes to LDLT
             std::vector<Triplet> trips;
             el->assemble(trips);
             // distinct global DOFs this element touches (12 for a beam; its diagonal stiffness is
@@ -139,7 +144,7 @@ struct ElementOperator {
             for (const auto& t : trips) gd.push_back(static_cast<int>(t.row()));
             std::sort(gd.begin(), gd.end());
             gd.erase(std::unique(gd.begin(), gd.end()), gd.end());
-            if (gd.size() > 12) { hasShell = true; return false; }   // not a 12-DOF beam
+            if (gd.size() > 12) return false;   // not a 12-DOF beam -> frame-only, caller routes to LDLT
             auto lof = [&](int g) -> int {
                 const auto it = std::lower_bound(gd.begin(), gd.end(), g);
                 return (it != gd.end() && *it == g) ? static_cast<int>(it - gd.begin()) : -1;
@@ -203,7 +208,7 @@ struct ElementOperator {
 };
 
 // Invert each 6x6 diagonal block (block6 Jacobi). Returns false (and clears inv6) if any block is
-// singular -> caller falls back to scalar Jacobi. Ported from Preconditioner::buildBlock6.
+// singular -> caller falls back to scalar Jacobi.
 bool buildBlock6(const std::vector<std::array<real, 36>>& diag6,
                  std::vector<std::array<real, 36>>& inv6) {
     inv6.clear();
@@ -225,7 +230,7 @@ bool buildBlock6(const std::vector<std::array<real, 36>>& diag6,
     return true;
 }
 
-// ---- coarse-grid correction (A2b; ported from exp_parallel_pcg.cpp Preconditioner coarse) -------
+// ---- coarse-grid correction (floor-aggregated multi-level preconditioner) -----------------------
 // Floor-aggregation by node z (one 6-DOF coarse group per z-level) + a block-Thomas LDL^T (banded)
 // factor of the aggregated coarse matrix when it is block-tridiagonal in the floor ordering (a
 // tower), else a dense LDL^T. correct(r, z) adds z += P (Kc^{-1} (P^T r)), P = floor prolongation.
@@ -295,7 +300,10 @@ struct CoarseOperator {
         floors = static_cast<int>(levels.size());
         fb = 6;                                       // one 6-DOF coarse group per level
         const int nc = floors * fb;
-        if (nc > std::max(maxDenseDofs, nf)) { reset(); return false; }   // dense memory guard
+        // Defensive cap on the coarse size (Kc is dense nc x nc): floor-only aggregation gives
+        // nc = floors*6 <= nf, so this never fires for a normal tower — it only guards a pathological
+        // every-node-its-own-level model, where coarse turns off and the block6 Jacobi carries on.
+        if (nc > maxDenseDofs) { reset(); return false; }
 
         for (size_t ni = 0; ni < model.nodes.size(); ++ni) {
             const int block = blockForNode(ni);
@@ -399,7 +407,7 @@ struct CoarseOperator {
     }
 };
 
-// ---- persistent worker pool (ported verbatim from exp_parallel_pcg.cpp L658-815) ----------------
+// ---- persistent worker pool (data-parallel element apply + block6 map) --------------------------
 // Warm threads serve two jobs over the element operator: (1) a matrix-free apply (each worker
 // accumulates its block range into a private localY, the main thread reduces the disjoint touched-
 // DOF sets), and (2) a block6 Jacobi map (each worker writes a disjoint output slice, no reduction).
@@ -744,17 +752,25 @@ SolveResult HpSession::solveFrame(const FrameModel& model, HpSessionStats* stats
     for (const auto& el : S.elems) el->addEquivalentNodalLoads(F);
 
     std::vector<real> presc((size_t)N, 0.0);
+    bool anyPresc = false;
     for (size_t k = 0; k < model.nodes.size(); ++k)
         for (int d = 0; d < 6; ++d)
-            if (model.nodes[k].fixed[d]) presc[(size_t)gdof((int)k, d)] = model.nodes[k].prescribed[d];
+            if (model.nodes[k].fixed[d]) {
+                presc[(size_t)gdof((int)k, d)] = model.nodes[k].prescribed[d];
+                if (model.nodes[k].prescribed[d] != real(0)) anyPresc = true;
+            }
 
     VecX Ff = VecX::Zero(S.nf);
-    for (int c = 0; c < N; ++c)
-        for (SpMat::InnerIterator it(S.K, c); it; ++it) {
-            const int r = it.row();
-            if (S.fmap[r] < 0) continue;
-            if (S.fmap[c] < 0 && presc[(size_t)c] != 0.0) Ff(S.fmap[r]) -= it.value() * presc[(size_t)c];
-        }
+    // The prescribed (support-settlement) reduce is an O(nnz) sweep of K; skip it entirely when no
+    // support carries a nonzero prescribed value — the common per-frame case (gravity + contacts are
+    // nodal loads). An all-zero presc contributes nothing, so the result is identical to solveLoad.
+    if (anyPresc)
+        for (int c = 0; c < N; ++c)
+            for (SpMat::InnerIterator it(S.K, c); it; ++it) {
+                const int r = it.row();
+                if (S.fmap[r] < 0) continue;
+                if (S.fmap[c] < 0 && presc[(size_t)c] != 0.0) Ff(S.fmap[r]) -= it.value() * presc[(size_t)c];
+            }
     for (int g = 0; g < N; ++g) if (S.fmap[g] >= 0) Ff(S.fmap[g]) += F(g);
 
     // ---- the ONLY departure: seeded projection / warm PCG / full PCG / LDLT safety net ----
@@ -772,8 +788,8 @@ SolveResult HpSession::solveFrame(const FrameModel& model, HpSessionStats* stats
         st.initialRel = 0;
         note = "[HpSession] zero RHS -> uf=0";
     } else if (canHp) {
-        const VecX x0 = P.basis.initialGuess(S.nf, Ff);          // Galerkin projection onto the seeds
-        VecX Kx0(S.nf); P.applyKff(x0, Kx0);
+        VecX x0, Kx0;
+        P.basis.initialGuess(S.nf, Ff, x0, Kx0);                 // Kx0 = K x0 assembled from av_i: no apply
         const real initRel = (Ff - Kx0).norm() / bnorm;          // bnorm > 0 here -> well-posed
         st.initialRel = initRel;
         const bool inSub = (static_cast<double>(initRel) < P.opts.projGateTol);

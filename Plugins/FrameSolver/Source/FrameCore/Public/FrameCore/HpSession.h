@@ -8,7 +8,7 @@
 
 namespace frame {
 
-// Options for the seeded HP-FEM session (A2). POD boundary; no Eigen. The defaults make the
+// Options for the seeded HP-FEM session. POD boundary; no Eigen. The defaults make the
 // session an active HP lane (enabled=true) — unlike the one-shot solveLoadHP, an HpSession is
 // constructed precisely to accelerate a fixed structure under repeated low-dimensional loads
 // (the game niche: gravity + a few contacts). The PreparedSystem's LDLT factorization always
@@ -23,7 +23,7 @@ struct HpSessionOptions {
     bool fallbackOnFail = true;    // non-convergence / indefinite -> fall back to LDLT
     bool enabled        = true;    // false => solveFrame is a drop-in equal to solveLoad (LDLT)
     int  threads        = 1;       // >1 spawns a persistent pool that parallelizes the element apply
-                                   // + block6 Jacobi (the A2a large-problem win); 1 = serial (A2c)
+                                   // + block6 Jacobi (the large-problem win); 1 = serial
 };
 
 // Per-frame diagnostics (which path ran, how hard it worked). POD.
@@ -34,10 +34,10 @@ struct HpSessionStats {
     int  pcgIters       = 0;       // PCG iterations taken on this frame
     real initialRel     = 0;       // ||Ff - K x0|| / ||Ff|| of the seeded initial guess
     int  basisSize      = 0;       // current seeded-basis dimension
-    bool usedCoarse     = false;   // the A2b coarse-grid correction was active in this frame's PCG
+    bool usedCoarse     = false;   // the coarse-grid correction was active in this frame's PCG
 };
 
-// Result of prepareCoarse (A2b). POD. A genuine multi-storey tower yields banded==true with
+// Result of prepareCoarse. POD. A genuine multi-storey tower yields banded==true with
 // floors>1; a 1D / arbitrary-topology model degrades gracefully (floors==1 or built==false -> the
 // block6 / scalar preconditioner carries the solve unaided).
 struct HpCoarseInfo {
@@ -47,27 +47,30 @@ struct HpCoarseInfo {
     int  dim    = 0;       // coarse DOF count
 };
 
-// Stateful seeded HP-FEM solve session (A2c). Models ReSolveSession: PIMPL, all Eigen confined
-// to the .cpp Impl, Eigen-free public header, move-only, POD options/stats. It holds a NON-owning
-// pointer into the PreparedSystem's Impl plus its own A-orthonormal seeded load-response basis and
-// matrix-free apply / Jacobi components.
+// Stateful seeded HP-FEM solve session. Models ReSolveSession: PIMPL, all Eigen confined to the
+// .cpp Impl, Eigen-free public header, move-only, POD options/stats. It holds a NON-owning pointer
+// into the PreparedSystem's Impl plus its own A-orthonormal seeded load-response basis and a
+// matrix-free apply / preconditioner.
 //
 //   - setLoadBasis(loads): one-time seeding. Each 6N global load vector is reduced and solved via
 //     the (already-factored) LDLT, then A-orthonormalized into the basis. The seeds span the load
 //     family the structure will see each frame (gravity + candidate contacts).
+//   - prepareCoarse(model): optional floor-aggregated coarse-grid correction for out-of-subspace
+//     frames on tower-like structures (no effect on the in-subspace 0-iter path).
 //   - solveFrame(model): the per-frame solve. Reuses the SAME RHS assembly / reactions / element
 //     recovery as solveLoad, replacing only the linear solve: a Galerkin projection onto the seeded
 //     basis gives a near-exact initial guess (in-subspace => ~0 PCG iters); a load that leaves the
 //     subspace runs a full PCG; either way the LDLT factor is the always-correct fallback.
 //
-// The element apply + preconditioner are SERIAL by default (threads=1, the A2c lane) and frame-only
-// — a shell element routes every frame to LDLT. Set opts.threads > 1 to spawn a persistent thread
-// pool that parallelizes the element apply (and the block6 Jacobi): this is A2a, where the per-frame
-// ~14ms serial apply at nf~18720 drops to ~0.9ms across 16 threads, making the seeded ~19x real.
-// Serial threads=1 has no large-problem win over reused LDLT (~14ms apply > ~10.9ms LDLT backsub);
-// it delivers the API, correctness, and the small-problem (nf<~2000) speedup. The seeded basis and
-// the LDLT stay single-threaded (Eigen is not thread-safe); the pool only parallelizes the
-// element-local apply (per-thread accumulation + touched-DOF reduction) and the block6 map.
+// Frame-only: a shell element routes every frame to LDLT. The apply + preconditioner are serial by
+// default; opts.threads > 1 spawns a persistent pool that parallelizes the element apply (the per-
+// frame bottleneck) and the block6 map, while the seeded basis and the LDLT stay single-threaded
+// (Eigen is not thread-safe). Performance niche (honest): this wins ONLY when a fixed structure is
+// re-solved many times under a low-dimensional seeded load family — there the in-subspace projection
+// is ~0 PCG iters and the parallel apply is markedly faster than a reused LDLT back-substitution. It
+// is NOT a general replacement for the direct solve: a single solve, or an arbitrary load that leaves
+// the seeded subspace, is at best on par with (often slower than) a reused LDLT — so solve/solveLoad
+// remain the default and the oracle.
 //
 // LIFETIME CONTRACT: the PreparedSystem MUST outlive the session (the session stores a non-owning
 // pointer into it, like std::span). Moving or destroying it while the session is alive is undefined
@@ -95,7 +98,7 @@ public:
     // otherwise silently drop early seeds and break the in-subspace guarantee).
     bool setLoadBasis(const std::vector<std::vector<real>>& loadVectors);
 
-    // Optionally build a coarse-grid correction for the preconditioner (A2b): floor-aggregation by
+    // Optionally build a coarse-grid correction for the preconditioner: floor-aggregation by
     // node z (one 6-DOF coarse group per z-level) + a block-Thomas (banded) factor when the
     // aggregated coarse matrix is floor-block-tridiagonal (a tower), else a dense factor. This only
     // accelerates OUT-of-subspace PCG; in-subspace frames are 0-iter and never touch the
