@@ -624,3 +624,36 @@ Go/no-go confirmed honest: A2c serial has NO large-problem win (per Session 5: s
 2-3x + the paving for A2a. The real game-scale ~19x needs A2a (ThreadApplyPool + ElementBlock12 +
 parallel block6), which swaps only HpSession.cpp's Impl internals — HpSession.h API unchanged.
 Then A2b (banded coarse, towers only). Next session: A2a.
+
+### 2026-06-14 Session 6 (cont.): A2a implemented (parallel apply, five-leg green)
+
+A2a done per blueprint, swapping only HpSession.cpp's Impl internals — the HpSession class API is
+unchanged; HpSessionOptions gains one POD field `int threads=1`. ElementBlock12 / ElementOperator /
+ThreadApplyPool / buildBlock6 are ported from exp_parallel_pcg.cpp, with the element blocks built
+from S.elems (the prepared elements' assemble() triplets), NOT re-derived via research's
+memberGlobalK — so the dense 12x12 apply is bit-consistent with K_ff (and with A2c's ElemReduced).
+applyKff -> pool.apply when threads>1 else op.applySerial; precond -> block6 Jacobi (pool or serial)
+when nf%6==0 else scalar Jacobi. The seeded basis and the LDLT stay single-threaded (Eigen is not
+thread-safe); the pool only parallelizes the element-local apply (per-thread localY + touched-DOF
+reduction) and the block6 map (disjoint output slices). Only the research WINS are ported (no
+symmetric-apply / coarse / deflation). Lifetime: pool is declared AFTER op so ~ThreadApplyPool joins
+the workers before op is destroyed; the pool holds a non-owning const ElementOperator& and copy is
+deleted; HpSession move only moves the unique_ptr<Impl> (Impl + pool + workers stay put).
+
+F56-F standalone gate: a 60-beam frame (nf=360) with threads=8 vs threads=1 vs LDLT — parallel u ==
+serial u rel=0.000000 (threaded reduction is deterministic for a given thread count: the main thread
+reduces the disjoint touched sets in a fixed tid/sorted order), both hit the in-subspace projection
+at 0 iters, out-of-subspace runs the full parallel PCG, all vs LDLT <=1e-6. block6 lowered F56-B from
+17 (scalar, A2c) to 15 iters. FIVE-LEG GREEN: standalone F1-F56, UE 50, OpenSees, deep audit 104, CLI.
+UE rebuilt first — std::thread/mutex/condition_variable compile in the UE module (C++20,
+bUseUnity=false, Win64) with NO Build.cs change.
+
+Adversarial check (2 parallel agents, no MAJOR): (1) thread audit — cv-generation protocol race-free,
+per-thread localY + disjoint precond slices, all shared state mutex-guarded, ctor spawns / dtor joins,
+member declaration order (op before pool) gives correct destruction, move-only safe, ElementBlock12
+build matches A2c, block6/scalar fallback correct, deterministic reduction, zero Eigen leak; (2) numpy
+recompute — ElementBlock12 dense apply == K_ff matvec (rel 1.9e-16), block6 = exact 6x6 inverse
+block-Jacobi (rel 1.2e-18; cond block6 1.019 < scalar 1.062 < none 5.083). 1 cosmetic MINOR: the UE
+CoreMinimal.h min/max macro is a theoretical std::max poisoning risk, but the gate (UE + standalone)
+proves no actual contamination. The ~19x perf itself is the research benchmark (Session 4); the gate
+verifies correctness, not wall-time. Next: A2b (banded coarse, towers only).

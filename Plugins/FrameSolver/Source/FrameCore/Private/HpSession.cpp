@@ -1,18 +1,25 @@
 //
-// Seeded HP-FEM solve session (A2c: serial matrix-free PCG + Jacobi + Galerkin projection
-// onto a seeded load-response basis, frame-only, LDLT fallback). See Public/FrameCore/HpSession.h.
+// Seeded HP-FEM solve session (A2c serial + A2a parallel: matrix-free element apply, Galerkin
+// projection onto a seeded load-response basis, block6 / scalar Jacobi, frame-only, LDLT fallback).
+// See Public/FrameCore/HpSession.h.
 //
 // Design contract: solveFrame must return a SolveResult bit-equivalent to solveLoad() except for
 // the solve step itself. The RHS assembly, prescribed reduction, scatter, reactions (K*u - F) and
 // element recovery below are therefore copied verbatim from FrameSolver.cpp::solveLoad (mirrored in
 // HpSolver.cpp::solveLoadHP) — the ONLY departure is replacing `S.ldlt.solve(Ff)` with a seeded
 // Galerkin projection + matrix-free preconditioned conjugate gradient. The LDLT factor remains the
-// oracle and the fallback. Eigen is confined to this Private .cpp; the public header is POD.
+// oracle and the fallback. Eigen and the threading are confined to this Private .cpp; the public
+// header is POD.
 //
-// A2c is serial: it reuses A1's per-element reduced operator (ElemReduced) and Jacobi diagonal.
-// A2a will swap the apply/precond internals (ThreadApplyPool + parallel block6) WITHOUT changing
-// HpSession.h, turning the per-frame ~14ms serial apply into the ~0.9ms 16-thread apply that makes
-// the large-problem ~19x real. The RecycleBasis is ported from Research/WS_B_solver/exp_parallel_pcg.cpp.
+// A2c (threads=1): serial per-element dense apply (ElementBlock12) + Jacobi precond (block6 when
+// nf%6==0, else scalar). A2a (threads>1): a persistent ThreadApplyPool parallelizes the element
+// apply (per-thread accumulation + touched-DOF reduction) and the block6 map — the seeded basis and
+// the LDLT stay single-threaded (Eigen is not thread-safe). ElementBlock12 / ElementOperator /
+// ThreadApplyPool are ported from Research/WS_B_solver/exp_parallel_pcg.cpp; the element blocks are
+// built from the PreparedSystem's prepared elements (S.elems), not re-derived, so the matrix-free
+// apply is bit-consistent with the LDLT operator K_ff. RecycleBasis is likewise ported (timers
+// stripped). Only the research WINS are ported here (the symmetric-apply / finer-coarse / deflation
+// experiments were net-neutral or negative and stay in research).
 //
 #include "FrameCore/HpSession.h"
 #include "PreparedSystemImpl.h"   // PreparedSystem::Impl (K/fmap/nf/ldlt/elems/...) + FrameEigen.h
@@ -23,25 +30,21 @@
 #include <string>
 #include <cmath>
 #include <algorithm>
+#include <array>
+#include <utility>
+#include <memory>
+#include <thread>
+#include <mutex>
+#include <condition_variable>
 
 namespace frame {
 
 namespace {
 
-// Per-element reduced (free-DOF) operator entries — identical to HpSolver.cpp. Summing these
-// scalar contributions over all elements equals K_ff * x by construction (it uses the exact
-// triplets reduceFF() builds K_ff from), so the matrix-free apply matches the LDLT operator to
-// the last bit.
-struct ElemReduced {
-    std::vector<int>  ri, ci;
-    std::vector<real> v;
-};
-
-// A-orthonormal (K-inner-product) basis of seeded load responses + Galerkin initial guess. Ported
-// from Research/WS_B_solver/exp_parallel_pcg.cpp (RecycleBasis, L1062-1113), with the research-only
-// timers removed; the math is unchanged. Invariant: v_i^T K v_j = delta_ij (research cross-check
-// ||VtKV - I|| = 3.4e-15), so initialGuess(b) = sum_i (v_i . b) v_i is the EXACT Galerkin solution
-// whenever K^{-1} b lies in span{v_i} (=> ~0 PCG iters in-subspace).
+// ---- A-orthonormal seeded basis (ported from exp_parallel_pcg.cpp L1062-1113) -------------------
+// Invariant: v_i^T K v_j = delta_ij (research cross-check ||VtKV - I|| = 3.4e-15), so initialGuess(b)
+// = sum_i (v_i . b) v_i is the EXACT Galerkin solution whenever K^{-1} b lies in span{v_i} (=> ~0 PCG
+// iters in-subspace). Research-only timers removed; the math is unchanged.
 struct RecycleBasis {
     int maxSize = 0;
     std::vector<VecX> v;    // K-orthonormal responses
@@ -58,10 +61,9 @@ struct RecycleBasis {
         return x;
     }
 
-    // Append a new response x (= K^{-1} b for some seed load b), A-orthonormalizing it against the
-    // existing basis. `apply(q, Aq)` must set Aq = K * q (the matrix-free element apply). A linearly
-    // dependent / null seed is rejected. FIFO eviction past maxSize (capacity is sized up-front to
-    // hold every seed, so eviction never fires during normal seeding).
+    // Append a response x (= K^{-1} b for some seed load b), A-orthonormalizing it against the
+    // existing basis. `apply(q, Aq)` must set Aq = K * q. A linearly dependent / null seed is
+    // rejected. Capacity is sized up-front to hold every seed, so FIFO eviction never fires.
     template <typename ApplyFn>
     void add(const VecX& x, ApplyFn apply) {
         if (maxSize <= 0) return;
@@ -93,68 +95,371 @@ struct RecycleBasis {
     }
 };
 
+// ---- per-element dense operator (ported from exp_parallel_pcg.cpp ElementBlock12/ElementOperator) -
+// A dense 12x12 per beam-column element with its 12 reduced-DOF indices (rid[i] < 0 = constrained /
+// unused). Summing the element-local dense matvecs equals K_ff * x by construction. Built from the
+// prepared elements' assemble() triplets (the exact triplets reduceFF builds K_ff from), so the
+// apply matches the LDLT operator to the last bit. accumulateRange uses element-local dense matvec
+// to avoid the random-access scatter of a COO apply (the research win).
+struct ElementBlock12 {
+    std::array<int, 12>   rid{};   // reduced-DOF index per local slot (-1 = constrained / unused)
+    std::array<real, 144> k{};     // dense 12x12, row-major
+};
+
+struct ElementOperator {
+    int nf = 0;
+    std::vector<ElementBlock12>       blocks;
+    VecX                              diag;    // scalar Jacobi diagonal
+    std::vector<std::array<real, 36>> diag6;   // 6x6 diagonal blocks (block6); empty if nf%6 != 0
+    bool                              hasShell = false;
+
+    size_t numBlocks() const { return blocks.size(); }
+    const std::array<int, 12>& ridOf(size_t bi) const { return blocks[bi].rid; }
+
+    // Build from the prepared elements. Frame-only: a non-12-DOF element (shell) -> hasShell -> false.
+    bool build(const PreparedSystem::Impl& S) {
+        nf = S.nf;
+        diag = VecX::Zero(nf);
+        diag6.clear();
+        if (nf > 0 && nf % 6 == 0) {
+            diag6.resize(static_cast<size_t>(nf / 6));
+            for (auto& b : diag6) b.fill(real(0));
+        }
+        blocks.clear();
+        blocks.reserve(S.elems.size());
+        for (const auto& el : S.elems) {
+            if (el->localDof() != 12) { hasShell = true; return false; }
+            std::vector<Triplet> trips;
+            el->assemble(trips);
+            // distinct global DOFs this element touches (12 for a beam; its diagonal stiffness is
+            // positive so every touched DOF appears as a row) -> a compact local index 0..ne-1.
+            std::vector<int> gd;
+            gd.reserve(trips.size());
+            for (const auto& t : trips) gd.push_back(static_cast<int>(t.row()));
+            std::sort(gd.begin(), gd.end());
+            gd.erase(std::unique(gd.begin(), gd.end()), gd.end());
+            if (gd.size() > 12) { hasShell = true; return false; }   // not a 12-DOF beam
+            auto lof = [&](int g) -> int {
+                const auto it = std::lower_bound(gd.begin(), gd.end(), g);
+                return (it != gd.end() && *it == g) ? static_cast<int>(it - gd.begin()) : -1;
+            };
+            ElementBlock12 b; b.rid.fill(-1); b.k.fill(real(0));
+            for (const auto& t : trips) {
+                const int lr = lof(static_cast<int>(t.row()));
+                const int lc = lof(static_cast<int>(t.col()));
+                if (lr >= 0 && lc >= 0) b.k[static_cast<size_t>(lr * 12 + lc)] += t.value();
+            }
+            int freeDofs = 0;
+            for (int i = 0; i < static_cast<int>(gd.size()); ++i) {
+                b.rid[static_cast<size_t>(i)] = S.fmap[static_cast<size_t>(gd[static_cast<size_t>(i)])];
+                if (b.rid[static_cast<size_t>(i)] >= 0) ++freeDofs;
+            }
+            if (freeDofs == 0) continue;   // fully-constrained element: no free contribution
+            for (int r = 0; r < 12; ++r) {
+                const int rr = b.rid[static_cast<size_t>(r)];
+                if (rr >= 0) diag(rr) += b.k[static_cast<size_t>(r * 12 + r)];
+                if (rr < 0 || diag6.empty()) continue;
+                const int br = rr / 6, lr = rr - br * 6;
+                for (int c = 0; c < 12; ++c) {
+                    const int cc = b.rid[static_cast<size_t>(c)];
+                    if (cc < 0 || cc / 6 != br) continue;
+                    const int lc = cc - br * 6;
+                    diag6[static_cast<size_t>(br)][static_cast<size_t>(lr * 6 + lc)] +=
+                        b.k[static_cast<size_t>(r * 12 + c)];
+                }
+            }
+            blocks.push_back(std::move(b));
+        }
+        return true;
+    }
+
+    // y[begin..end blocks] += K_block * x  (writes only touched reduced DOFs; caller pre-zeros them).
+    void accumulateRange(size_t begin, size_t end, const VecX& x, std::vector<real>& y) const {
+        for (size_t bi = begin; bi < end; ++bi) {
+            const ElementBlock12& b = blocks[bi];
+            real xe[12];
+            for (int i = 0; i < 12; ++i) {
+                const int id = b.rid[static_cast<size_t>(i)];
+                xe[i] = id >= 0 ? x(id) : real(0);
+            }
+            for (int r = 0; r < 12; ++r) {
+                const int rr = b.rid[static_cast<size_t>(r)];
+                if (rr < 0) continue;
+                const real* row = &b.k[static_cast<size_t>(r * 12)];
+                real acc = real(0);
+                for (int c = 0; c < 12; ++c) acc += row[c] * xe[c];
+                y[static_cast<size_t>(rr)] += acc;
+            }
+        }
+    }
+
+    void applySerial(const VecX& x, VecX& y) const {
+        std::vector<real> yy(static_cast<size_t>(nf), real(0));
+        accumulateRange(0, numBlocks(), x, yy);
+        y.resize(nf);
+        for (int i = 0; i < nf; ++i) y(i) = yy[static_cast<size_t>(i)];
+    }
+};
+
+// Invert each 6x6 diagonal block (block6 Jacobi). Returns false (and clears inv6) if any block is
+// singular -> caller falls back to scalar Jacobi. Ported from Preconditioner::buildBlock6.
+bool buildBlock6(const std::vector<std::array<real, 36>>& diag6,
+                 std::vector<std::array<real, 36>>& inv6) {
+    inv6.clear();
+    if (diag6.empty()) return false;
+    inv6.resize(diag6.size());
+    using Mat6 = Eigen::Matrix<real, 6, 6>;
+    const Mat6 I = Mat6::Identity();
+    for (size_t bi = 0; bi < diag6.size(); ++bi) {
+        Mat6 M;
+        for (int r = 0; r < 6; ++r)
+            for (int c = 0; c < 6; ++c) M(r, c) = diag6[bi][static_cast<size_t>(r * 6 + c)];
+        Eigen::LDLT<Mat6> ldlt(M);
+        if (ldlt.info() != Eigen::Success) { inv6.clear(); return false; }
+        const Mat6 inv = ldlt.solve(I);
+        if (!inv.allFinite()) { inv6.clear(); return false; }
+        for (int r = 0; r < 6; ++r)
+            for (int c = 0; c < 6; ++c) inv6[bi][static_cast<size_t>(r * 6 + c)] = inv(r, c);
+    }
+    return true;
+}
+
+// ---- persistent worker pool (ported verbatim from exp_parallel_pcg.cpp L658-815) ----------------
+// Warm threads serve two jobs over the element operator: (1) a matrix-free apply (each worker
+// accumulates its block range into a private localY, the main thread reduces the disjoint touched-
+// DOF sets), and (2) a block6 Jacobi map (each worker writes a disjoint output slice, no reduction).
+// A condition_variable generation protocol wakes the workers; reusing them avoids per-apply spawn.
+// Eigen is not touched off the main thread — workers only read the const operator and write into
+// plain std::vector<real> / VecX slices.
+class ThreadApplyPool {
+public:
+    enum class Job { Apply, Precond };
+
+    ThreadApplyPool(const ElementOperator& opIn, int requestedThreads)
+        : op(opIn), nt(std::max(1, requestedThreads)) {
+        const size_t nblk = op.numBlocks();
+        if (nblk > 0) nt = std::min(nt, static_cast<int>(nblk));
+        localY.assign(static_cast<size_t>(nt), std::vector<real>(static_cast<size_t>(op.nf), real(0)));
+        const size_t chunk = (nblk + static_cast<size_t>(nt) - 1) / static_cast<size_t>(nt);
+        touched.resize(static_cast<size_t>(nt));
+        const int nb = (op.nf % 6 == 0) ? op.nf / 6 : 0;
+        const int pchunk = (nb + nt - 1) / std::max(1, nt);
+        pcRange.assign(static_cast<size_t>(nt), {0, 0});
+        applyRange.assign(static_cast<size_t>(nt), {0, 0});
+        workers.reserve(static_cast<size_t>(nt));
+        for (int tid = 0; tid < nt; ++tid) {
+            const size_t begin = std::min(nblk, static_cast<size_t>(tid) * chunk);
+            const size_t end = std::min(nblk, begin + chunk);
+            applyRange[static_cast<size_t>(tid)] = {begin, end};
+            const int pb = std::min(nb, tid * pchunk);
+            const int pe = std::min(nb, pb + pchunk);
+            pcRange[static_cast<size_t>(tid)] = {pb, pe};
+            buildTouched(tid, begin, end);
+            workers.emplace_back([this, tid]() { workerLoop(tid); });
+        }
+    }
+
+    ~ThreadApplyPool() {
+        {
+            std::lock_guard<std::mutex> lock(mu);
+            stop = true;
+            ++generation;
+        }
+        cvStart.notify_all();
+        for (std::thread& w : workers) if (w.joinable()) w.join();
+    }
+
+    ThreadApplyPool(const ThreadApplyPool&) = delete;
+    ThreadApplyPool& operator=(const ThreadApplyPool&) = delete;
+
+    int threads() const { return nt; }
+
+    void apply(const VecX& x, VecX& y) {
+        y.setZero(op.nf);
+        {
+            std::lock_guard<std::mutex> lock(mu);
+            job = Job::Apply;
+            xPtr = &x;
+            done = 0;
+            ++generation;
+        }
+        cvStart.notify_all();
+        {
+            std::unique_lock<std::mutex> lock(mu);
+            cvDone.wait(lock, [&]() { return done == nt; });
+        }
+        for (int tid = 0; tid < nt; ++tid) {
+            const std::vector<real>& yy = localY[static_cast<size_t>(tid)];
+            for (int id : touched[static_cast<size_t>(tid)]) y(id) += yy[static_cast<size_t>(id)];
+        }
+    }
+
+    void precondBlock6(const VecX& r, VecX& z, const std::vector<std::array<real, 36>>& inv6) {
+        {
+            std::lock_guard<std::mutex> lock(mu);
+            job = Job::Precond;
+            rPtr = &r;
+            zPtr = &z;
+            invPtr = &inv6;
+            done = 0;
+            ++generation;
+        }
+        cvStart.notify_all();
+        std::unique_lock<std::mutex> lock(mu);
+        cvDone.wait(lock, [&]() { return done == nt; });
+    }
+
+private:
+    const ElementOperator& op;
+    int nt = 1;
+    std::vector<std::vector<real>> localY;
+    std::vector<std::vector<int>> touched;
+    std::vector<std::pair<size_t, size_t>> applyRange;
+    std::vector<std::pair<int, int>> pcRange;
+    std::vector<std::thread> workers;
+    std::mutex mu;
+    std::condition_variable cvStart;
+    std::condition_variable cvDone;
+    Job job = Job::Apply;
+    const VecX* xPtr = nullptr;
+    const VecX* rPtr = nullptr;
+    VecX* zPtr = nullptr;
+    const std::vector<std::array<real, 36>>* invPtr = nullptr;
+    int generation = 0;
+    int done = 0;
+    bool stop = false;
+
+    void buildTouched(int tid, size_t begin, size_t end) {
+        std::vector<int> ids;
+        ids.reserve((end - begin) * 12);
+        for (size_t bi = begin; bi < end; ++bi) {
+            const std::array<int, 12>& rid = op.ridOf(bi);
+            for (int d = 0; d < 12; ++d) {
+                const int id = rid[static_cast<size_t>(d)];
+                if (id >= 0) ids.push_back(id);
+            }
+        }
+        std::sort(ids.begin(), ids.end());
+        ids.erase(std::unique(ids.begin(), ids.end()), ids.end());
+        touched[static_cast<size_t>(tid)] = std::move(ids);
+    }
+
+    void runApply(int tid) {
+        const auto range = applyRange[static_cast<size_t>(tid)];
+        std::vector<real>& yy = localY[static_cast<size_t>(tid)];
+        for (int id : touched[static_cast<size_t>(tid)]) yy[static_cast<size_t>(id)] = real(0);
+        op.accumulateRange(range.first, range.second, *xPtr, yy);
+    }
+
+    void runPrecond(int tid) {
+        const auto range = pcRange[static_cast<size_t>(tid)];
+        const VecX& r = *rPtr;
+        VecX& z = *zPtr;
+        const std::vector<std::array<real, 36>>& inv6 = *invPtr;
+        for (int bi = range.first; bi < range.second; ++bi) {
+            const real* inv = inv6[static_cast<size_t>(bi)].data();
+            const int off = bi * 6;
+            for (int row = 0; row < 6; ++row) {
+                const real* ir = &inv[row * 6];
+                z(off + row) = ir[0] * r(off + 0) + ir[1] * r(off + 1) + ir[2] * r(off + 2)
+                             + ir[3] * r(off + 3) + ir[4] * r(off + 4) + ir[5] * r(off + 5);
+            }
+        }
+    }
+
+    void workerLoop(int tid) {
+        int seen = 0;
+        for (;;) {
+            Job localJob;
+            {
+                std::unique_lock<std::mutex> lock(mu);
+                cvStart.wait(lock, [&]() { return stop || generation != seen; });
+                if (stop) return;
+                seen = generation;
+                localJob = job;
+            }
+            if (localJob == Job::Apply) runApply(tid);
+            else                        runPrecond(tid);
+            {
+                std::lock_guard<std::mutex> lock(mu);
+                ++done;
+                if (done == nt) cvDone.notify_one();
+            }
+        }
+    }
+};
+
 }  // namespace
 
 // ============================================================================
-// PIMPL: non-owning view of the factorization + the seeded basis + apply/precond.
+// PIMPL: non-owning view of the factorization + the seeded basis + apply/precond (serial or pooled).
 // ============================================================================
 struct HpSession::Impl {
-    const PreparedSystem::Impl* ps_raw = nullptr;   // NON-owning; caller guarantees it outlives us
-    HpSessionOptions            opts;
-    bool                        baseValid = false;   // HP path ready (non-null, non-singular, frame-only)
-    std::string                 diag;
-    RecycleBasis                basis;
-    int                         effectiveBasisMax = 0;
-    std::vector<ElemReduced>    blocks;              // per-element reduced operator (frame-only)
-    VecX                        diagJ;               // Jacobi diagonal of K_ff
-    bool                        hasShell = false;
+    const PreparedSystem::Impl*       ps_raw = nullptr;   // NON-owning; caller guarantees it outlives us
+    HpSessionOptions                  opts;
+    bool                              baseValid = false;   // HP path ready (non-null, non-singular, frame-only)
+    std::string                       diag;
+    RecycleBasis                      basis;
+    int                               effectiveBasisMax = 0;
+    int                               threads = 1;
+    ElementOperator                   op;                  // per-element dense operator (frame-only)
+    std::vector<std::array<real, 36>> blockInv6;           // block6 Jacobi (empty -> scalar Jacobi)
+    bool                              useBlock6 = false;
+    // Declared AFTER op so it is DESTROYED FIRST: ~ThreadApplyPool joins the workers (which hold a
+    // reference to op) before op itself is torn down.
+    std::unique_ptr<ThreadApplyPool>  pool;
 
     Impl(const PreparedSystem& prepared, const HpSessionOptions& o)
         : ps_raw(prepared.impl.get()), opts(o),
-          basis(std::max(0, o.basisMax)), effectiveBasisMax(std::max(0, o.basisMax)) {
+          basis(std::max(0, o.basisMax)), effectiveBasisMax(std::max(0, o.basisMax)),
+          threads(std::max(1, o.threads)) {
         if (!ps_raw) { diag = "HpSession: null PreparedSystem"; return; }
         const PreparedSystem::Impl& S = *ps_raw;
         if (S.singular) { diag = "HpSession: PreparedSystem is singular: " + S.diagnostic; return; }
 
-        // Build the per-element reduced operator + Jacobi diagonal (verbatim from HpSolver.cpp).
-        // Frame-only: a non-12-DOF element (shell) -> hasShell -> every frame routes to LDLT.
-        blocks.reserve(S.elems.size());
-        diagJ = VecX::Zero(S.nf);
-        for (const auto& el : S.elems) {
-            if (el->localDof() != 12) { hasShell = true; break; }
-            std::vector<Triplet> trips;
-            el->assemble(trips);
-            ElemReduced b;
-            b.ri.reserve(trips.size()); b.ci.reserve(trips.size()); b.v.reserve(trips.size());
-            for (const auto& t : trips) {
-                const int ri = S.fmap[(size_t)t.row()];
-                const int ci = S.fmap[(size_t)t.col()];
-                if (ri < 0 || ci < 0) continue;
-                b.ri.push_back(ri); b.ci.push_back(ci); b.v.push_back(t.value());
-                if (ri == ci) diagJ(ri) += t.value();
-            }
-            blocks.push_back(std::move(b));
-        }
-        if (hasShell) {
+        if (!op.build(S)) {
+            // a non-12-DOF element (shell): frame-only -> HP path not ready, solveFrame uses LDLT.
             baseValid = false;
-            blocks.clear();   // partial; never used (solveFrame routes shells to LDLT)
-            diag = "HpSession: shell element present (A2c is frame-only; solveFrame uses LDLT)";
-        } else {
-            baseValid = true;
-            diag = "HpSession: ready (frame-only seeded lane)";
+            diag = "HpSession: shell element present (A2 is frame-only; solveFrame uses LDLT)";
+            return;
         }
+        baseValid = true;
+        useBlock6 = buildBlock6(op.diag6, blockInv6);   // false (empty inv6) -> scalar Jacobi
+        if (threads > 1 && op.numBlocks() > 0)
+            pool = std::make_unique<ThreadApplyPool>(op, threads);
+        const int actual = pool ? pool->threads() : 1;
+        diag = "HpSession: ready (frame-only seeded lane, " +
+               std::string(actual > 1 ? "parallel x" + std::to_string(actual) : "serial") + ", " +
+               std::string(useBlock6 ? "block6" : "scalar") + " precond)";
     }
 
-    // y = K_ff * x via the per-element reduced operator (matrix-free; bit-consistent with LDLT's K_ff).
-    void applyKff(const VecX& x, VecX& y) const {
-        y.setZero();
-        for (const auto& b : blocks)
-            for (size_t k = 0; k < b.ri.size(); ++k) y(b.ri[k]) += b.v[k] * x(b.ci[k]);
+    // y = K_ff * x (matrix-free; pooled when a thread pool exists, else serial). Bit-consistent with
+    // the LDLT K_ff up to the reduction order (threaded reduction is NOT bit-identical to serial).
+    void applyKff(const VecX& x, VecX& y) {
+        if (pool) pool->apply(x, y);
+        else      op.applySerial(x, y);
     }
-    // Jacobi preconditioner z = D^{-1} r.
-    void precondJacobi(const VecX& rr, VecX& zz) const {
-        const int nf = ps_raw->nf;
-        for (int i = 0; i < nf; ++i) zz(i) = (diagJ(i) != real(0)) ? rr(i) / diagJ(i) : rr(i);
+
+    // z = M^{-1} r: block6 Jacobi when available (pooled or serial), else scalar Jacobi.
+    void precond(const VecX& rr, VecX& zz) {
+        zz.resize(op.nf);
+        if (useBlock6 && !blockInv6.empty()) {
+            if (pool) {
+                pool->precondBlock6(rr, zz, blockInv6);
+            } else {
+                for (int bi = 0; bi < static_cast<int>(blockInv6.size()); ++bi) {
+                    const real* inv = blockInv6[static_cast<size_t>(bi)].data();
+                    const int off = bi * 6;
+                    for (int row = 0; row < 6; ++row) {
+                        const real* ir = &inv[row * 6];
+                        zz(off + row) = ir[0] * rr(off + 0) + ir[1] * rr(off + 1) + ir[2] * rr(off + 2)
+                                      + ir[3] * rr(off + 3) + ir[4] * rr(off + 4) + ir[5] * rr(off + 5);
+                    }
+                }
+            }
+        } else {
+            for (int i = 0; i < op.nf; ++i) zz(i) = (op.diag(i) != real(0)) ? rr(i) / op.diag(i) : rr(i);
+        }
     }
 };
 
@@ -260,8 +565,7 @@ SolveResult HpSession::solveFrame(const FrameModel& model, HpSessionStats* stats
     std::string note;
 
     if (canHp && !(bnorm > real(0))) {
-        // A zero RHS has the exact solution uf = 0 (same hardening as HpSolver.cpp); take it directly
-        // so the relative-residual test never divides by a clamped tiny bnorm. Trivially in-subspace.
+        // A zero RHS has the exact solution uf = 0 (same hardening as HpSolver.cpp). Trivially in-subspace.
         uf = VecX::Zero(S.nf);
         solved = true;
         st.usedProjection = true;
@@ -283,7 +587,7 @@ SolveResult HpSession::solveFrame(const FrameModel& model, HpSessionStats* stats
         int  iters = 0;
         if (!conv) {
             VecX z(S.nf), p(S.nf), Ap(S.nf);
-            P.precondJacobi(r, z);
+            P.precond(r, z);
             p = z;
             real rz = r.dot(z);
             while (!conv && iters < maxIt) {
@@ -295,7 +599,7 @@ SolveResult HpSession::solveFrame(const FrameModel& model, HpSessionStats* stats
                 r.noalias() -= alpha * Ap;
                 ++iters;
                 if (static_cast<double>(r.norm() / bnorm) <= P.opts.pcgTol) { conv = true; break; }
-                P.precondJacobi(r, z);
+                P.precond(r, z);
                 const real rzNew = r.dot(z);
                 if (!(rzNew > real(0)) || !std::isfinite(static_cast<double>(rzNew))) break;
                 p = z + (rzNew / rz) * p;

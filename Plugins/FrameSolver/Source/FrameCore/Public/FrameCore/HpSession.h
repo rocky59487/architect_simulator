@@ -22,6 +22,8 @@ struct HpSessionOptions {
     int  pcgWarmIter    = 3;       // in-subspace warm-start PCG cap (residual safety net atop x0)
     bool fallbackOnFail = true;    // non-convergence / indefinite -> fall back to LDLT
     bool enabled        = true;    // false => solveFrame is a drop-in equal to solveLoad (LDLT)
+    int  threads        = 1;       // >1 spawns a persistent pool that parallelizes the element apply
+                                   // + block6 Jacobi (the A2a large-problem win); 1 = serial (A2c)
 };
 
 // Per-frame diagnostics (which path ran, how hard it worked). POD.
@@ -47,10 +49,14 @@ struct HpSessionStats {
 //     basis gives a near-exact initial guess (in-subspace => ~0 PCG iters); a load that leaves the
 //     subspace runs a full PCG; either way the LDLT factor is the always-correct fallback.
 //
-// A2c is SERIAL (apply + Jacobi reuse the A1 lane) and frame-only — a shell element routes every
-// frame to LDLT. Honest scope: A2c has no large-problem win over reused LDLT (serial apply ~14ms >
-// LDLT backsub ~10.9ms at nf~18720); the real ~19x needs the A2a parallel apply. A2c builds the API,
-// the correctness, and the small-problem (nf<~2000) speedup, and paves the way for A2a/A2b.
+// The element apply + preconditioner are SERIAL by default (threads=1, the A2c lane) and frame-only
+// — a shell element routes every frame to LDLT. Set opts.threads > 1 to spawn a persistent thread
+// pool that parallelizes the element apply (and the block6 Jacobi): this is A2a, where the per-frame
+// ~14ms serial apply at nf~18720 drops to ~0.9ms across 16 threads, making the seeded ~19x real.
+// Serial threads=1 has no large-problem win over reused LDLT (~14ms apply > ~10.9ms LDLT backsub);
+// it delivers the API, correctness, and the small-problem (nf<~2000) speedup. The seeded basis and
+// the LDLT stay single-threaded (Eigen is not thread-safe); the pool only parallelizes the
+// element-local apply (per-thread accumulation + touched-DOF reduction) and the block6 map.
 //
 // LIFETIME CONTRACT: the PreparedSystem MUST outlive the session (the session stores a non-owning
 // pointer into it, like std::span). Moving or destroying it while the session is alive is undefined

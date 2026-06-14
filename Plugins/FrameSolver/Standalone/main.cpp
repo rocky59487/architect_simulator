@@ -3143,6 +3143,58 @@ int main() {
             s5.solveFrame(m, &st);
             checkClose("F56-E basisMax auto-expanded to 5 (FIFO would cap at 3)", (double)st.basisSize, 5.0, 0.5);
         }
+        // (F) A2a PARALLEL apply: a threaded session (threads=8) matches the serial session AND the
+        //     LDLT oracle on both the in-subspace (projection) and out-of-subspace (full PCG) paths.
+        //     A larger frame (60 beams, nf=360) makes the block range actually split across workers,
+        //     exercising the per-thread accumulate + touched-DOF reduction and the parallel block6 map.
+        {
+            const int nbig = 60;
+            FrameModel mBig;
+            mBig.materials = { mat }; mBig.sections = { sec };
+            Node b0(0, 0, 0, 0); b0.fixAll(); mBig.nodes = { b0 };
+            for (int k = 1; k <= nbig; ++k) mBig.nodes.push_back(Node(k, Lspan * real(k) / real(nbig), 0, 0));
+            for (int k = 0; k < nbig; ++k) mBig.members.push_back(Member(k, k, k + 1, 0, 0));
+            PreparedSystem psB = assembleAndFactor(mBig);
+
+            std::vector<std::vector<real>> seedsB = { unitUz(mBig, 1, 1.0), unitUz(mBig, nbig, 1.0) };
+            HpSessionOptions ser = opt; ser.threads = 1;
+            HpSessionOptions par = opt; par.threads = 8;
+            HpSession sSer(psB, ser), sPar(psB, par);
+            checkTrue("F56-F serial session valid",   sSer.valid(), sSer.diagnostic());
+            checkTrue("F56-F parallel session valid", sPar.valid(), sPar.diagnostic());
+            checkTrue("F56-F setLoadBasis serial",    sSer.setLoadBasis(seedsB), sSer.diagnostic());
+            checkTrue("F56-F setLoadBasis parallel",  sPar.setLoadBasis(seedsB), sPar.diagnostic());
+
+            // in-subspace: both hit the projection (~0 iters); parallel matches serial and LDLT
+            {
+                FrameModel m = mBig; setLoad(m, 1, 2222.0);
+                HpSessionStats ssr, spr;
+                const SolveResult gSer = sSer.solveFrame(m, &ssr);
+                const SolveResult gPar = sPar.solveFrame(m, &spr);
+                const SolveResult ref  = solveLoad(psB, m);
+                hpSessVsLdlt("F56-F in-subspace serial vs LDLT",   gSer, ref);
+                hpSessVsLdlt("F56-F in-subspace parallel vs LDLT", gPar, ref);
+                checkTrue("F56-F parallel in-subspace projection 0-iter",
+                          spr.usedProjection && spr.pcgIters <= 1, "iters=" + std::to_string(spr.pcgIters));
+                double dmax = 0, nmax = 1e-30;
+                for (size_t k = 0; k < gPar.u.size(); ++k) {
+                    dmax = std::max(dmax, std::fabs((double)gPar.u[k] - (double)gSer.u[k]));
+                    nmax = std::max(nmax, std::fabs((double)gSer.u[k]));
+                }
+                checkTrue("F56-F parallel u == serial u (threaded reduction = FP order only)",
+                          dmax / nmax <= 1e-8, "rel=" + std::to_string(dmax / nmax));
+            }
+            // out-of-subspace: full PCG exercises the parallel apply + parallel block6 precond
+            {
+                FrameModel m = mBig; setLoad(m, 7, 1500.0);
+                HpSessionStats spr;
+                const SolveResult gPar = sPar.solveFrame(m, &spr);
+                hpSessVsLdlt("F56-F out-of-subspace parallel vs LDLT", gPar, solveLoad(psB, m));
+                checkTrue("F56-F parallel out-of-subspace full PCG", spr.usedPcg && !spr.usedProjection,
+                          "iters=" + std::to_string(spr.pcgIters));
+            }
+            std::printf("   A2a parallel(threads=8) apply+block6 matches serial & LDLT (in/out subspace); ~19x perf in HPFEM_RESEARCH_NOTES\n");
+        }
     }
 
     std::printf("\n%s  (failures=%d)\n", g_fail == 0 ? "ALL PASS" : "FAILURES", g_fail);
