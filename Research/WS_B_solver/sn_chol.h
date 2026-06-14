@@ -14,6 +14,7 @@
 #include <algorithm>
 #include <cmath>
 #include <utility>
+#include <iterator>
 #include <cblas.h>                 // OpenBLAS BLAS3 (dgemm/dtrsm/dtrsv/dgemv) for the supernodal path
 #include <cassert>
 // lapacke.h pulls in C99 _Complex (invalid in MSVC C++); declare the one routine we use directly.
@@ -228,10 +229,11 @@ struct SnSuper {
 };
 
 inline SnSuper factorizeSuper(int n, const int* outerPtr, const int* innerIdx,
-                              const double* values, const SnSymbolic& sym) {
+                              const double* values, const SnSymbolic& sym,
+                              int amalgRelax = 0, int amalgMaxCol = 64) {
     SnSuper S;
     S.n = n;
-    // detect supernodes: column j continues j-1 iff Lpat[j-1] == {j-1} ++ Lpat[j] (nested, contiguous)
+    // fundamental supernodes: column j continues j-1 iff Lpat[j-1] == {j-1} ++ Lpat[j]
     std::vector<int> snStart;
     snStart.push_back(0);
     for (int j = 1; j < n; ++j) {
@@ -244,14 +246,45 @@ inline SnSuper factorizeSuper(int n, const int* outerPtr, const int* innerIdx,
         if (!cont) snStart.push_back(j);
     }
     snStart.push_back(n);
+    // amalgamation: greedily merge consecutive supernodes (padding the panel with explicit zeros)
+    // when the merge adds few rows (<= amalgRelax) and stays within amalgMaxCol columns. Bigger
+    // panels -> dgemm closer to peak. relax=0 leaves fundamental supernodes untouched.
+    if (amalgRelax > 0 && static_cast<int>(snStart.size()) > 2) {
+        const int nf = static_cast<int>(snStart.size()) - 1;
+        std::vector<int> merged;
+        merged.push_back(snStart[0]);
+        int curStart = snStart[0];
+        std::vector<int> curRows = sym.Lpat[curStart];
+        for (int s = 1; s < nf; ++s) {
+            const int candC0 = snStart[s], candC1 = snStart[s + 1];
+            std::vector<int> u;
+            std::set_union(curRows.begin(), curRows.end(),
+                           sym.Lpat[candC0].begin(), sym.Lpat[candC0].end(), std::back_inserter(u));
+            const int mergedNcol = candC1 - curStart;
+            const int addedRows  = static_cast<int>(u.size()) - static_cast<int>(curRows.size());
+            if (mergedNcol <= amalgMaxCol && addedRows <= amalgRelax) {
+                curRows.swap(u);
+            } else {
+                merged.push_back(candC0); curStart = candC0; curRows = sym.Lpat[candC0];
+            }
+        }
+        merged.push_back(n);
+        snStart.swap(merged);
+    }
     S.nsn = static_cast<int>(snStart.size()) - 1;
     S.c0.resize(S.nsn); S.ncol.resize(S.nsn); S.nrow.resize(S.nsn);
     S.rows.resize(S.nsn); S.data.resize(S.nsn); S.snOf.assign(n, -1);
     for (int s = 0; s < S.nsn; ++s) {
         const int c0 = snStart[s], c1 = snStart[s + 1];
         S.c0[s] = c0; S.ncol[s] = c1 - c0;
-        S.rows[s] = sym.Lpat[c0];                                   // panel rows = col c0 pattern
-        S.nrow[s] = static_cast<int>(S.rows[s].size());
+        std::vector<int> r = sym.Lpat[c0];                          // panel rows = union of member patterns
+        for (int c = c0 + 1; c < c1; ++c) {
+            std::vector<int> u;
+            std::set_union(r.begin(), r.end(), sym.Lpat[c].begin(), sym.Lpat[c].end(), std::back_inserter(u));
+            r.swap(u);
+        }
+        S.nrow[s] = static_cast<int>(r.size());
+        S.rows[s] = std::move(r);
         S.data[s].assign(static_cast<size_t>(S.nrow[s]) * S.ncol[s], 0.0);
         for (int c = c0; c < c1; ++c) S.snOf[c] = s;
     }
@@ -298,7 +331,9 @@ inline SnSuper factorizeSuper(int n, const int* outerPtr, const int* innerIdx,
                 const int relc = Kr[prow0 + jj] - c0;               // J pivot column (relative)
                 for (int ii = 0; ii < mrow; ++ii) {
                     const int rp = rowpos[Kr[prow0 + ii]];
-                    assert(rp >= 0 && "supernode scatter: row not in target panel");
+                    // A zero-padded amalgamation row outside R_J has a provably-zero Schur
+                    // contribution (else some K column would fill it into R_J), so skip it.
+                    if (rp < 0) continue;
                     Jd[(size_t)rp + (size_t)relc * nr] -= U[(size_t)ii + (size_t)jj * mrow];
                 }
             }

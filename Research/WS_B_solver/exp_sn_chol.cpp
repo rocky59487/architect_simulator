@@ -114,13 +114,13 @@ static void testNumeric(const char* name, const SpMat& K) {
 }
 
 // Supernodal BLAS3 path: correctness vs CHOLMOD + factor-time comparison (mine/cholmod).
-static void testSuper(const char* name, const SpMat& K) {
+static void testSuper(const char* name, const SpMat& K, int relax = 0) {
     const int n = static_cast<int>(K.rows());
     VecX F = VecX::Ones(n);
 
     sn::SnSymbolic sym = sn::analyze(n, K.outerIndexPtr(), K.innerIndexPtr(), /*useMetis=*/true);
     Timer tf;
-    sn::SnSuper S = sn::factorizeSuper(n, K.outerIndexPtr(), K.innerIndexPtr(), K.valuePtr(), sym);
+    sn::SnSuper S = sn::factorizeSuper(n, K.outerIndexPtr(), K.innerIndexPtr(), K.valuePtr(), sym, relax);
     const double facMs = tf.ms();
     VecX xs(n);
     sn::solveSuper(S, sym, F.data(), xs.data());
@@ -141,9 +141,10 @@ static void testSuper(const char* name, const SpMat& K) {
     VecX xc = ch.solve(F);
     const double diff = static_cast<double>((xs - xc).norm() / std::max<real>(1e-300, xc.norm()));
 
-    std::printf("[sn-super] %-16s n=%6d nsn=%d facMs=%.1f cholmodMs=%.1f (%.2fx) res0=%.2e res1=%.2e vsCHOLMOD=%.2e  %s\n",
-                name, n, S.nsn, facMs, chMs, chMs > 0 ? facMs / chMs : 0.0, res0, res1, diff,
+    std::printf("[sn-super] %-16s relax=%-2d n=%6d nsn=%d facMs=%.1f cholmod=%.1f (%.2fx) res1=%.2e vsCHOLMOD=%.2e  %s\n",
+                name, relax, n, S.nsn, facMs, chMs, chMs > 0 ? facMs / chMs : 0.0, res1, diff,
                 (res1 <= 1e-9 && diff <= 1e-8) ? "PASS" : "*** FAIL ***");
+    std::fflush(stdout);   // survive an abort() from a downstream assert
 }
 
 int main(int argc, char** argv) {
@@ -165,7 +166,9 @@ int main(int argc, char** argv) {
         if (!S.singular) {
             const SpMat Kff = research::reduceFF(S.K, S.fmap, S.nf);
             char nm[64]; std::snprintf(nm, sizeof(nm), "mixed(%d,%d,%d)", nx, ny, st);
-            testSuper(nm, Kff);
+            testSuper(nm, Kff, 0);     // fundamental supernodes
+            testSuper(nm, Kff, 16);    // amalgamated (relax=16)
+            testSuper(nm, Kff, 48);    // amalgamated (relax=48)
         }
         return 0;
     }
@@ -213,6 +216,20 @@ int main(int argc, char** argv) {
         if (!S.singular) {
             const SpMat Kff = research::reduceFF(S.K, S.fmap, S.nf);
             testSuper("tower-Kff", Kff);
+        }
+    }
+    // mixed-building small-scale: catches shell-specific symbolic/numeric/amalgamation bugs
+    {
+        FrameModel m = makeMixedBuilding(4, 3, 5);
+        assertNodalOnly(m, "exp_sn_chol");
+        PreparedSystem ps = assembleAndFactor(m);
+        const PreparedSystem::Impl& S = *ps.impl;
+        if (!S.singular) {
+            const SpMat Kff = research::reduceFF(S.K, S.fmap, S.nf);
+            testCase("mixed-small", Kff);       // symbolic vs Eigen
+            testNumeric("mixed-small", Kff);    // column-based vs CHOLMOD
+            testSuper("mixed-small", Kff, 0);   // supernodal fundamental
+            testSuper("mixed-small", Kff, 16);  // supernodal amalgamated
         }
     }
     std::printf("[sn-super] done\n");
