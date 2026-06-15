@@ -94,3 +94,28 @@ research-only(評估階段不進五腿 gate、不改 default solve);現有 LDLT 
 - **瓶頸重新定位 = 單執行緒**:自建 left-looking 序列(僅 panel 內 OpenBLAS 多緒,panel 小時多緒效益低),CHOLMOD 走 MKL 多執行緒(8940HX 16C/32T)。**M3b 並行(etree level-set 平行 supernode,thread pool)才是縮小 2.3x 的關鍵。**
 - **單對單診斷(2026-06-15,確認 M3b 必中)**:OpenBLAS + MKL 都鎖單執行緒(`OMP_NUM_THREADS=OPENBLAS_NUM_THREADS=MKL_NUM_THREADS=1`),自建 vs CHOLMOD:**32k 1.13–1.20x、64k 1.08–1.19x** —— 單執行緒下自建算法**幾乎追平 CHOLMOD**(多執行緒的 2.3–2.6x 差距**全在多核 supernode 並行**)。自建「多執行緒」版 ≈ 單執行緒(64k 2660 vs 2747ms),因 panel 內 OpenBLAS 多緒對小 panel 幾乎無效;CHOLMOD 多核是 **supernode 級**並行(64k 多緒 1099 vs 單緒 2552ms ≈ 2.3x)。**結論:補 supernode 級並行即可打平,OpenBLAS Zen4 378 GFLOPS 有望超越 MKL。**
 - **下一步 M3b(綠燈)**:etree(supernode-level)level-set 並行 factor — 同 level 無依賴的 supernode 用 thread pool 平行(依賴 = updaters[J])。amalgamation 在並行下才划算(夠大 panel 餵 worker);多步 iterative refinement 補 res 1e-9;union-loop 開銷移進 analyze(算一次)。column-based 版留作交叉驗 oracle。
+
+## M3b 完成(2026-06-15)— supernode 級 level-set 並行,基本打平 MKL-CHOLMOD ✅
+
+**實作**:`sn_chol.h` 新增 `factorizeSuperParallel`(序列 `factorizeSuper` 保留作 bit-exact 交叉 oracle)。抽出共用 `detail::buildSuperStructure`(supernode 劃分+amalg+panel+acol+updaters)+ `detail::processSupernode`(單 J factor;rowpos RAII 清零防殘留污染;`spdOk` 用 `std::atomic<bool>`)→ 序列/並行零邏輯漂移(bit-exact 前提)。`level[J]=1+max(level[K∈updaters[J]])`(updaters 全 < J)正序一次掃出 level-set;持久 thread pool(generation+cv barrier + `std::atomic<int>` 動態搶任務,純 C++17 `<thread>/<atomic>/<mutex>/<condition_variable>`,無 OpenMP/新依賴)。**混合並行(達標關鍵)**:寬(葉)level → supernode 並行 + 每 worker 單緒 BLAS;窄(根,`size≤nt/2`)level → 主緒序列 + 多緒 panel BLAS(打開 etree 根部 Amdahl 瓶頸,CHOLMOD 正是對大 supernode 開多緒)。OpenBLAS 緒數由主緒每 level dispatch 前設一次(全域狀態,worker 不可碰),結束保存/恢復。
+
+**實測(8940HX 16C/32T,混合建築 frame+MITC4,relax=16,預設 nt=physical=16)**:
+
+| nf | 並行 sp(vs 序列) | 並行 vsCHOLMOD | bit-exact(階段一) | res |
+|---|---|---|---|---|
+| 17,160 | 3.1x | **1.15x**(nt=8 達 **1.03x**) | `bitdiff=0 valdiff=0` | 5.7e-10 |
+| 32,448 | 2.3x | **1.21x** | `bitdiff=0 valdiff=0` | 8.8e-10 |
+| 64,260 | 2.1x | **1.16x** | `bitdiff=0 valdiff=0` | 1.4e-9(cond) |
+
+**判定 ✅**:自建從序列的 ~2.5–3.6x 落後 CHOLMOD(ser/cholmod),並行後**基本打平 MKL-backed CHOLMOD(vsCHOLMOD 1.15–1.21x,17k nt=8 達 1.03x)**。**正確性兩階段 gate 全綠**:階段一(序列 oracle + 並行皆鎖 OpenBLAS 單緒)逐位元相同(`bitdiff=0` = 無 race/排程 bug,排除 BLAS reassociation 假失敗);vsCHOLMOD ≤ 2.4e-12(並行解匹配獨立 oracle)。speedup 非線性(8–16 核 2–3x),受 Amdahl 根部 + 記憶體頻寬限,但 CHOLMOD 同受限故打平。
+
+**意義**:R-line「廢 HP 雙車道、統一單一 direct」效能拼圖補齊 —— 自建 BLAS3 supernodal(OpenBLAS BSD,避 CHOLMOD supernodal 模組 GPL)多核下 ≈ 工業庫 MKL-CHOLMOD。
+
+**durable 踩雷(M3b)**:
+1. **HT 災難**:預設 `nt=hardware_concurrency`(=32 含 16 HT)**最差**(17k vsCHOLMOD 2.53x、sp 僅 1.2x);dense BLAS3 factor 記憶體頻寬/FPU 限,HT 兄弟搶資源。改 `nt=physical`(halve logical)→ vsCHOLMOD 1.15x、sp 2.6x。**邊際:nt=8 在 17k 比 16 更佳(memory-bound),大規模 8/16 相近。**
+2. **OpenBLAS 緒數是全域狀態**:`openblas_set_num_threads` 不可每 worker call(race+冗餘);主緒每 level 設一次(葉 1 / 根 N),結束 `openblas_get_num_threads` 保存/恢復。
+3. **bit-exact 緒數前提**:序列 oracle 跑預設多緒 BLAS、並行鎖單緒 → dgemm reduction 順序不同 → `memcmp` 假失敗(非 race)。階段一序列 oracle **也須**鎖單緒;階段二(根部多緒)改 tolerance gate。
+4. **res~1.4e-9@64k = fixed-precision refinement 固有底限(~cond·eps)**:混合建築高 cond(shell drilling/大跨),iterative refinement 卡 1.4e-9 不收斂(3 步無降),**CHOLMOD 同 K 一樣**。正確性 gate 用 **vsCHOLMOD(對獨立 oracle)非 residual**;res 標 `(cond)`。
+5. **參數錯位真實咬人**:`factorizeSuperParallel(...,amalgRelax,amalgMaxCol,numThreads,blasThreadsRoot)`,呼叫漏 amalgMaxCol → nt 餵給它(=0→amalg 失效=fundamental supernode)、numThreads 變 blasRoot → 假 bit-exact 失敗(nsn 結構不同;DIAG 抓出 ser=67 vs par=95)。顯式具名傳參。
+
+**下一步候選**:百萬 DOF 實測(記憶體 peak,M2 外推 ~117GB peak/~19GB 駐留,須臨時記憶體優化);extended-precision residual 破 cond 底限達真 1e-9;production 整合(dual-build + 五腿 gate)入引擎統一 direct,HP 雙車道退役。

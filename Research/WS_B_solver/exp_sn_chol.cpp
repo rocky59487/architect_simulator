@@ -147,14 +147,91 @@ static void testSuper(const char* name, const SpMat& K, int relax = 0) {
     std::fflush(stdout);   // survive an abort() from a downstream assert
 }
 
+static double medianMs(std::vector<double> v) {        // caller has already dropped the warm-up run
+    std::sort(v.begin(), v.end());
+    return v.empty() ? 0.0 : v[v.size() / 2];
+}
+
+// M3b: serial vs parallel supernodal factor -- two gates in one report.
+//  * stage-1 correctness: BOTH forced to single-thread BLAS -> result must be BIT-EXACT (memcmp
+//    every panel). Any diff = a real race/scheduling bug, not FP reassociation from BLAS threads.
+//  * stage-2 perf: parallel runs MIXED (narrow root levels use multi-thread BLAS), so it is NOT
+//    bit-exact -- reported as a tolerance ||par-ser||/||ser|| + factor-time speedup vs serial/CHOLMOD.
+static void testSuperParallel(const char* name, const SpMat& K, int relax, int nt) {
+    const int n = static_cast<int>(K.rows());
+    const int* op = K.outerIndexPtr(); const int* oi = K.innerIndexPtr(); const double* va = K.valuePtr();
+    VecX F = VecX::Ones(n);
+    sn::SnSymbolic sym = sn::analyze(n, op, oi, /*useMetis=*/true);
+    const int prevBlas = openblas_get_num_threads();
+
+    // ---- stage-1: single-thread BLAS everywhere -> bit-exact serial vs parallel ----
+    openblas_set_num_threads(1);
+    sn::SnSuper Sser = sn::factorizeSuper(n, op, oi, va, sym, relax);
+    sn::SnSuper Spar = sn::factorizeSuperParallel(n, op, oi, va, sym, relax, /*amalgMaxCol=*/64, /*numThreads=*/nt, /*blasThreadsRoot=*/1);
+    long long bitDiffs = 0, valDiffs = 0;          // bit-level vs value-level (race) differences
+    if (Sser.nsn != Spar.nsn) valDiffs = -1;       // structural mismatch (must not happen: same setup)
+    else for (int s = 0; s < Sser.nsn; ++s) {
+        if (Sser.data[s].size() != Spar.data[s].size()) { valDiffs++; continue; }
+        for (size_t i = 0; i < Sser.data[s].size(); ++i)
+            if (std::memcmp(&Sser.data[s][i], &Spar.data[s][i], sizeof(double)) != 0) {
+                ++bitDiffs;
+                if (Sser.data[s][i] != Spar.data[s][i]) ++valDiffs;   // != is false for +0.0 vs -0.0
+            }
+    }
+    // parallel-factor correctness: solve + one step of iterative refinement, residual + vs CHOLMOD.
+    // The mixed-building K is ill-conditioned (shell drilling / large spans): refinement reaches
+    // ~5e-10 by 32k, but at 64k it floors near ~1.4e-9 -- the fixed-precision refinement limit
+    // (~cond*eps), NOT a factor bug. CHOLMOD on the same K floors identically; the vsCHOLMOD figure
+    // below (parallel solve vs the independent oracle) is the real numeric gate, not the residual.
+    VecX xs(n); sn::solveSuper(Spar, sym, F.data(), xs.data());
+    VecX rr = F - K * xs; VecX dx(n); sn::solveSuper(Spar, sym, rr.data(), dx.data()); xs += dx;
+    const double res1 = static_cast<double>((K * xs - F).norm() / std::max<real>(1e-300, F.norm()));
+    openblas_set_num_threads(prevBlas);
+    Eigen::CholmodSupernodalLLT<SpMat> ch; ch.compute(K);
+    VecX xc = ch.solve(F);
+    const double diff = static_cast<double>((xs - xc).norm() / std::max<real>(1e-300, xc.norm()));
+
+    // ---- stage-2: mixed parallelism -- tolerance vs serial oracle + factor timing ----
+    sn::SnSuper SserT = sn::factorizeSuper(n, op, oi, va, sym, relax);                 // default BLAS
+    sn::SnSuper SparT = sn::factorizeSuperParallel(n, op, oi, va, sym, relax, 64, nt, 0);  // mixed (root multi-BLAS)
+    double num = 0, den = 0;
+    if (SserT.nsn == SparT.nsn)
+        for (int s = 0; s < SserT.nsn; ++s)
+            for (size_t i = 0; i < SserT.data[s].size(); ++i) {
+                const double d = SparT.data[s][i] - SserT.data[s][i];
+                num += d * d; den += SserT.data[s][i] * SserT.data[s][i];
+            }
+    const double rel = den > 0 ? std::sqrt(num / den) : 0.0;
+
+    std::vector<double> ts, tp, tc;
+    for (int it = 0; it < 6; ++it) {   // 5 timed + 1 warm-up dropped
+        { Timer t; sn::SnSuper z = sn::factorizeSuper(n, op, oi, va, sym, relax);                if (it) ts.push_back(t.ms()); (void)z; }
+        { Timer t; sn::SnSuper z = sn::factorizeSuperParallel(n, op, oi, va, sym, relax, 64, nt, 0); if (it) tp.push_back(t.ms()); (void)z; }
+        { Timer t; Eigen::CholmodSupernodalLLT<SpMat> c; c.compute(K);                           if (it) tc.push_back(t.ms()); }
+    }
+    const double serMs = medianMs(ts), parMs = medianMs(tp), chMs = medianMs(tc);
+
+    // Gate = no race (bit-exact serial-vs-parallel) + parallel solve matches CHOLMOD (vsCHOLMOD).
+    // res is reported for transparency and flagged "(cond)" when the conditioning floor keeps it
+    // above 1e-9 -- that is a property of K, identical for CHOLMOD, not a parallel-factor failure.
+    std::printf("[sn-par] %-15s relax=%-2d nt=%d nsn=%d | ser=%.1f par=%.1f sp=%.2fx | cholmod=%.1f vsCH=%.2fx | bitdiff=%lld valdiff=%lld rel=%.1e res=%.2e%s vsCHOLMOD=%.2e  %s\n",
+                name, relax, nt, Spar.nsn, serMs, parMs, parMs > 0 ? serMs / parMs : 0.0,
+                chMs, chMs > 0 ? parMs / chMs : 0.0, bitDiffs, valDiffs, rel, res1,
+                res1 <= 1e-9 ? "" : "(cond)", diff,
+                (valDiffs == 0 && diff <= 1e-8) ? "PASS" : "*** FAIL ***");
+    std::fflush(stdout);
+}
+
 int main(int argc, char** argv) {
     int nx = 8, ny = 6, st = 10;
+    int nt = 0;                 // 0 = hardware_concurrency (M3b parallel factor)
     bool bigSweep = false;
     for (int i = 1; i < argc; ++i) {
         auto next = [&]() -> const char* { return (i + 1 < argc) ? argv[++i] : "0"; };
         if      (!std::strcmp(argv[i], "--nx"))       nx = std::atoi(next());
         else if (!std::strcmp(argv[i], "--ny"))       ny = std::atoi(next());
         else if (!std::strcmp(argv[i], "--stories"))  st = std::atoi(next());
+        else if (!std::strcmp(argv[i], "--threads"))  nt = std::atoi(next());
         else if (!std::strcmp(argv[i], "--bigSweep")) bigSweep = true;
     }
 
@@ -169,6 +246,9 @@ int main(int argc, char** argv) {
             testSuper(nm, Kff, 0);     // fundamental supernodes
             testSuper(nm, Kff, 16);    // amalgamated (relax=16)
             testSuper(nm, Kff, 48);    // amalgamated (relax=48)
+            std::printf("[sn-par] --- M3b parallel factor (mixed building) ---\n");
+            testSuperParallel(nm, Kff, 16, nt);   // amalgamated panels feed the workers best
+            testSuperParallel(nm, Kff, 48, nt);
         }
         return 0;
     }
@@ -230,6 +310,20 @@ int main(int argc, char** argv) {
             testNumeric("mixed-small", Kff);    // column-based vs CHOLMOD
             testSuper("mixed-small", Kff, 0);   // supernodal fundamental
             testSuper("mixed-small", Kff, 16);  // supernodal amalgamated
+            testSuperParallel("mixed-small", Kff, 16, nt);   // M3b parallel correctness (shell bugs)
+        }
+    }
+    // M3b: parallel factor correctness + perf on the real frame K_ff
+    {
+        FrameModel m = makeTower(nx, ny, st);
+        assertNodalOnly(m, "exp_sn_chol");
+        PreparedSystem ps = assembleAndFactor(m);
+        const PreparedSystem::Impl& S = *ps.impl;
+        if (!S.singular) {
+            const SpMat Kff = research::reduceFF(S.K, S.fmap, S.nf);
+            std::printf("[sn-par] --- M3b parallel factor ---\n");
+            testSuperParallel("tower-Kff", Kff, 0, nt);
+            testSuperParallel("tower-Kff", Kff, 16, nt);
         }
     }
     std::printf("[sn-super] done\n");

@@ -17,8 +17,17 @@
 #include <iterator>
 #include <cblas.h>                 // OpenBLAS BLAS3 (dgemm/dtrsm/dtrsv/dgemv) for the supernodal path
 #include <cassert>
+#include <thread>                  // M3b: supernode-level level-set parallel factor
+#include <atomic>
+#include <mutex>
+#include <condition_variable>
 // lapacke.h pulls in C99 _Complex (invalid in MSVC C++); declare the one routine we use directly.
 extern "C" int LAPACKE_dpotrf(int matrix_layout, char uplo, int n, double* a, int lda);
+// OpenBLAS global thread-count control (M3b mixed parallelism). Declared directly to avoid the
+// openblas header; symbols live in openblas.lib. NOTE: process-GLOBAL state -- set only from the
+// main thread between level dispatches, never from workers (would race).
+extern "C" void openblas_set_num_threads(int);
+extern "C" int  openblas_get_num_threads(void);
 #ifndef LAPACK_COL_MAJOR
 #define LAPACK_COL_MAJOR 102
 #endif
@@ -228,10 +237,16 @@ struct SnSuper {
     bool spd = true;
 };
 
-inline SnSuper factorizeSuper(int n, const int* outerPtr, const int* innerIdx,
-                              const double* values, const SnSymbolic& sym,
-                              int amalgRelax = 0, int amalgMaxCol = 64) {
-    SnSuper S;
+namespace detail {
+
+// Build the supernode partition + amalgamation + panel allocation + acol + updaters.
+// Shared setup for the serial factorizeSuper and the parallel factorizeSuperParallel (M3b)
+// so the two never drift -- a prerequisite for the bit-exact gate.
+inline void buildSuperStructure(int n, const int* outerPtr, const int* innerIdx,
+                                const double* values, const SnSymbolic& sym,
+                                int amalgRelax, int amalgMaxCol, SnSuper& S,
+                                std::vector<std::vector<std::pair<int, double>>>& acol,
+                                std::vector<std::vector<int>>& updaters) {
     S.n = n;
     // fundamental supernodes: column j continues j-1 iff Lpat[j-1] == {j-1} ++ Lpat[j]
     std::vector<int> snStart;
@@ -289,14 +304,14 @@ inline SnSuper factorizeSuper(int n, const int* outerPtr, const int* innerIdx,
         for (int c = c0; c < c1; ++c) S.snOf[c] = s;
     }
     // permuted lower A values (each entry once: iperm[i] >= iperm[j])
-    std::vector<std::vector<std::pair<int, double>>> acol(n);
+    acol.assign(n, {});
     for (int j = 0; j < n; ++j)
         for (int p = outerPtr[j]; p < outerPtr[j + 1]; ++p) {
             const int ni = sym.iperm[innerIdx[p]], nj = sym.iperm[j];
             if (ni >= nj) acol[nj].push_back({ni, values[p]});
         }
     // updaters[J] = supernodes K whose below-diagonal rows touch J's pivot columns
-    std::vector<std::vector<int>> updaters(S.nsn);
+    updaters.assign(S.nsn, {});
     for (int K = 0; K < S.nsn; ++K) {
         int last = -1;
         for (int t = S.ncol[K]; t < S.nrow[K]; ++t) {
@@ -304,48 +319,211 @@ inline SnSuper factorizeSuper(int n, const int* outerPtr, const int* innerIdx,
             if (J != last) { updaters[J].push_back(K); last = J; }
         }
     }
-    std::vector<int> rowpos(n, -1);
-    std::vector<double> U;
-    for (int J = 0; J < S.nsn; ++J) {
-        const int c0 = S.c0[J], nc = S.ncol[J], nr = S.nrow[J];
-        auto& Jd = S.data[J];
-        const auto& Jr = S.rows[J];
-        for (int t = 0; t < nr; ++t) rowpos[Jr[t]] = t;
-        for (int c = c0; c < c0 + nc; ++c) {                        // scatter A(:,c) into panel
-            const int relc = c - c0;
-            for (auto& e : acol[c]) Jd[(size_t)rowpos[e.first] + (size_t)relc * nr] += e.second;
-        }
-        for (int K : updaters[J]) {                                 // left-looking BLAS3 updates
-            const int nck = S.ncol[K], nrk = S.nrow[K];
-            const auto& Kd = S.data[K];
-            const auto& Kr = S.rows[K];
-            int prow0 = nck; while (prow0 < nrk && Kr[prow0] < c0) ++prow0;   // first below-row >= c0
-            const int mrow = nrk - prow0;
-            if (mrow <= 0) continue;
-            int mcol = 0; while (prow0 + mcol < nrk && Kr[prow0 + mcol] < c0 + nc) ++mcol;
-            U.assign(static_cast<size_t>(mrow) * mcol, 0.0);
-            // U = RowMat(mrow x nck) * ColMat(mcol x nck)^T ; both are Kd sub-blocks from row prow0
-            cblas_dgemm(CblasColMajor, CblasNoTrans, CblasTrans, mrow, mcol, nck,
-                        1.0, Kd.data() + prow0, nrk, Kd.data() + prow0, nrk, 0.0, U.data(), mrow);
-            for (int jj = 0; jj < mcol; ++jj) {
-                const int relc = Kr[prow0 + jj] - c0;               // J pivot column (relative)
-                for (int ii = 0; ii < mrow; ++ii) {
-                    const int rp = rowpos[Kr[prow0 + ii]];
-                    // A zero-padded amalgamation row outside R_J has a provably-zero Schur
-                    // contribution (else some K column would fill it into R_J), so skip it.
-                    if (rp < 0) continue;
-                    Jd[(size_t)rp + (size_t)relc * nr] -= U[(size_t)ii + (size_t)jj * mrow];
-                }
+}
+
+// Factor supernode J in place: scatter A(:,J), apply left-looking BLAS3 Schur updates from
+// updaters[J] (all K < J, already factored), then dpotrf the diagonal block + dtrsm the
+// off-diagonal. rowpos/U are caller-owned scratch (rowpos must be all -1 on entry; restored
+// on exit by the guard, even if dpotrf fails -> no residual pollution of this thread's next J).
+// spdOk is the shared SPD flag. The float op order is identical to the original serial loop, so
+// serial and parallel agree bit-for-bit at equal BLAS thread count (the M3b bit-exact gate).
+inline void processSupernode(int J, SnSuper& S,
+                             const std::vector<std::vector<std::pair<int, double>>>& acol,
+                             const std::vector<std::vector<int>>& updaters,
+                             std::vector<int>& rowpos, std::vector<double>& U,
+                             std::atomic<bool>& spdOk) {
+    const int c0 = S.c0[J], nc = S.ncol[J], nr = S.nrow[J];
+    auto& Jd = S.data[J];
+    const auto& Jr = S.rows[J];
+    struct RowposGuard { std::vector<int>& rp; const std::vector<int>& rows;
+                         ~RowposGuard() { for (int r : rows) rp[r] = -1; } } guard{rowpos, Jr};
+    for (int t = 0; t < nr; ++t) rowpos[Jr[t]] = t;
+    for (int c = c0; c < c0 + nc; ++c) {                        // scatter A(:,c) into panel
+        const int relc = c - c0;
+        for (auto& e : acol[c]) Jd[(size_t)rowpos[e.first] + (size_t)relc * nr] += e.second;
+    }
+    for (int K : updaters[J]) {                                 // left-looking BLAS3 updates
+        const int nck = S.ncol[K], nrk = S.nrow[K];
+        const auto& Kd = S.data[K];
+        const auto& Kr = S.rows[K];
+        int prow0 = nck; while (prow0 < nrk && Kr[prow0] < c0) ++prow0;   // first below-row >= c0
+        const int mrow = nrk - prow0;
+        if (mrow <= 0) continue;
+        int mcol = 0; while (prow0 + mcol < nrk && Kr[prow0 + mcol] < c0 + nc) ++mcol;
+        U.assign(static_cast<size_t>(mrow) * mcol, 0.0);
+        // U = RowMat(mrow x nck) * ColMat(mcol x nck)^T ; both are Kd sub-blocks from row prow0
+        cblas_dgemm(CblasColMajor, CblasNoTrans, CblasTrans, mrow, mcol, nck,
+                    1.0, Kd.data() + prow0, nrk, Kd.data() + prow0, nrk, 0.0, U.data(), mrow);
+        for (int jj = 0; jj < mcol; ++jj) {
+            const int relc = Kr[prow0 + jj] - c0;               // J pivot column (relative)
+            for (int ii = 0; ii < mrow; ++ii) {
+                const int rp = rowpos[Kr[prow0 + ii]];
+                // A zero-padded amalgamation row outside R_J has a provably-zero Schur
+                // contribution (else some K column would fill it into R_J), so skip it.
+                if (rp < 0) continue;
+                Jd[(size_t)rp + (size_t)relc * nr] -= U[(size_t)ii + (size_t)jj * mrow];
             }
         }
-        const int info = LAPACKE_dpotrf(LAPACK_COL_MAJOR, 'L', nc, Jd.data(), nr);   // lda = nr
-        if (info != 0) S.spd = false;
-        const int noff = nr - nc;
-        if (noff > 0)
-            cblas_dtrsm(CblasColMajor, CblasRight, CblasLower, CblasTrans, CblasNonUnit,
-                        noff, nc, 1.0, Jd.data(), nr, Jd.data() + nc, nr);
-        for (int t = 0; t < nr; ++t) rowpos[Jr[t]] = -1;
     }
+    const int info = LAPACKE_dpotrf(LAPACK_COL_MAJOR, 'L', nc, Jd.data(), nr);   // lda = nr
+    if (info != 0) spdOk.store(false, std::memory_order_relaxed);
+    const int noff = nr - nc;
+    if (noff > 0)
+        cblas_dtrsm(CblasColMajor, CblasRight, CblasLower, CblasTrans, CblasNonUnit,
+                    noff, nc, 1.0, Jd.data(), nr, Jd.data() + nc, nr);
+    // rowpos cleared by RowposGuard
+}
+
+} // namespace detail
+
+// Serial supernodal factor. Numerics unchanged -- delegates to the shared buildSuperStructure +
+// processSupernode so it stays bit-identical to the parallel path (the cross-check oracle).
+inline SnSuper factorizeSuper(int n, const int* outerPtr, const int* innerIdx,
+                              const double* values, const SnSymbolic& sym,
+                              int amalgRelax = 0, int amalgMaxCol = 64) {
+    SnSuper S;
+    std::vector<std::vector<std::pair<int, double>>> acol;
+    std::vector<std::vector<int>> updaters;
+    detail::buildSuperStructure(n, outerPtr, innerIdx, values, sym, amalgRelax, amalgMaxCol,
+                                S, acol, updaters);
+    std::vector<int> rowpos(n, -1);
+    std::vector<double> U;
+    std::atomic<bool> spdOk{true};
+    for (int J = 0; J < S.nsn; ++J)
+        detail::processSupernode(J, S, acol, updaters, rowpos, U, spdOk);
+    S.spd = spdOk.load();
+    return S;
+}
+
+// ---- Numeric (M3b): supernode-level level-set PARALLEL factor ----
+// Same DAG as the serial path -- updaters[J] are all K < J, so level[J] = 1 + max(level[K])
+// partitions supernodes into level sets with no intra-level dependency: a level's supernodes
+// factor concurrently (each writes its own panel, reads only completed lower levels).
+//
+// MIXED parallelism (the key to matching CHOLMOD): WIDE leaf levels run supernode-parallel with
+// single-threaded BLAS per worker (small panels -> multi-threaded BLAS is useless and would
+// oversubscribe N workers x M BLAS threads). NARROW root levels (the few huge nested-dissection
+// separator panels, ~30-50% of flops) run serially on the main thread but with MULTI-threaded
+// BLAS, so each big panel uses all cores -- else the root is an Amdahl bottleneck (~2-2.5x ceil).
+//
+// numThreads:      0 = hardware_concurrency.
+// blasThreadsRoot: BLAS threads for narrow root levels. 0 = nt (mixed parallelism, stage-2 perf);
+//                  1 = single-threaded everywhere (stage-1 bit-exact gate: result then matches a
+//                  single-threaded serial oracle bit-for-bit).
+inline SnSuper factorizeSuperParallel(int n, const int* outerPtr, const int* innerIdx,
+                                      const double* values, const SnSymbolic& sym,
+                                      int amalgRelax = 0, int amalgMaxCol = 64,
+                                      int numThreads = 0, int blasThreadsRoot = 0) {
+    SnSuper S;
+    std::vector<std::vector<std::pair<int, double>>> acol;
+    std::vector<std::vector<int>> updaters;
+    detail::buildSuperStructure(n, outerPtr, innerIdx, values, sym, amalgRelax, amalgMaxCol,
+                                S, acol, updaters);
+    std::atomic<bool> spdOk{true};
+
+    // level[J] = 1 + max(level[K] : K in updaters[J]); updaters are all < J -> one forward pass.
+    std::vector<int> level(S.nsn, 0);
+    int maxLevel = 0;
+    for (int J = 0; J < S.nsn; ++J) {
+        int lv = 0;
+        for (int K : updaters[J]) if (level[K] + 1 > lv) lv = level[K] + 1;
+        level[J] = lv;
+        if (lv > maxLevel) maxLevel = lv;
+    }
+    std::vector<std::vector<int>> levelSets(maxLevel + 1);
+    for (int J = 0; J < S.nsn; ++J) levelSets[level[J]].push_back(J);
+
+    // Default avoids hyper-threads: dense BLAS3 factor is memory-bandwidth bound and HT siblings
+    // share an FPU/cache, so hardware_concurrency (logical cores) is the WORST choice -- on a
+    // 16C/32T Zen4 it ran ~2x slower than nt=physical. Halve logical as a portable HT estimate.
+    int nt = numThreads > 0 ? numThreads
+                            : std::max(1, static_cast<int>(std::thread::hardware_concurrency()) / 2);
+    if (nt < 1) nt = 1;
+    int widest = 1;
+    for (auto& ls : levelSets) widest = std::max(widest, static_cast<int>(ls.size()));
+    nt = std::min(nt, widest);
+
+    const int prevBlas = openblas_get_num_threads();
+    const int rootBlas = blasThreadsRoot > 0 ? blasThreadsRoot : nt;
+
+    // Trivial / single-thread fall-back: serial, root BLAS threads.
+    if (nt <= 1 || S.nsn == 0) {
+        openblas_set_num_threads(rootBlas);
+        std::vector<int> rowpos(n, -1);
+        std::vector<double> U;
+        for (int J = 0; J < S.nsn; ++J)
+            detail::processSupernode(J, S, acol, updaters, rowpos, U, spdOk);
+        openblas_set_num_threads(prevBlas);
+        S.spd = spdOk.load();
+        return S;
+    }
+
+    // Persistent worker pool: generation + cv barrier; dynamic work-stealing via an atomic index
+    // (panel sizes vary 10-100x within a level, so static splits would imbalance).
+    std::vector<std::vector<int>> tlRowpos(nt, std::vector<int>(n, -1));
+    std::vector<std::vector<double>> tlU(nt);
+    std::mutex mu;
+    std::condition_variable cvStart, cvDone;
+    int generation = 0, doneCount = 0;
+    bool stop = false;
+    std::atomic<int> workIdx{0};
+    const std::vector<int>* curLevel = nullptr;
+
+    auto worker = [&](int tid) {
+        int seen = 0;
+        for (;;) {
+            std::unique_lock<std::mutex> lk(mu);
+            cvStart.wait(lk, [&] { return stop || generation != seen; });
+            if (stop) return;
+            seen = generation;
+            lk.unlock();
+            const std::vector<int>& lvl = *curLevel;
+            for (;;) {
+                int idx = workIdx.fetch_add(1, std::memory_order_relaxed);
+                if (idx >= static_cast<int>(lvl.size())) break;
+                detail::processSupernode(lvl[idx], S, acol, updaters,
+                                         tlRowpos[tid], tlU[tid], spdOk);
+            }
+            std::lock_guard<std::mutex> lg(mu);
+            if (++doneCount == nt) cvDone.notify_one();
+        }
+    };
+
+    std::vector<std::thread> workers;
+    workers.reserve(nt);
+    for (int t = 0; t < nt; ++t) workers.emplace_back(worker, t);
+
+    std::vector<int> mainRowpos(n, -1);     // main-thread scratch for narrow (root) levels
+    std::vector<double> mainU;
+    const int wideThresh = nt / 2;          // levels this wide or narrower -> root path
+
+    for (int lv = 0; lv <= maxLevel; ++lv) {
+        const std::vector<int>& lvl = levelSets[lv];
+        if (lvl.empty()) continue;
+        if (static_cast<int>(lvl.size()) <= wideThresh) {
+            // narrow root level: serial on main thread, multi-threaded BLAS per big panel.
+            // (Workers are idle in cvStart.wait; OpenBLAS spawns its own threads -- no oversub.)
+            openblas_set_num_threads(rootBlas);
+            for (int J : lvl)
+                detail::processSupernode(J, S, acol, updaters, mainRowpos, mainU, spdOk);
+        } else {
+            // wide leaf level: supernode-parallel, single-threaded BLAS per worker.
+            openblas_set_num_threads(1);    // set BEFORE notify so workers see it (release/acquire)
+            std::unique_lock<std::mutex> lk(mu);
+            curLevel = &lvl;
+            workIdx.store(0, std::memory_order_relaxed);
+            doneCount = 0;
+            ++generation;
+            cvStart.notify_all();
+            cvDone.wait(lk, [&] { return doneCount == nt; });
+        }
+    }
+
+    { std::lock_guard<std::mutex> lg(mu); stop = true; cvStart.notify_all(); }
+    for (auto& w : workers) w.join();
+
+    openblas_set_num_threads(prevBlas);     // restore the caller's global BLAS thread count
+    S.spd = spdOk.load();
     return S;
 }
 
