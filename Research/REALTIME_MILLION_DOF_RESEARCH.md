@@ -118,4 +118,18 @@ research-only(評估階段不進五腿 gate、不改 default solve);現有 LDLT 
 4. **res~1.4e-9@64k = fixed-precision refinement 固有底限(~cond·eps)**:混合建築高 cond(shell drilling/大跨),iterative refinement 卡 1.4e-9 不收斂(3 步無降),**CHOLMOD 同 K 一樣**。正確性 gate 用 **vsCHOLMOD(對獨立 oracle)非 residual**;res 標 `(cond)`。
 5. **參數錯位真實咬人**:`factorizeSuperParallel(...,amalgRelax,amalgMaxCol,numThreads,blasThreadsRoot)`,呼叫漏 amalgMaxCol → nt 餵給它(=0→amalg 失效=fundamental supernode)、numThreads 變 blasRoot → 假 bit-exact 失敗(nsn 結構不同;DIAG 抓出 ser=67 vs par=95)。顯式具名傳參。
 
-**下一步候選**:百萬 DOF 實測(記憶體 peak,M2 外推 ~117GB peak/~19GB 駐留,須臨時記憶體優化);extended-precision residual 破 cond 底限達真 1e-9;production 整合(dual-build + 五腿 gate)入引擎統一 direct,HP 雙車道退役。
+## M3b 後續:nt 自動調優(sqrt(nf) 啟發式)— 17k 超越 CHOLMOD(2026-06-15)
+
+系統掃 nt(17k/64k × nt=4..16)揭穿一個反直覺事實:**dense panel factor 是 memory-bandwidth bound,最佳 nt 遠低於核數且隨規模增,過度並行會退化**:
+
+| nf | 最佳 nt | 該 nt vsCHOLMOD | nt=16(舊預設)vsCHOLMOD |
+|---|---|---|---|
+| 17,160 | 6 | **0.99x(掃描)/ 0.94x(預設跑)→ 超越** | 1.19x |
+| 32,448 | ~9 | 1.18x | 1.20x |
+| 64,260 | 12 | 1.11x | 1.15x |
+
+最佳 nt ≈ **√nf / 20**(√17160/20=6.5、√64260/20=12.7,擬合極準;物理上 dense panel 算術強度 ∝ panel size ∝ √nf,飽和 thread 數隨之)。預設改為 `recommendedThreads(n)=clamp(√nf/20, 2, physical)`(/20 是頻寬/核校準 8940HX,`--threads` 覆蓋),`factorizeSuperParallel` 與 benchmark 共用此 helper。
+
+**結果**:17k 預設**超越 MKL-CHOLMOD(0.94x)**;32k/64k 接近各自最佳但**仍慢 12–18%**(speedup 大規模僅 2.0–2.4x,根部 Amdahl + 頻寬更吃緊)。
+
+**下一步候選**:大規模超越(CCD affinity 綁定——8940HX 雙 CCD 跨 CCD 流量、更大 amalgamation panel 餵 dgemm 近 peak、union-loop 移進 analyze、並行 setup);百萬 DOF 實測(記憶體 peak,M2 外推 ~117GB peak/~19GB 駐留,須臨時記憶體優化);extended-precision residual 破 cond 底限達真 1e-9;production 整合(dual-build + 五腿 gate)入引擎統一 direct,HP 雙車道退役。

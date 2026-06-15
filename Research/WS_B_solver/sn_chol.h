@@ -395,6 +395,18 @@ inline SnSuper factorizeSuper(int n, const int* outerPtr, const int* innerIdx,
     return S;
 }
 
+// Recommended thread count for factorizeSuperParallel. numThreads>0 -> verbatim; <=0 -> the
+// sqrt(nf) memory-bandwidth heuristic (dense panel factor saturates bandwidth far below the core
+// count; over-threading regresses via cross-CCD traffic + barrier sync). The /20 constant is
+// bandwidth/core calibrated to a 16C/32T Zen4 (nf 17k->6 [beat CHOLMOD], 64k->12); pass an
+// explicit numThreads on other hardware (or to sweep the nt curve).
+inline int recommendedThreads(int n, int numThreads = 0) {
+    if (numThreads > 0) return numThreads;
+    const int phys = std::max(1, static_cast<int>(std::thread::hardware_concurrency()) / 2);
+    const int nt = static_cast<int>(std::sqrt(static_cast<double>(n)) / 20.0 + 0.5);
+    return std::max(2, std::min(nt, phys));
+}
+
 // ---- Numeric (M3b): supernode-level level-set PARALLEL factor ----
 // Same DAG as the serial path -- updaters[J] are all K < J, so level[J] = 1 + max(level[K])
 // partitions supernodes into level sets with no intra-level dependency: a level's supernodes
@@ -433,11 +445,7 @@ inline SnSuper factorizeSuperParallel(int n, const int* outerPtr, const int* inn
     std::vector<std::vector<int>> levelSets(maxLevel + 1);
     for (int J = 0; J < S.nsn; ++J) levelSets[level[J]].push_back(J);
 
-    // Default avoids hyper-threads: dense BLAS3 factor is memory-bandwidth bound and HT siblings
-    // share an FPU/cache, so hardware_concurrency (logical cores) is the WORST choice -- on a
-    // 16C/32T Zen4 it ran ~2x slower than nt=physical. Halve logical as a portable HT estimate.
-    int nt = numThreads > 0 ? numThreads
-                            : std::max(1, static_cast<int>(std::thread::hardware_concurrency()) / 2);
+    int nt = recommendedThreads(n, numThreads);   // sqrt(nf) bandwidth heuristic unless overridden
     if (nt < 1) nt = 1;
     int widest = 1;
     for (auto& ls : levelSets) widest = std::max(widest, static_cast<int>(ls.size()));

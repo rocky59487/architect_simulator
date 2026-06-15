@@ -162,6 +162,7 @@ static void testSuperParallel(const char* name, const SpMat& K, int relax, int n
     const int* op = K.outerIndexPtr(); const int* oi = K.innerIndexPtr(); const double* va = K.valuePtr();
     VecX F = VecX::Ones(n);
     sn::SnSymbolic sym = sn::analyze(n, op, oi, /*useMetis=*/true);
+    const int ntUsed = sn::recommendedThreads(n, nt);   // actual thread count (heuristic when nt<=0)
     const int prevBlas = openblas_get_num_threads();
 
     // ---- stage-1: single-thread BLAS everywhere -> bit-exact serial vs parallel ----
@@ -215,7 +216,7 @@ static void testSuperParallel(const char* name, const SpMat& K, int relax, int n
     // res is reported for transparency and flagged "(cond)" when the conditioning floor keeps it
     // above 1e-9 -- that is a property of K, identical for CHOLMOD, not a parallel-factor failure.
     std::printf("[sn-par] %-15s relax=%-2d nt=%d nsn=%d | ser=%.1f par=%.1f sp=%.2fx | cholmod=%.1f vsCH=%.2fx | bitdiff=%lld valdiff=%lld rel=%.1e res=%.2e%s vsCHOLMOD=%.2e  %s\n",
-                name, relax, nt, Spar.nsn, serMs, parMs, parMs > 0 ? serMs / parMs : 0.0,
+                name, relax, ntUsed, Spar.nsn, serMs, parMs, parMs > 0 ? serMs / parMs : 0.0,
                 chMs, chMs > 0 ? parMs / chMs : 0.0, bitDiffs, valDiffs, rel, res1,
                 res1 <= 1e-9 ? "" : "(cond)", diff,
                 (valDiffs == 0 && diff <= 1e-8) ? "PASS" : "*** FAIL ***");
