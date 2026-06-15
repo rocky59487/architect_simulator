@@ -1,0 +1,21 @@
+# Phase E limit sweep -- self-built supernodal, mixed building, ONE process per scale (clean peak).
+# cols: nf | parallel factorMs | per-frame backsubMs | peak working-set MB |
+#       resD = 1-step double iterative refinement | resComp = 3-step Neumaier-compensated-residual refinement
+[sn-limit] mixed(12,10,20)  n= 17160 nsn=1990  facMs=199.1  backsubMs=5.946  peakMB=448   resD=5.66e-10 resComp=2.86e-10
+[sn-limit] mixed(16,12,24)  n= 31824 nsn=3702  facMs=524.1  backsubMs=13.622 peakMB=1036  resD=8.77e-10 resComp=4.81e-10
+[sn-limit] mixed(20,16,30)  n= 64260 nsn=7431  facMs=1249.8 backsubMs=34.086 peakMB=2772  resD=1.40e-09 resComp=6.92e-10
+[sn-limit] mixed(24,18,35)  n= 99750 nsn=11599 facMs=2561.3 backsubMs=61.554 peakMB=4931  resD=1.95e-09 resComp=1.07e-09
+#
+# extrapolation (log-log fit over 17k-100k):
+#   factor   exp ~1.57  -> 1e6 DOF ~120 s   (cf. go/no-go CHOLMOD exp 1.56; claim ~80 s, same order)
+#   peak WS  exp ~1.36  -> 1e6 DOF ~110 GB  (validates the ~117 GB claim)
+#   backsub  exp ~1.65  -> 100 ms/frame ~120k (real-time), 1 s/frame ~500k (interactive)
+#   32 GB working-set extrapolates to ~360k; factor temp commit is higher -> real single-machine OOM ~200-250k (~190k order)
+#
+# precision: double 1-step refinement floors at ~cond*eps on the ill-conditioned mixed K (64k 1.40e-9 > 1e-9).
+#   Neumaier-compensated residual (true extra precision on double HW; MSVC long double == double, gives none)
+#   breaks it: true-1e-9 scale ~40k (double refine) -> ~90k (compensated refine).
+#
+# framework note: --limit is capped by main's assembleAndFactor (SimplicialLDLT) used to obtain K_ff, which
+#   hits the slow factor path at 130k+ (the whole research flow gets K_ff this way -> M2 also stopped at 64k);
+#   NOT a supernodal limit. Measured to 100k; 130k+ via exponent extrapolation.

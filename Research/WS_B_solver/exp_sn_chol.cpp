@@ -17,8 +17,39 @@
 #include <Eigen/CholmodSupport>   // numeric correctness oracle
 #include <cstdio>
 #include <cstring>
+#include <windows.h>              // Phase E: peak working-set via K32GetProcessMemoryInfo (kernel32, no psapi.lib)
+#include <psapi.h>
 
 using namespace research;
+
+// ---- Phase E (limit sweep) helpers ----------------------------------------------------------
+// Peak resident set in MB. K32GetProcessMemoryInfo lives in kernel32 -> no psapi.lib link needed.
+static double peakWorkingSetMB() {
+    PROCESS_MEMORY_COUNTERS pmc{};
+    if (K32GetProcessMemoryInfo(GetCurrentProcess(), &pmc, sizeof(pmc)))
+        return (double)pmc.PeakWorkingSetSize / (1024.0 * 1024.0);
+    return -1.0;
+}
+
+// Neumaier-compensated residual r = F - K*x in DOUBLE -- genuine extra precision on double hardware
+// (MSVC long double is only 64-bit, so it gives no extra precision; compensated summation does).
+// Used to test whether a high-precision residual breaks the fixed-precision cond floor. K is
+// column-major (Eigen default): outer index = column j, inner = row.
+static void compResidual(const SpMat& K, const VecX& x, const VecX& F, VecX& r) {
+    const int n = (int)K.rows();
+    std::vector<double> s((size_t)n, 0.0), c((size_t)n, 0.0);   // running sum + compensation
+    for (int j = 0; j < K.outerSize(); ++j)
+        for (SpMat::InnerIterator it(K, j); it; ++it) {
+            const int i = it.row();
+            const double term = it.value() * x(j);
+            const double t = s[(size_t)i] + term;
+            c[(size_t)i] += (std::fabs(s[(size_t)i]) >= std::fabs(term)) ? ((s[(size_t)i] - t) + term)
+                                                                         : ((term - t) + s[(size_t)i]);
+            s[(size_t)i] = t;
+        }
+    r.resize(n);
+    for (int i = 0; i < n; ++i) r(i) = F(i) - (s[(size_t)i] + c[(size_t)i]);
+}
 
 // 2-D 5-point Poisson on m x m grid -> SPD, known sparsity (structural sanity).
 static SpMat poisson2D(int m) {
@@ -223,10 +254,49 @@ static void testSuperParallel(const char* name, const SpMat& K, int relax, int n
     std::fflush(stdout);
 }
 
+// Phase E limit sweep: one scale, one process. factor time / per-frame backsub time / peak resident
+// memory / residual at double vs long-double (mixed-precision) refinement. Validates the reachable
+// edge (factor extrapolation, per-frame backsub <= ~100ms real-time ceiling, peak-memory wall) and
+// tests whether 80-bit residual refinement breaks the fixed-precision cond floor (~1.4e-9 at 64k).
+static void testSuperLimit(const char* name, const SpMat& K, int relax, int nt) {
+    const int n = (int)K.rows();
+    const int* op = K.outerIndexPtr(); const int* oi = K.innerIndexPtr(); const double* va = K.valuePtr();
+    VecX F = VecX::Ones(n);
+    sn::SnSymbolic sym = sn::analyze(n, op, oi, /*useMetis=*/true);
+
+    // factor (parallel) timing: median of 2 timed (1 warm-up dropped); keep the last factor.
+    std::vector<double> tf;
+    sn::SnSuper S = sn::factorizeSuperParallel(n, op, oi, va, sym, relax, 64, nt, 0);   // warm-up (dropped)
+    for (int it = 0; it < 2; ++it) { Timer t; S = sn::factorizeSuperParallel(n, op, oi, va, sym, relax, 64, nt, 0); tf.push_back(t.ms()); }
+    const double facMs = medianMs(tf);
+
+    // per-frame backsub timing: median of 7 reused-factor solves (the game-engine per-frame cost).
+    std::vector<double> tb;
+    VecX x(n);
+    for (int it = 0; it < 8; ++it) { Timer t; sn::solveSuper(S, sym, F.data(), x.data()); if (it) tb.push_back(t.ms()); }
+    const double bsMs = medianMs(tb);
+
+    // residual: raw, 1-step double refinement, 3-step compensated-residual refinement (high-precision
+    // residual in double, double solve) -- tests whether residual precision is the cond-floor cause.
+    sn::solveSuper(S, sym, F.data(), x.data());
+    const double res0 = static_cast<double>((K * x - F).norm() / std::max<real>(1e-300, F.norm()));
+    VecX xd = x; { VecX rr = F - K * xd; VecX dx(n); sn::solveSuper(S, sym, rr.data(), dx.data()); xd += dx; }
+    const double resD = static_cast<double>((K * xd - F).norm() / std::max<real>(1e-300, F.norm()));
+    VecX xc = x, rr;
+    for (int s = 0; s < 3; ++s) { compResidual(K, xc, F, rr); VecX dx(n); sn::solveSuper(S, sym, rr.data(), dx.data()); xc += dx; }
+    VecX rfin; compResidual(K, xc, F, rfin);
+    const double resComp = static_cast<double>(rfin.norm() / std::max<real>(1e-300, F.norm()));
+    const double peakMB = peakWorkingSetMB();
+
+    std::printf("[sn-limit] %-13s relax=%-2d nt=%d n=%6d nsn=%d | facMs=%.1f backsubMs=%.3f peakMB=%.0f | res0=%.2e resD(1x)=%.2e resComp(3x)=%.2e\n",
+                name, relax, sn::recommendedThreads(n, nt), n, S.nsn, facMs, bsMs, peakMB, res0, resD, resComp);
+    std::fflush(stdout);
+}
+
 int main(int argc, char** argv) {
     int nx = 8, ny = 6, st = 10;
     int nt = 0;                 // 0 = hardware_concurrency (M3b parallel factor)
-    bool bigSweep = false;
+    bool bigSweep = false, limitMode = false;
     for (int i = 1; i < argc; ++i) {
         auto next = [&]() -> const char* { return (i + 1 < argc) ? argv[++i] : "0"; };
         if      (!std::strcmp(argv[i], "--nx"))       nx = std::atoi(next());
@@ -234,6 +304,22 @@ int main(int argc, char** argv) {
         else if (!std::strcmp(argv[i], "--stories"))  st = std::atoi(next());
         else if (!std::strcmp(argv[i], "--threads"))  nt = std::atoi(next());
         else if (!std::strcmp(argv[i], "--bigSweep")) bigSweep = true;
+        else if (!std::strcmp(argv[i], "--limit"))    limitMode = true;
+    }
+
+    if (limitMode) {   // Phase E: reachable-edge limit sweep on ONE scale (driver = one process/scale)
+        FrameModel m = makeMixedBuilding(nx, ny, st);
+        assertNodalOnly(m, "exp_sn_chol");
+        PreparedSystem ps = assembleAndFactor(m);
+        const PreparedSystem::Impl& S = *ps.impl;
+        if (!S.singular) {
+            const SpMat Kff = research::reduceFF(S.K, S.fmap, S.nf);
+            char nm[64]; std::snprintf(nm, sizeof(nm), "mixed(%d,%d,%d)", nx, ny, st);
+            testSuperLimit(nm, Kff, 16, nt);
+        } else {
+            std::printf("[sn-limit] mixed(%d,%d,%d) singular -- skipped\n", nx, ny, st);
+        }
+        return 0;
     }
 
     if (bigSweep) {   // large-scale mixed building: self-built supernodal vs CHOLMOD only

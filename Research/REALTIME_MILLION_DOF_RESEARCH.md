@@ -146,3 +146,26 @@ research-only(評估階段不進五腿 gate、不改 default solve);現有 LDLT 
 - **階段 3a 完成(`3caa30c`,UE supernodal LIVE,五腿綠)** — **dumpbin 推翻「需 MSVC-clean OpenBLAS」前提**:`openblas.dll` 只依賴 VCRUNTIME140 + UCRT(MSVC-runtime-clean,**非 MinGW**;env 的 libgcc/libgomp/libquadmath/libwinpthread 是別 conda 套件帶的、**非 openblas 的 import**),conda metis 是 static lib `IDXTYPEWIDTH=32`(配 sn_chol idx_t=int32)。故**直接用 conda OpenBLAS 進 UE**(不需 vcpkg/rebuild,vcpkg 也沒裝):`FrameCore.Build.cs` 指 conda env(openblas include/lib + DLL RuntimeDependency + delay-load、metis static、`FRAMECORE_SUPERNODAL=1` Win64、env 缺則 OFF→LDLT)+ `FrameCoreModule.cpp` StartupModule **`GetDllHandle` 預載 openblas.dll**(讓 delay-load thunk 命中;否則首次 cblas call faults——實測 crash 過)+ FrameSnChol.h 壓 C4005。**五腿綠、UE automation 51 跑真 supernodal vs LDLT(非 fallback)**。**durable**:① UE delay-load DLL 不在 editor search path → module StartupModule 預載 full path;② RuntimeDependencies 對 editor build 只記錄、不 copy DLL(packaging 才 copy)故需預載;③ **dumpbin /dependents 才是 DLL 真實 ABI 的權威——別憑 import lib 是 `!<arch>` 就判 MinGW(MSVC .lib 也是 ar 格式)**。
 - **階段 3b 完成(`1807b99`)— SnSession factor-once + solve-many,production 整合 COMPLETE**:`SnSession`(PIMPL,ctor reduceFF+analyze+factorizeSuperParallel **factor 一次** / solveFrame solveSuper **重用**,仿 HpSession:non-owning PreparedSystem ptr + fingerprint guard + move-only + 零 Eigen public)——stateless `solveLoadSupernodal` 每次重 factor,SnSession 發揮 supernodal「factor-once + solve-many」(遊戲每幀 solve 主場;大模型 supernodal factor ~27x 快於 SimplicialLDLT + 重用攤銷)。standalone **F58** + UE **FFrameCoreSnSessionTest**:3× solveFrame 重用同一 factor 各對 LDLT rel<1e-10、disabled drop-in、gate 52,**五腿綠**。
 - **★ production 整合四階段全完成**(1 standalone `bafbb1b` / 2 UE wiring `391a9ba` / 3a UE supernodal LIVE `3caa30c` / 3b SnSession `1807b99`):**standalone + UE 都跑自建 supernodal**(stateless `solveLoadSupernodal` + 重用 `SnSession`),LDLT 永 oracle/fallback,`default solve()` 不動,五腿全綠。R-line「廢 HP 雙車道、統一單一 direct」由研究 → 生產落地。
+
+## 收割回 main + 退役 HP(2026-06-15,main `7030321`)
+
+production 整合四階段(全在本 research 分支)後,supernodal 成果**收割回 main 並退役 HP 雙車道**:收尾分支 `chore/supernodal-to-main` 從 main checkout research 的 supernodal 15 檔 → 去 HP → 單 commit `--ff-only` 進 main → push。HP 生產碼 9 檔(HpSolver/HpSession/hp_bench/hp_stress)移除,完整研究歷史(含 HP 探索與負面結果)**凍結保留本 research 分支**。main = 乾淨 single-direct(LDLT default + supernodal opt-in **F55** stateless / **F56** SnSession,UE 52,五腿 F1-F56 綠);新增 main-facing `docs/PROGRESS_R_supernodal.md` + VERIFICATION §3.8。
+
+## Phase E:可達邊界極限實測 + 精度破底限(2026-06-15,research-only)
+
+`exp_sn_chol.cpp` 加 `--limit`(`testSuperLimit`):單規模實測 parallel factor / per-frame backsub / peak working-set(`K32GetProcessMemoryInfo`)/ residual at double-vs-Neumaier-compensated refinement;一 process/規模(peak 乾淨)。混合建築 17k–100k:
+
+| nf | factorMs | backsubMs/幀 | peakMB | resD(1x) | resComp(3x) |
+|---|---|---|---|---|---|
+| 17160 | 199 | 5.9 | 448 | 5.7e-10 | 2.9e-10 |
+| 31824 | 524 | 13.6 | 1036 | 8.8e-10 | 4.8e-10 |
+| 64260 | 1250 | 34.1 | 2772 | 1.40e-9 | **6.9e-10** |
+| 99750 | 2561 | 61.6 | 4931 | 1.95e-9 | 1.07e-9 |
+
+**發現 1 — 可達邊界宣稱驗證(純外推 → 17k–100k 實測 + 擬合外推)**:factor exp **≈1.57**(≈ go/no-go CHOLMOD exp 1.56)→ 百萬 ~120s(同量級於宣稱 ~80s,自建略高);peak working-set exp **≈1.36** → 百萬 **~110GB**(✓ 驗證宣稱 ~117GB);backsub exp **≈1.65** → 每幀 100ms 即時邊界 **~120k**、1s 互動邊界 **~500k**(量級對齊宣稱 ~150k 即時 / ~390k 互動;backsub 比 factor 緩 → 互動邊界更樂觀)。32GB working-set 外推 ~360k,但 factor 臨時 commit 更高 → 實際單機 OOM 估 ~200–250k,與 ~190k 量級一致。
+
+**發現 2 — 精度破 cond 底限(Neumaier 補償 residual)**:double 1-step refinement(resD)在高 cond 混合建築卡 fixed-precision 底限 ~cond·eps(64k 1.40e-9 / 100k 1.95e-9 > 真 1e-9);**改用 Neumaier 補償求和算 residual `r = F − K x`(double 硬體上真高精度)+ 3-step refinement → resComp 破底限**(64k **6.92e-10** / 100k 1.07e-9),真 1e-9 精度規模從 double 的 **~40k 推到 ~90k**(~2x)。**durable 踩雷**:**MSVC `long double` == `double`(64-bit)** → 初版用 long double 算 residual 的 resLD ≈ resD(看似「extended-precision 不破底限」)是**假象**;補償求和(Kahan/Neumaier)才是 double 硬體上做高精度 residual 的正確手段。底限的真實成因是 **residual cancellation**(可由補償求和破),要更低需 quad factor(超範圍)。
+
+**測試框架邊界(誠實)**:`--limit` 受 `main` 前置 `assembleAndFactor`(SimplicialLDLT,為拿 K_ff 先跑 default factor)限,130k+ 即撞 SimplicialLDLT 慢路徑(整個 research 流程拿 K_ff 都經它,故 M2 sweep 也止於 64k),**非 supernodal 限**;實測止於 100k,130k+ 用 exp 外推。資料 `Research/out/sn_limit_sweep.txt`。
+
+**Phase E 結論**:三重約束(百萬 + 即時 + 1e-9)可達邊界由純外推升級為 17k–100k 實測擬合,量級全部對齊原宣稱;補償-residual refinement 把即時 1e-9 精度規模推 ~2x。**R-line 研究收尾。**
