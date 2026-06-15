@@ -22,7 +22,10 @@
     #include "CoreMinimal.h"            // THIRD_PARTY_INCLUDES_* / PRAGMA_* (UE branch only)
     PRAGMA_DEFAULT_VISIBILITY_START
     THIRD_PARTY_INCLUDES_START
+    #pragma warning(push)
+    #pragma warning(disable: 4005)      // metis.h redefines INT32_MIN/MAX/INT64_* vs UCRT; benign
     #include "sn_chol.h"                // pulls in <metis.h> + <cblas.h>
+    #pragma warning(pop)
     THIRD_PARTY_INCLUDES_END
     PRAGMA_DEFAULT_VISIBILITY_END
   #endif
