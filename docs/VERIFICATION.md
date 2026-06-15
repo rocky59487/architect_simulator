@@ -23,13 +23,13 @@ Plugins\FrameSolver\Standalone\build.bat
 
 | Leg | What runs | Count | What it proves |
 |---|---|---|---|
-| 1. Standalone | `frametest.exe` (fixtures **F1–F54**, built UE-free) | `ALL PASS (failures=0)` | every capability against analytic / literature / invariance oracles, on the pure-C++ build |
-| 2. UE automation | headless `FrameCore.*` tests | **50** tests | UE-side mirrors of the standalone oracles across the same subsystems — the dual-build contract holds |
+| 1. Standalone | `frametest.exe` (fixtures **F1–F56**, built UE-free) | `ALL PASS (failures=0)` | every capability against analytic / literature / invariance oracles, on the pure-C++ build |
+| 2. UE automation | headless `FrameCore.*` tests | **52** tests | UE-side mirrors of the standalone oracles across the same subsystems — the dual-build contract holds |
 | 3. OpenSees | `Tools/opensees_compare.py` + `pdelta_compare.py` | strict `1e-8` default | agreement with an independent, widely-used FEM code (validation only; never linked) |
 | 4. Deep audit | `linear_deep_audit.exe` | **104** checks | independent re-derivations (sympy/numpy-sourced constants), bit-identity no-op proofs, element-spectrum oracles |
 | 5. CLI round-trip | `Tools/cli_roundtrip.py` | 13 checks | the text/daemon/C-API bridge reproduces engine results bit-for-bit and surfaces modal/dynamic precondition failures |
 
-Guard rails: `run_gate.ps1` hard-fails if fewer than `$ExpectedUeTests = 50` UE tests run
+Guard rails: `run_gate.ps1` hard-fails if fewer than `$ExpectedUeTests = 52` UE tests run
 (catches "new test silently not compiled"); the audit prints its own check count rather than
 a hard-coded number; `-RequireOpenSees` turns a missing OpenSeesPy into a failure instead of
 a soft skip. Fixture numbering is append-only; **F41 is unassigned** (S3 ended at F40, S4
@@ -147,6 +147,23 @@ collapse driver rather than the reanalysis line.
 | `COROT` / `ARCL` | planar elastica `dv/L = 0.714138`; shallow-arch λ_peak 0.00586 through the bridge |
 | daemon mode (J1.5) | multi-block single process == independent CLI runs, **bit-identical** |
 | C API DLL (J2) | `frame_capi_solve_text` == `frame_cli.exe`, **bit-identical** (ctypes harness) |
+
+### 3.8 Supernodal direct lane (F55–F56, R-line — opt-in, default LDLᵀ)
+
+A self-built BLAS3 supernodal Cholesky (METIS ordering + OpenBLAS dense panels) offered as an
+explicit opt-in solver lane; `SimplicialLDLT` stays the default **and** the fallback. Its oracle
+is the LDLᵀ solve itself — the supernodal factor must reproduce the direct solution and stay a
+bit-exact drop-in when disabled. Full write-up: [`PROGRESS_R_supernodal.md`](PROGRESS_R_supernodal.md).
+
+| Fixture | Capability | Oracle → measured |
+|---|---|---|
+| F55 | stateless `solveLoadSupernodal` (frame / SS-UDL / settlement / release / MITC4 shell) | vs LDLᵀ rel < 1e-10; disabled == LDLᵀ bit-exact (rel < 1e-12); mechanism → LDLᵀ pivot-guard fallback (singular, not NaN) |
+| F56 | `SnSession` factor-once + solve-many (reused supernodal factor) | each reused-factor frame vs LDLᵀ rel < 1e-10; disabled session == LDLᵀ drop-in |
+
+Correctness is gated against LDLᵀ (and, in research, CHOLMOD) rather than a residual: on
+high-condition mixed shell/frame systems the fixed-precision residual floors at ~cond·eps, so a
+`vsLDLᵀ` relative check is the honest oracle. The lane needs a conda `framecore-direct` env
+(OpenBLAS + METIS) at build time — the standalone gate leg now depends on it.
 
 ## 4. OpenSees cross-validation summary
 

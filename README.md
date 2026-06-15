@@ -13,8 +13,8 @@ The public API uses only plain C++/POD types (no UE, no Eigen leakage), so the s
 compiles as a standalone console gate *and* as an Unreal Engine module. The core remains
 C++17-compatible; the UE module target is compiled as C++20 because of the current UBT/toolchain.
 
-> **Status (2026-06, S1–S10 complete):** the five-leg verification gate is green —
-> standalone `ALL PASS` (fixtures **F1–F54**) · **50** UE automation tests ·
+> **Status (2026-06, S1–S10 + supernodal direct lane):** the five-leg verification gate is green —
+> standalone `ALL PASS` (fixtures **F1–F56**) · **52** UE automation tests ·
 > **OpenSees** strict cross-validation PASS · deep audit **104** independent checks ·
 > CLI round-trip ALL PASS. One repo-relative command reproduces it (`-Engine` or `UE_ENGINE_ROOT`
 > can point at a non-sibling Unreal install):
@@ -48,6 +48,7 @@ types, `PreparedSystem` for factorization reuse), and each gated by its own orac
 |---|---|
 | Load cases, combinations, envelopes | `combine` / `envelope`; self-weight from `Material.rho` |
 | **Factorize-once, solve-many** | `assembleAndFactor` → opaque `PreparedSystem`; `solveLoad` reuses the LDLᵀ per load/settlement change — the interactive re-solve path |
+| **Supernodal direct lane (opt-in, R-line)** | self-built BLAS3 supernodal Cholesky (METIS ordering + OpenBLAS dense panels): stateless `solveLoadSupernodal` and factor-once `SnSession`; `SimplicialLDLT` stays the **default + fallback**, supernodal is selected explicitly. vs LDLT rel < 1e-10; disabled is a bit-exact drop-in; a mechanism defers to the LDLT pivot guard. Multicore factor ≈ MKL-CHOLMOD; honest single-machine ceiling ~150 k DOF real-time on 32 GB. See [`docs/PROGRESS_R_supernodal.md`](docs/PROGRESS_R_supernodal.md) |
 | Prescribed support settlement | matches OpenSees `sp()` to 0 |
 | Influence lines / moving loads | unit load marched on the shared factorization; Müller-Breslau cross-check |
 | Modal analysis | `Kφ=ω²Mφ`, consistent mass; dense default + opt-in sparse path; vs OpenSees `eigen` ~1e-11 |

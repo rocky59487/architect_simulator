@@ -6,6 +6,13 @@ set "EIGEN=%EIGEN_DIR%"
 if "%EIGEN%"=="" if defined UE_ENGINE_ROOT set "EIGEN=%UE_ENGINE_ROOT%\Engine\Source\ThirdParty\Eigen"
 if "%EIGEN%"=="" set "EIGEN=%~dp0..\..\..\..\UE_5.7\Engine\Source\ThirdParty\Eigen"
 if not exist "%EIGEN%\Eigen" ( echo [build] Eigen include root not found: "%EIGEN%" & exit /b 1 )
+
+REM --- conda OpenBLAS/METIS for the opt-in supernodal lane (SnSolver.cpp / FRAMECORE_SUPERNODAL=1).
+REM     NOTE: the standalone gate leg now depends on this env (no longer self-contained).
+set "CONDA_SS=%SUPERNODAL_CONDA%"
+if "%CONDA_SS%"=="" set "CONDA_SS=%USERPROFILE%\anaconda3\envs\framecore-direct\Library"
+if not exist "%CONDA_SS%\include\openblas\cblas.h" ( echo [build] OpenBLAS not found under "%CONDA_SS%" ^(supernodal lane^) & exit /b 1 )
+
 set "VSWHERE=C:\Program Files (x86)\Microsoft Visual Studio\Installer\vswhere.exe"
 
 set "VSDIR="
@@ -28,10 +35,12 @@ if not exist "Standalone\obj" mkdir "Standalone\obj"
 set "GITSHA=unknown"
 for /f "usebackq tokens=*" %%g in (`git -C "%ROOT%" rev-parse --short HEAD 2^>nul`) do set "GITSHA=%%g"
 
-cl /nologo /EHsc /std:c++17 /O2 /MD /utf-8 /DEIGEN_MPL2_ONLY /DFRAMECORE_BUILD_SHA=\"!GITSHA!\" ^
+cl /nologo /EHsc /std:c++17 /O2 /MD /utf-8 /DEIGEN_MPL2_ONLY /DFRAMECORE_SUPERNODAL=1 /DFRAMECORE_BUILD_SHA=\"!GITSHA!\" ^
    /Fe:Standalone\frametest.exe ^
    /Fo:Standalone\obj\ ^
    /I"%EIGEN%" ^
+   /I"%CONDA_SS%\include" ^
+   /I"%CONDA_SS%\include\openblas" ^
    /I"Source\FrameCore\Public" ^
    /I"Source\FrameCore\Private" ^
    Source\FrameCore\Private\Section.cpp ^
@@ -59,11 +68,15 @@ cl /nologo /EHsc /std:c++17 /O2 /MD /utf-8 /DEIGEN_MPL2_ONLY /DFRAMECORE_BUILD_S
    Source\FrameCore\Private\TensionOnly.cpp ^
    Source\FrameCore\Private\SizeOpt.cpp ^
    Source\FrameCore\Private\Topology.cpp ^
-   Standalone\main.cpp
+   Source\FrameCore\Private\SnSolver.cpp ^
+   Source\FrameCore\Private\SnSession.cpp ^
+   Standalone\main.cpp ^
+   /link /LIBPATH:"%CONDA_SS%\lib" openblas.lib metis.lib
 if errorlevel 1 ( echo [build] COMPILE FAILED & popd & exit /b 1 )
 
 echo [build] OK -^> Standalone\frametest.exe
 echo.
+set "PATH=%CONDA_SS%\bin;%PATH%"
 "Standalone\frametest.exe"
 set "RC=%errorlevel%"
 popd

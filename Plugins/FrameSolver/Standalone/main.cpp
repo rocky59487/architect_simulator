@@ -21,6 +21,8 @@
 #include "FrameCore/Topology.h"
 #include "FrameCore/NMInteraction.h"
 #include "FrameCore/MemberGeometry.h"
+#include "FrameCore/SnSolver.h"
+#include "FrameCore/SnSession.h"
 #include "FrameTestFixtures.h"
 
 #include <vector>
@@ -2950,6 +2952,93 @@ int main() {
         std::printf("   N-M hinge load bracketed: Stable@0.99w* / Collapsed@1.01w* (N-M on); same load Stable (N-M off); Mp_eff/Mp=%.3f\n",
                     MpEff / MpZ);
     }
+
+#if FRAMECORE_SUPERNODAL
+    // ---------- F55: opt-in supernodal Cholesky lane (solveLoadSupernodal) vs LDLT oracle ----------
+    // Production integration stage 1: the opt-in self-built supernodal lane must return a SolveResult
+    // equal to the direct LDLT solve across DIVERSE matrices (frame / UDL / settlement / release /
+    // shell), be a bit-exact drop-in when disabled, and on a singular K_ff defer to LDLT (not silent
+    // NaN/garbage) via the !fac.spd fallback -- proving the fallback red line.
+    {
+        std::printf("[F55] supernodal opt-in lane: solveLoadSupernodal vs LDLT oracle\n");
+        SnSolveOptions snOpt; snOpt.enabled = true;
+        auto snVsLdlt = [&](const char* tag, const SolveResult& got, const SolveResult& ref, double tol) {
+            if (got.singular) { checkTrue(tag, false, "Sn unexpectedly singular: " + got.diagnostic); return; }
+            double un = 1e-30, du = 0, rn = 1e-30, dr = 0;
+            for (real v : ref.u) un = std::max(un, std::fabs((double)v));
+            for (size_t k = 0; k < got.u.size(); ++k) du = std::max(du, std::fabs((double)got.u[k] - (double)ref.u[k]));
+            for (real v : ref.reactions) rn = std::max(rn, std::fabs((double)v));
+            for (size_t k = 0; k < got.reactions.size(); ++k) dr = std::max(dr, std::fabs((double)got.reactions[k] - (double)ref.reactions[k]));
+            checkTrue(tag, (du / un <= tol) && (dr / rn <= tol),
+                      "uRel=" + std::to_string(du / un) + " Rrel=" + std::to_string(dr / rn) + " | " + got.diagnostic);
+        };
+        // (B) enabled supernodal vs LDLT oracle, diverse matrices, rel < 1e-10
+        { FrameModel m; fixtures::cantileverTipLoad(m, 1000.0, 2000.0, mat, sec);
+          PreparedSystem ps = assembleAndFactor(m);
+          snVsLdlt("F55-B frame cantilever", solveLoadSupernodal(ps, m, snOpt), solveLoad(ps, m), 1e-10); }
+        { FrameModel m; fixtures::simplySupportedUDL(m, 5.0, 3000.0, mat, sec);
+          PreparedSystem ps = assembleAndFactor(m);
+          snVsLdlt("F55-B SS+UDL", solveLoadSupernodal(ps, m, snOpt), solveLoad(ps, m), 1e-10); }
+        { FrameModel m; fixtures::clampedSettlement(m, 3000.0, 5.0, mat, sec);
+          PreparedSystem ps = assembleAndFactor(m);
+          const SolveResult ref = solveLoad(ps, m);
+          double freeNorm = 0; for (int d = 0; d < 6; ++d) freeNorm = std::max(freeNorm, std::fabs(ref.disp(1, d)));
+          checkTrue("F55-B settlement moves free node", freeNorm > 1e-9, "freeNorm=" + std::to_string(freeNorm));
+          snVsLdlt("F55-B settlement", solveLoadSupernodal(ps, m, snOpt), ref, 1e-10); }
+        { FrameModel m; fixtures::proppedCantileverRelease(m, 5.0, 3000.0, mat, sec);
+          SolveOptions so; so.enableReleases = true;
+          PreparedSystem ps = assembleAndFactor(m, so);
+          snVsLdlt("F55-B release", solveLoadSupernodal(ps, m, snOpt), solveLoad(ps, m), 1e-10); }
+        // shell-only (MITC4): the supernodal factor must handle a shell K_ff as well as LDLT
+        { const real Es = 30000.0, nus = 0.3; Material smat(Es, Es / (2.0 * (1.0 + nus))); smat.nu = nus;
+          FrameModel m; fixtures::squarePlateShell(m, 1000.0, 10.0, 8, 0.01, smat);
+          PreparedSystem ps = assembleAndFactor(m);
+          snVsLdlt("F55-B shell plate", solveLoadSupernodal(ps, m, snOpt), solveLoad(ps, m), 1e-10); }
+        // (A) disabled lane is a bit-exact drop-in equal to solveLoad (LDLT)
+        { FrameModel m; fixtures::cantileverTipLoad(m, 1000.0, 2000.0, mat, sec);
+          PreparedSystem ps = assembleAndFactor(m);
+          SnSolveOptions off; off.enabled = false;
+          snVsLdlt("F55-A disabled==LDLT drop-in", solveLoadSupernodal(ps, m, off), solveLoad(ps, m), 1e-12); }
+        // (C) singular/mechanism: enabled lane must NOT return garbage -- !fac.spd triggers the LDLT
+        //     fallback, which (via the pivot guard) reports singular. This proves the fallback red line.
+        { FrameModel m; fixtures::mechanism(m, mat, sec);
+          PreparedSystem ps = assembleAndFactor(m);
+          const SolveResult got = solveLoadSupernodal(ps, m, snOpt);
+          checkTrue("F55-C mechanism -> singular via fallback (not NaN)", got.singular, got.diagnostic); }
+    }
+#endif // FRAMECORE_SUPERNODAL
+
+#if FRAMECORE_SUPERNODAL
+    // ---------- F56: SnSession (factor-once + solve-many, reused supernodal factor) vs LDLT ----------
+    // Stage 3b: the session factors ONCE in the ctor and reuses that factor across solveFrame calls
+    // (the production payoff). Each frame must match the LDLT oracle; a disabled session is a drop-in.
+    {
+        std::printf("[F56] SnSession: reused supernodal factor (factor-once + solve-many) vs LDLT oracle\n");
+        FrameModel m; fixtures::simplySupportedUDL(m, 5.0, 3000.0, mat, sec);
+        PreparedSystem ps = assembleAndFactor(m);
+        SnSession sess(ps);   // enabled default true -> factors once in the ctor
+        checkTrue("F56 session valid (supernodal factor ready)", sess.valid(), sess.diagnostic());
+
+        const SolveResult ref = solveLoad(ps, m);
+        for (int frame = 0; frame < 3; ++frame) {   // each solveFrame reuses the SAME factor
+            const SolveResult got = sess.solveFrame(m);
+            double un = 1e-30, du = 0;
+            for (real v : ref.u) un = std::max(un, std::fabs((double)v));
+            for (size_t k = 0; k < got.u.size(); ++k) du = std::max(du, std::fabs((double)got.u[k] - (double)ref.u[k]));
+            checkTrue((std::string("F56 frame ") + std::to_string(frame) + " reused factor == LDLT (rel<1e-10)").c_str(),
+                      !got.singular && du / un <= 1e-10, "uRel=" + std::to_string(du / un) + " | " + got.diagnostic);
+        }
+
+        SnSessionOptions off; off.enabled = false;   // disabled session -> drop-in equal to solveLoad
+        SnSession sessOff(ps, off);
+        const SolveResult gotOff = sessOff.solveFrame(m);
+        double un = 1e-30, du = 0;
+        for (real v : ref.u) un = std::max(un, std::fabs((double)v));
+        for (size_t k = 0; k < gotOff.u.size(); ++k) du = std::max(du, std::fabs((double)gotOff.u[k] - (double)ref.u[k]));
+        checkTrue("F56 disabled session == LDLT drop-in (rel<1e-12)", !gotOff.singular && du / un <= 1e-12,
+                  "uRel=" + std::to_string(du / un) + " | " + gotOff.diagnostic);
+    }
+#endif // FRAMECORE_SUPERNODAL
 
     std::printf("\n%s  (failures=%d)\n", g_fail == 0 ? "ALL PASS" : "FAILURES", g_fail);
     return g_fail == 0 ? 0 : 1;

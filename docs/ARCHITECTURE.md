@@ -264,7 +264,7 @@ plates/shells directly and converges to the exact solution.
   circular arch; shells: square/clamped plate, plate & membrane patch, Scordelis-Lo roof, pinched
   cylinder, rigid model rotation). Shared by both the standalone gate and the UE automation tests,
   so a green standalone run exercises the *same* solver path UE compiles.
-- **`Standalone/main.cpp`** — fixtures **F1…F54** vs closed-form oracles, benchmark references,
+- **`Standalone/main.cpp`** — fixtures **F1…F56** vs closed-form oracles, benchmark references,
   patch tests, and per-stage drivers (collapse, reanalysis, P-Delta, tension-only, FSD, BESO,
   co-rotational, N–M hinges), printing `[PASS]/[FAIL]` and `ALL PASS (failures=n)`. The full
   fixture → capability → measured-agreement map is [`VERIFICATION.md`](VERIFICATION.md).

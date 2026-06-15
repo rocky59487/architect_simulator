@@ -30,6 +30,7 @@
 | S9b 3D 通用 co-rotational | [`PROGRESS_S9b.md`](PROGRESS_S9b.md) | [`specs/S9b_corotational3d.md`](specs/S9b_corotational3d.md) |
 | S9c 弧長 snap-through 收尾 | [`PROGRESS_S9c.md`](PROGRESS_S9c.md) | [`specs/S9c_arclength.md`](specs/S9c_arclength.md) |
 | S10 N–M 互動塑鉸 | [`PROGRESS_S10.md`](PROGRESS_S10.md) | [`specs/S10_nm_interaction.md`](specs/S10_nm_interaction.md) |
+| R 線 自建 supernodal direct lane(opt-in;非 S 主線) | [`PROGRESS_R_supernodal.md`](PROGRESS_R_supernodal.md) | `VERIFICATION.md` §3.8 |
 
 S 系列之前的線性套件(8 段)與崩塌 C 線(6 階段)沒有獨立 PROGRESS 檔——其能力、oracle 與
 邊界已整併入根 README 與 `VERIFICATION.md` §3.1–§3.3,演進史在 git log。
