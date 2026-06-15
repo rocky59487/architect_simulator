@@ -48,7 +48,7 @@ types, `PreparedSystem` for factorization reuse), and each gated by its own orac
 |---|---|
 | Load cases, combinations, envelopes | `combine` / `envelope`; self-weight from `Material.rho` |
 | **Factorize-once, solve-many** | `assembleAndFactor` → opaque `PreparedSystem`; `solveLoad` reuses the LDLᵀ per load/settlement change — the interactive re-solve path |
-| **Supernodal direct lane (opt-in, R-line)** | self-built BLAS3 supernodal Cholesky (METIS ordering + OpenBLAS dense panels): stateless `solveLoadSupernodal` and factor-once `SnSession`; `SimplicialLDLT` stays the **default + fallback**, supernodal is selected explicitly. vs LDLT rel < 1e-10; disabled is a bit-exact drop-in; a mechanism defers to the LDLT pivot guard. Multicore factor ≈ MKL-CHOLMOD; honest single-machine ceiling ~150 k DOF real-time on 32 GB. See [`docs/PROGRESS_R_supernodal.md`](docs/PROGRESS_R_supernodal.md) |
+| **Supernodal direct lane (opt-in, R-line)** | self-built BLAS3 supernodal Cholesky (METIS ordering + OpenBLAS dense panels): stateless `solveLoadSupernodal` and factor-once `SnSession`; `SimplicialLDLT` stays the **default + fallback**, supernodal is selected explicitly. vs LDLT rel < 1e-10; disabled is a bit-exact drop-in; a mechanism defers to the LDLT pivot guard. Multicore factor within ~1.0–1.2× of MKL-CHOLMOD (1.15–1.21× measured on 8940HX, ~1.0× at 17k DOF); single-machine reachable edge ~150 k DOF real-time on 32 GB (extrapolated from 17k–100k measurements). See [`docs/PROGRESS_R_supernodal.md`](docs/PROGRESS_R_supernodal.md) |
 | Prescribed support settlement | matches OpenSees `sp()` to 0 |
 | Influence lines / moving loads | unit load marched on the shared factorization; Müller-Breslau cross-check |
 | Modal analysis | `Kφ=ω²Mφ`, consistent mass; dense default + opt-in sparse path; vs OpenSees `eigen` ~1e-11 |
@@ -174,7 +174,8 @@ Per-stage limitation lists (more detailed than the above) close every
 Plugins\FrameSolver\Standalone\build.bat
 ```
 Expected: `[PASS] Fn …` lines, then `ALL PASS (failures=0)`, exit 0. (Needs Visual Studio
-with the C++ toolset; located via `vswhere`.)
+with the C++ toolset, located via `vswhere`; **and** a conda `framecore-direct` env with OpenBLAS +
+METIS — the standalone gate now links the opt-in supernodal lane, and `build.bat` exits 1 without it.)
 
 **One-click five-leg gate** (standalone + UE automation + OpenSees + deep audit + CLI):
 
@@ -191,7 +192,7 @@ Engine\Binaries\Win64\UnrealEditor-Cmd.exe ...\ArchSim.uproject -ExecCmds="Autom
 
 > `run_gate.ps1` runs the UE automation but does **not** rebuild the UE module — rebuild
 > first (command above) after touching engine code, or the automation runs a stale binary.
-> The `$ExpectedUeTests = 50` guard catches a silently-missing test.
+> The `$ExpectedUeTests = 52` guard catches a silently-missing test.
 
 **Try the engine without writing C++** — the text bridge solves a model from stdin:
 
@@ -256,7 +257,7 @@ Plugins/FrameSolver/
                                         collapse, reanalysis, corotational, optimization)
     Private/*.cpp                       implementation (+ Private/FrameEigen.h: the single
                                         Eigen include site, dual-build guarded)
-    Private/Tests/*.cpp                 50 UE automation tests (UE-side oracle mirrors)
+    Private/Tests/*.cpp                 52 UE automation tests (UE-side oracle mirrors)
   Standalone/                           console gates + CLI/C-API drivers (see its README)
   Grasshopper/                          C# reference client for the text bridge
 Scripts/run_gate.ps1                    the one-click five-leg gate
@@ -287,5 +288,5 @@ docs/                                   see docs/README.md — architecture, ver
 
 ## License / use
 
-Graduation-project code. FrameCore depends only on Eigen (MPL2, header-only). OpenSees is
+Graduation-project code. FrameCore's default solver depends only on Eigen (MPL2, header-only); the opt-in supernodal lane additionally uses OpenBLAS (BSD) + METIS (Apache-2.0) via the conda `framecore-direct` env. OpenSees is
 used for offline validation only and is **not** redistributed or linked into the engine.

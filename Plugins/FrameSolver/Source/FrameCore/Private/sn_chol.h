@@ -1,13 +1,15 @@
 #pragma once
-// sn_chol.h - research-only self-built supernodal Cholesky (BLAS3 via OpenBLAS).
+// sn_chol.h - self-built supernodal Cholesky factorization (BLAS3 via OpenBLAS). Vendored into
+// FrameCore as the opt-in direct-solver lane (see FrameSnChol.h / SnSolver.h).
 //
-// PHASE (this file, M1 step 1): SYMBOLIC ONLY -- fill-reducing ordering (METIS) +
-//   elimination tree + symbolic factorization (L nonzero pattern / column counts).
-//   Numeric (supernode amalgamation + left-looking BLAS3 factor) and solve come next.
+// Complete pipeline: METIS fill-reducing nested-dissection ordering + elimination tree + symbolic
+// factorization (L pattern / column counts) -> supernode amalgamation + left-looking BLAS3 numeric
+// factor (dgemm/dpotrf/dtrsm) -> level-set supernode-parallel factor -> dtrsv/dgemv solve. A scalar
+// column-based factorize()/solve() is kept alongside as an internal cross-check oracle (NOT on the
+// production path -- production uses factorizeSuper / factorizeSuperParallel / solveSuper).
 //
-// Deps: METIS (ordering) this phase; cblas/lapacke (OpenBLAS) added for numeric.
-// NO Eigen -- input is a raw FULL-symmetric CSC (col-major), exactly how Eigen's
-// SparseMatrix<double> stores K_ff. CHOLMOD is only an external oracle in the driver.
+// Deps: METIS (ordering) + cblas/lapacke (OpenBLAS, BLAS3). NO Eigen -- input is a raw FULL-symmetric
+// CSC (col-major), exactly how Eigen's SparseMatrix<double> stores K_ff.
 
 #include <metis.h>
 #include <vector>
@@ -32,7 +34,7 @@ extern "C" int  openblas_get_num_threads(void);
 // was tried and REGRESSED at 17k (0.97->1.01x) and 64k (1.12->1.14x): the OS scheduler already
 // places threads well, and hard-pinning fights the pool's dynamic work-stealing (a pinned worker
 // grabs panels whose data may live on the other CCD). NUMA-aware data placement would be the real
-// lever but is a large, uncertain effort. Reverted -- see HPFEM_RESEARCH_NOTES.
+// lever but is a large, uncertain effort. Reverted (negative result; documented in the R-line notes).
 #ifndef LAPACK_COL_MAJOR
 #define LAPACK_COL_MAJOR 102
 #endif

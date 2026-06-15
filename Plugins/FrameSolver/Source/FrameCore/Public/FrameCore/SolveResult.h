@@ -25,6 +25,8 @@ struct ShellElementForces {
     // quantities, so they combine()/envelope() correctly. The design PEAK moment is a
     // post-process: the max over corners of |Mxx|/|Myy|/|Mxy| — do NOT read the centre value
     // as a peak. For a constant-moment field every corner equals the centre.
+    // NOTE: with the opt-in DKQ plate (SolveOptions::useDKQPlate) these hold Gauss-point values,
+    // not corner extrapolations — for a DKQ design peak use the centre value, not MxxC[k].
     real MxxC[4] = { 0, 0, 0, 0 };
     real MyyC[4] = { 0, 0, 0, 0 };
     real MxyC[4] = { 0, 0, 0, 0 };

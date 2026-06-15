@@ -186,11 +186,12 @@ The analysis modules (each a free function + POD result, **no `solve()` flag blo
 | Plastic hinges | `PlasticHinge` (`Hinge.h`, model state) + `CollapseOptions.plasticHinges` | release + signed residual `Mp = fy·Z` baked into the element condensation (element channel) + joint moment `−Mp·ê` (node channel); event-to-event until a hinge mechanism |
 | Dynamic collapse (S2) | `runDynamicCollapse` (`DynamicCollapse.h`) | continuous modal-space Newmark (β=¼) over removal events; cross-event inheritance `q'=Φ'ᵀM'u`, `q̇'=Φ'ᵀM'v` onto a fresh post-event Ritz/pure-mode basis; per-event fresh factor; replay frames `(u,v)`; terminal Stable (kinetic quiescence) / Collapsed (mechanism) / MaxSteps |
 | Fragment momentum (S2) | `runDynamicCollapse` (internal helper `fillFragmentVelocity`, `Private/FragmentMomentum.h`) | fragment-local consistent mass → linear `p` / angular `L` at the detach instant → `FragmentCluster.vel = p/m`, `angVel = I⁻¹L`; the dynamic debris handoff (the static driver leaves these zero). Angular momentum uses a **rod-model** approximation (FE cross-section polar inertia omitted — accurate for slender members) |
-| Incremental reanalysis (S1) | `ReSolveSession` (`Reanalysis.h`) | three-tier ladder for interactive topology edits: Tier-1 rank-k **Woodbury** on the baseline LDLᵀ (exact), Tier-2 **stale-LDLᵀ-preconditioned PCG** (tolerance-grade), Tier-3 rebaseline (always-correct fallback); mechanism detection preserved on every tier |
+| Incremental reanalysis (S1) | `ReSolveSession` (`Reanalysis.h`) | three-tier ladder for interactive topology edits: Tier-1 rank-k **Woodbury** on the baseline LDLᵀ (formula-exact; ~1e-12 of fresh, not bit-identical), Tier-2 **stale-LDLᵀ-preconditioned PCG** (tolerance-grade), Tier-3 rebaseline (always-correct fallback); mechanism detection preserved on every tier |
 | N–M interaction hinges (S10) | `reducedPlasticMoment` (`NMInteraction.h`) + `CollapseOptions.nmInteraction` | axially-reduced plastic moment `Mp_eff(N)=Mp·max(0,1−(N/Ny)²)` in the hinge trigger/residual (exact for rectangles, conservative for circles); header-only; default off is bit-identical to the fixed-`Mp` driver |
 | FSD sizing (S5) | `runSizeOptimization` (`SizeOpt.h`) | fully-stressed-design stress-ratio resizing with similar-section scaling, multi-load-case envelope D/C, optional discrete section table (round-up), FNV-1a oscillation guard |
 | BESO topology (S7) | `runBESO`, `memberStrainEnergy` (`Topology.h`) | evolutionary hard-kill on `Member.active`; sensitivity = element strain energy; history averaging; compliance-best fallback; mechanism guard; optional **N2** collapse-robustness constraint (candidate topologies screened by the collapse driver) |
 | Co-rotational large displacement (S9/S9b/S9c) | `runCorotational` (`CorotationalAnalysis.h`) | geometrically nonlinear beam driver (separate from the linear `IElement` pipeline): SO(3) finite rotations per node, NR + load stepping, or Crisfield cylindrical **arc-length** for snap-through (`useArcLength`); optional FD-consistent tangent; member UDL + prescribed displacement; rejects shells/hinges/releases/tension-only by guard |
+| Supernodal direct lane (R-line, opt-in) | `solveLoadSupernodal` (`SnSolver.h`), `SnSession` (`SnSession.h`) | self-built BLAS3 supernodal Cholesky (METIS ordering + OpenBLAS dense panels, level-set parallel); factor-once + solve-many via `SnSession`; `SimplicialLDLT` stays the default + fallback; disabled / not-SPD / not-compiled is a bit-exact drop-in. See [`PROGRESS_R_supernodal.md`](PROGRESS_R_supernodal.md) |
 
 ### The collapse line (C1–C5, stages 1–4b)
 
@@ -275,7 +276,7 @@ plates/shells directly and converges to the exact solution.
 - **`Standalone/linear_deep_audit.cpp`** — **104** independent checks: sympy/numpy-derived
   references, bit-identity no-op proofs for every opt-in flag, the MITC4 element-spectrum
   oracle, and fresh-factorization references for every incremental method.
-- **`Private/Tests/*.cpp`** — UE automation mirrors (`FrameCore.*`), **50** tests across
+- **`Private/Tests/*.cpp`** — UE automation mirrors (`FrameCore.*`), **52** tests across
   the same oracle families as the standalone fixtures (the dual-build proof).
 - **`Tools/`** — `opensees_compare.py` (OpenSees cross-validation: beams strict 1e-8; prescribed
   settlement vs `sp()` to 0; the MITC4 shell vs OpenSees' own `ShellMITC4` to ~1e-10 on the
@@ -288,7 +289,7 @@ plates/shells directly and converges to the exact solution.
   `complex_structure_benchmark.py`, `grillage_curve_audit.py` — all black-box the engine
   through `frame_cli.exe`.
 - **`Scripts/run_gate.ps1`** — runs all **five** legs (standalone, UE automation, OpenSees,
-  deep audit, CLI round-trip) and prints a combined verdict + exit code; `$ExpectedUeTests = 50`
+  deep audit, CLI round-trip) and prints a combined verdict + exit code; `$ExpectedUeTests = 52`
   guards against a silently-missing UE test; `-RequireOpenSees` makes a missing OpenSees a hard
   failure for CI.
 

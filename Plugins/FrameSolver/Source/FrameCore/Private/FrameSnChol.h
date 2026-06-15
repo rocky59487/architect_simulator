@@ -7,8 +7,8 @@
 //
 //   * Standalone build : FRAMECORE_UE undefined -> plain include; FRAMECORE_SUPERNODAL defaults 1.
 //   * UE module build  : FRAMECORE_UE=1 -> headers wrapped in UE's third-party guard macros.
-//     FRAMECORE_SUPERNODAL stays 0 until MSVC-clean OpenBLAS is wired in FrameCore.Build.cs
-//     (the conda MinGW OpenBLAS is GNU-ar / MinGW-ABI and must not enter the UE build).
+//     FRAMECORE_SUPERNODAL defaults 0; FrameCore.Build.cs sets it 1 when the conda OpenBLAS/METIS
+//     env is present (its openblas.dll is MSVC-runtime-clean -- VCRUNTIME140+UCRT, verified by dumpbin).
 //
 // FRAMECORE_SUPERNODAL gates the whole lane: when 0, sn_chol.h is NOT included and SnSolver.cpp's
 // supernodal path compiles out (it falls back to LDLT). Callers may still call solveLoadSupernodal;
@@ -16,7 +16,7 @@
 //
 #if defined(FRAMECORE_UE)
   #ifndef FRAMECORE_SUPERNODAL
-  #  define FRAMECORE_SUPERNODAL 0      // UE: off until MSVC-clean OpenBLAS (see FrameCore.Build.cs)
+  #  define FRAMECORE_SUPERNODAL 0      // UE default: Build.cs sets 1 when conda OpenBLAS/METIS env present
   #endif
   #if FRAMECORE_SUPERNODAL
     #include "CoreMinimal.h"            // THIRD_PARTY_INCLUDES_* / PRAGMA_* (UE branch only)

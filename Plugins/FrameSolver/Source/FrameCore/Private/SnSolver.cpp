@@ -8,9 +8,9 @@
 // self-built supernodal factor (METIS ordering + BLAS3 panels). The LDLT factor remains the oracle
 // and the fallback. Eigen is confined to this Private .cpp; the public header is POD.
 //
-// FRAMECORE_SUPERNODAL (from FrameSnChol.h) gates the supernodal body: when 0 (current UE build,
-// awaiting MSVC-clean OpenBLAS) the lane compiles but routes straight to LDLT, so the function still
-// links and tests still exercise the drop-in contract.
+// FRAMECORE_SUPERNODAL (from FrameSnChol.h) gates the supernodal body: when 0 (conda OpenBLAS/METIS
+// env absent) the lane compiles but routes straight to LDLT, so the function still links and tests
+// still exercise the drop-in contract.
 //
 #include "FrameCore/SnSolver.h"
 #include "PreparedSystemImpl.h"   // PreparedSystem::Impl (K/fmap/nf/ldlt/elems/...) + reduceFF + FrameEigen.h
@@ -99,7 +99,7 @@ SolveResult solveLoadSupernodal(const PreparedSystem& prepared, const FrameModel
 #if FRAMECORE_SUPERNODAL
                           : (S.nf <= 0 ? "no free DOF" : "supernodal factor not SPD / non-finite");
 #else
-                          : "supernodal not compiled (FRAMECORE_SUPERNODAL=0; UE awaits MSVC-clean OpenBLAS)";
+                          : "supernodal not compiled (FRAMECORE_SUPERNODAL=0; conda OpenBLAS/METIS env absent)";
 #endif
         if (opts.enabled && !opts.fallbackOnFail) {
             R.singular = true;

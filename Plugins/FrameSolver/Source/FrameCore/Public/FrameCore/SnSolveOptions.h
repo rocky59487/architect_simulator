@@ -10,7 +10,7 @@ namespace frame {
 struct SnSolveOptions {
     bool enabled         = false;  // opt in: false => solveLoadSupernodal behaves like solveLoad (LDLT)
     bool useMetis        = true;   // METIS nested-dissection fill-reducing ordering (off => natural)
-    int  amalgRelax      = 0;      // supernode amalgamation relax rows (M3a: 0 = off; no net speedup yet)
+    int  amalgRelax      = 0;      // supernode amalgamation relax rows (0 = off; measured no net gain)
     int  amalgMaxCol     = 64;     // max columns per amalgamated supernode
     int  numThreads      = 0;      // 0 = sqrt(nf)/20 memory-bandwidth heuristic (recommendedThreads)
     int  blasThreadsRoot = 0;      // 0 = nt (mixed parallelism); 1 = single-thread BLAS everywhere

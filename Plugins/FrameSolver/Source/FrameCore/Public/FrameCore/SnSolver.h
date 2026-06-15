@@ -6,8 +6,8 @@
 
 namespace frame {
 
-// Opt-in self-built supernodal Cholesky solve lane (research-validated; see Research/WS_B_solver and
-// REALTIME_MILLION_DOF_RESEARCH.md). Computes the SAME SolveResult as solveLoad() -- identical RHS
+// Opt-in self-built supernodal Cholesky solve lane (research-validated; see docs/PROGRESS_R_supernodal.md).
+// Computes the SAME SolveResult as solveLoad() -- identical RHS
 // assembly, reactions (K*u - F) and element force recovery -- but replaces the LDLT forward/back
 // substitution with the self-built supernodal factor (METIS nested-dissection ordering + BLAS3 dense
 // panels via OpenBLAS, level-set parallel). Research benchmark: ~on par with MKL-CHOLMOD (vsCH
@@ -15,8 +15,8 @@ namespace frame {
 //
 // Stateless (one-shot): each call does analyze + factorize + solve. It falls back to the
 // PreparedSystem's LDLT (the oracle) whenever the lane is disabled, the factor is not SPD/finite, or
-// the supernodal lane is not compiled in (FRAMECORE_SUPERNODAL=0 -- e.g. the current UE build, which
-// awaits MSVC-clean OpenBLAS) -- so the numeric result never deviates from the direct solve. With
+// the supernodal lane is not compiled in (FRAMECORE_SUPERNODAL=0, e.g. when the conda OpenBLAS/METIS
+// env is absent) -- so the numeric result never deviates from the direct solve. With
 // opts.enabled == false it is a drop-in equal to solveLoad. The factor-REUSE speedup (the real
 // production value for a fixed structure with many load cases) lives in SnSession.
 //
