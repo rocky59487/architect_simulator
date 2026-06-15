@@ -132,4 +132,6 @@ research-only(評估階段不進五腿 gate、不改 default solve);現有 LDLT 
 
 **結果**:17k 預設**超越 MKL-CHOLMOD(0.94x)**;32k/64k 接近各自最佳但**仍慢 12–18%**(speedup 大規模僅 2.0–2.4x,根部 Amdahl + 頻寬更吃緊)。
 
-**下一步候選**:大規模超越(CCD affinity 綁定——8940HX 雙 CCD 跨 CCD 流量、更大 amalgamation panel 餵 dgemm 近 peak、union-loop 移進 analyze、並行 setup);百萬 DOF 實測(記憶體 peak,M2 外推 ~117GB peak/~19GB 駐留,須臨時記憶體優化);extended-precision residual 破 cond 底限達真 1e-9;production 整合(dual-build + 五腿 gate)入引擎統一 direct,HP 雙車道退役。
+**CCD affinity(已試 = 負面,2026-06-15)**:綁 worker 到物理核 `2*tid`(SMT 兄弟相鄰假設,讓 nt≤8 集中單 CCD L3)在 17k(0.97→1.01x)、64k(1.12→1.14x)**皆略退步**。原因:OS 排程器已置放良好,硬 pin 剝奪其彈性、且與 pool 的**動態搶任務**衝突(綁死的 worker 搶到的 panel 資料可能在另一 CCD),panel 共享也使 pin 無法改變跨 CCD 性。NUMA-aware 資料置放(panel 按 CCD 分配 + 任務-資料親和排程)才是真槓桿,但工程大、收益不確定 → 暫不追(reverted,sn_chol.h 留 NOTE)。
+
+**下一步候選**:大規模超越(更大 amalgamation panel 餵 dgemm 近 peak、union-loop 移進 analyze、並行 setup;NUMA-aware 資料置放);百萬 DOF 實測(記憶體 peak,M2 外推 ~117GB peak/~19GB 駐留,須臨時記憶體優化);extended-precision residual 破 cond 底限達真 1e-9;**production 整合(dual-build + 五腿 gate)入引擎統一 direct,HP 雙車道退役**。

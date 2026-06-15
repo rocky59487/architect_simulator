@@ -28,6 +28,11 @@ extern "C" int LAPACKE_dpotrf(int matrix_layout, char uplo, int n, double* a, in
 // main thread between level dispatches, never from workers (would race).
 extern "C" void openblas_set_num_threads(int);
 extern "C" int  openblas_get_num_threads(void);
+// NOTE: explicit worker->core pinning (SetThreadAffinityMask, "pin worker to physical core 2*tid")
+// was tried and REGRESSED at 17k (0.97->1.01x) and 64k (1.12->1.14x): the OS scheduler already
+// places threads well, and hard-pinning fights the pool's dynamic work-stealing (a pinned worker
+// grabs panels whose data may live on the other CCD). NUMA-aware data placement would be the real
+// lever but is a large, uncertain effort. Reverted -- see HPFEM_RESEARCH_NOTES.
 #ifndef LAPACK_COL_MAJOR
 #define LAPACK_COL_MAJOR 102
 #endif
