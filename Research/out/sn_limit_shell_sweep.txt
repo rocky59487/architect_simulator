@@ -1,0 +1,28 @@
+# v3 baseline: PURE-SHELL limit sweep -- clamped square plate, all MITC4, one process per scale.
+# Built with --shell (makeShellGrid) + SolveOptions::skipLdltFactor (research-only flag that skips the
+# SimplicialLDLT factor in assembleAndFactor, so the supernodal lane -- which factors K_ff itself --
+# can be benchmarked PAST the scale where SimplicialLDLT was the bottleneck in Phase E). 8940HX 16C/32T.
+# cols: nf | parallel factorMs | per-frame backsubMs | peak working-set MB | res0 (raw, no refinement)
+[sn-limit] shell(80x80)   n= 37446 nsn=6623  facMs=92.2   backsubMs=5.220  peakMB=236  res0=1.01e-10
+[sn-limit] shell(120x120) n= 84966 nsn=13618 facMs=237.2  backsubMs=16.816 peakMB=551  res0=1.60e-10
+[sn-limit] shell(160x160) n=151686 nsn=26793 facMs=473.9  backsubMs=31.726 peakMB=962  res0=2.28e-10
+[sn-limit] shell(200x200) n=237606 nsn=39918 facMs=765.2  backsubMs=59.427 peakMB=1541 res0=3.12e-10
+[sn-limit] shell(240x240) n=342726 nsn=54909 facMs=1023.8 backsubMs=77.207 peakMB=2297 res0=3.99e-10
+#
+# Fitted exponents (PURE SHELL = 2D manifold in 3D -- far lower than the mixed frame+shell building):
+#   backsub ~1.1-1.2   (mixed was 1.65)    factor ~1.05-1.09 (mixed 1.57)    peak ~1.03 (mixed 1.36)
+#
+# Real-time (SnSession factor-once, per-frame backsub only -- player wind/live-load on a fixed structure):
+#   60fps (16ms)  ~85k  DOF (~14k nodes)   [interpolated: shell 120 = 16.8ms]
+#   30fps (33ms)  ~155k DOF (~26k nodes)   [measured: shell 160 = 31.7ms ~= 30fps]
+#   interactive 100ms  ~425k DOF (~71k nodes)
+#   1s            ~2.7M DOF                 (real-time is the limit, NOT memory)
+#
+# Memory (peak ~linear, exp 1.03): 1M DOF ~7GB; 32GB holds ~3.9M DOF pure shell.
+#   => MEMORY IS NOT THE PURE-SHELL BOTTLENECK. (Mixed building Phase E extrapolated ~360k @ 32GB; pure
+#      shell is ~10x more because the 2D-manifold fill-in is near-linear, not the frame's non-local coupling.)
+#
+# vs mixed building at equal nf: pure shell is ~5x faster factor, ~2.5x faster backsub, ~4x less memory.
+# Caveat: a clamped FLAT square plate -- it captures the 2D-manifold SPARSITY of a free-form shell, but
+#   curvature/warp may raise fill slightly. res0 ~1e-10 (well-conditioned; no ~1.4e-9 cond floor like the
+#   ill-conditioned mixed building). Measured to 343k DOF; 1M+ is extrapolation on a stable ~1.1 exponent.

@@ -81,37 +81,38 @@ PreparedSystem assembleAndFactor(const FrameModel& model, const SolveOptions& op
         }
     if (S.nf == 0) { S.singular = true; S.diagnostic = "fully constrained (no free DOF)"; return ps; }
 
-    // reduced K_ff (free-free block; independent of prescribed values)
-    const SpMat Kff = reduceFF(S.K, S.fmap, S.nf);
-
     // factor + mechanism detection (from the factorization, never from connectivity)
-    S.ldlt.compute(Kff);
-    if (S.ldlt.info() != Eigen::Success) {
-        S.singular = true;
-        S.diagnostic = "LDLT factorization failed (info != Success): rank-deficient stiffness / mechanism";
-        return ps;
-    }
-    const VecX D = S.ldlt.vectorD();
-    real maxAbs = 0, minAbs = 0; bool firstPivot = true;
-    for (int i = 0; i < D.size(); ++i) {
-        const real a = std::abs(D(i));
-        maxAbs = std::max(maxAbs, a);
-        if (firstPivot || a < minAbs) { minAbs = a; firstPivot = false; }
-    }
-    const real tol = opts.pivotTol * std::max(real(1), maxAbs);
-    for (int i = 0; i < D.size(); ++i) {
-        if (std::abs(D(i)) < tol) {
+    if (!opts.skipLdltFactor) {   // research-only skip: the supernodal lane factors K_ff itself
+        // reduced K_ff (free-free block; independent of prescribed values)
+        const SpMat Kff = reduceFF(S.K, S.fmap, S.nf);
+        S.ldlt.compute(Kff);
+        if (S.ldlt.info() != Eigen::Success) {
             S.singular = true;
-            S.diagnostic = "near-zero pivot in LDLT D (mechanism) at reduced dof #" + std::to_string(i);
+            S.diagnostic = "LDLT factorization failed (info != Success): rank-deficient stiffness / mechanism";
             return ps;
         }
-        if (D(i) < 0) {
-            S.singular = true;
-            S.diagnostic = "negative pivot in LDLT D (indefinite stiffness / mechanism) at reduced dof #" + std::to_string(i);
-            return ps;
+        const VecX D = S.ldlt.vectorD();
+        real maxAbs = 0, minAbs = 0; bool firstPivot = true;
+        for (int i = 0; i < D.size(); ++i) {
+            const real a = std::abs(D(i));
+            maxAbs = std::max(maxAbs, a);
+            if (firstPivot || a < minAbs) { minAbs = a; firstPivot = false; }
         }
+        const real tol = opts.pivotTol * std::max(real(1), maxAbs);
+        for (int i = 0; i < D.size(); ++i) {
+            if (std::abs(D(i)) < tol) {
+                S.singular = true;
+                S.diagnostic = "near-zero pivot in LDLT D (mechanism) at reduced dof #" + std::to_string(i);
+                return ps;
+            }
+            if (D(i) < 0) {
+                S.singular = true;
+                S.diagnostic = "negative pivot in LDLT D (indefinite stiffness / mechanism) at reduced dof #" + std::to_string(i);
+                return ps;
+            }
+        }
+        S.pivotMargin = (maxAbs > 0) ? minAbs / maxAbs : 0;   // C4: proximity-to-singular (min/max pivot)
     }
-    S.pivotMargin = (maxAbs > 0) ? minAbs / maxAbs : 0;   // C4: proximity-to-singular (min/max pivot)
     S.fingerprint = modelFingerprint(model);   // baseline for the solveLoad reuse-validity guard
     return ps;
 }

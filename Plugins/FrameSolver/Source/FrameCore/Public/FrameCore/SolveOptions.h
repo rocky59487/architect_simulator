@@ -31,6 +31,12 @@ struct SolveOptions {
     // only (t/L < ~1/20); mid/thick plates MUST keep this false (MITC4). Membrane + drilling
     // are shared -- this flag ONLY swaps the bending block. Recovered Qx=Qy=0 (Kirchhoff).
     bool useDKQPlate = false;
+
+    // Research-only: skip the SimplicialLDLT factor in assembleAndFactor (the model is still
+    // assembled -- K, fmap, nf, fingerprint -- but NOT factored). Lets the supernodal lane, which
+    // factors K_ff itself, be benchmarked past the scale where SimplicialLDLT is the bottleneck.
+    // Leaves pivotMargin=0 and skips mechanism detection -- never use where solveLoad/LDLT is relied on.
+    bool skipLdltFactor = false;
 };
 
 } // namespace frame

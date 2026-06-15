@@ -87,6 +87,30 @@ static FrameModel makeMixedBuilding(int nx, int ny, int stories) {
     return m;
 }
 
+// v3 baseline: a PURE-shell 2D-manifold model (n x n clamped square plate, all MITC4 quads, no frame)
+// -- the sparse structure of a free-form shell building is a 2D manifold embedded in 3D, expected to
+// fill in like O(N^1.5) (lower exponent than the mixed frame+shell building). All edge nodes are
+// clamped (6 DOF fixed) so K_ff is SPD; interior nodes keep the full 6 DOF -> nf ~ 6*(n-1)^2.
+static FrameModel makeShellGrid(int n) {
+    FrameModel m;
+    Material mat(30000.0, 11538.0); mat.nu = 0.3;
+    m.materials.push_back(mat);
+    const double a = 1000.0, h = a / n;
+    auto gid = [n](int i, int j) { return j * (n + 1) + i; };
+    for (int j = 0; j <= n; ++j)
+        for (int i = 0; i <= n; ++i) {
+            Node nd(gid(i, j), i * h, j * h, 0.0);
+            if (i == 0 || i == n || j == 0 || j == n)
+                for (int d = 0; d < 6; ++d) nd.fixed[d] = true;   // clamped edges -> SPD K_ff
+            m.nodes.push_back(nd);
+        }
+    int sid = 0;
+    for (int j = 0; j < n; ++j)
+        for (int i = 0; i < n; ++i)
+            m.shells.push_back(ShellQuad(sid++, gid(i, j), gid(i + 1, j), gid(i + 1, j + 1), gid(i, j + 1), 0, 10.0));
+    return m;
+}
+
 static long long eigenStrictLnnz_natural(const SpMat& K) {
     Eigen::SimplicialLDLT<SpMat, Eigen::Lower, Eigen::NaturalOrdering<int>> s;
     s.compute(K);
@@ -296,7 +320,7 @@ static void testSuperLimit(const char* name, const SpMat& K, int relax, int nt) 
 int main(int argc, char** argv) {
     int nx = 8, ny = 6, st = 10;
     int nt = 0;                 // 0 = hardware_concurrency (M3b parallel factor)
-    bool bigSweep = false, limitMode = false;
+    bool bigSweep = false, limitMode = false, shellMode = false;
     for (int i = 1; i < argc; ++i) {
         auto next = [&]() -> const char* { return (i + 1 < argc) ? argv[++i] : "0"; };
         if      (!std::strcmp(argv[i], "--nx"))       nx = std::atoi(next());
@@ -305,19 +329,29 @@ int main(int argc, char** argv) {
         else if (!std::strcmp(argv[i], "--threads"))  nt = std::atoi(next());
         else if (!std::strcmp(argv[i], "--bigSweep")) bigSweep = true;
         else if (!std::strcmp(argv[i], "--limit"))    limitMode = true;
+        else if (!std::strcmp(argv[i], "--shell"))    shellMode = true;   // v3: pure-shell grid (nx = grid n)
     }
 
-    if (limitMode) {   // Phase E: reachable-edge limit sweep on ONE scale (driver = one process/scale)
-        FrameModel m = makeMixedBuilding(nx, ny, st);
+    if (limitMode) {   // Phase E / v3: reachable-edge limit sweep on ONE scale (one process/scale)
+        FrameModel m;
+        SolveOptions so;
+        char nm[64];
+        if (shellMode) {                                 // v3: PURE-shell 2D-manifold model
+            m = makeShellGrid(nx);
+            so.skipLdltFactor = true;                    // supernodal factors K_ff itself -> past the SimplicialLDLT wall
+            std::snprintf(nm, sizeof(nm), "shell(%dx%d)", nx, nx);
+        } else {
+            m = makeMixedBuilding(nx, ny, st);
+            std::snprintf(nm, sizeof(nm), "mixed(%d,%d,%d)", nx, ny, st);
+        }
         assertNodalOnly(m, "exp_sn_chol");
-        PreparedSystem ps = assembleAndFactor(m);
+        PreparedSystem ps = assembleAndFactor(m, so);
         const PreparedSystem::Impl& S = *ps.impl;
-        if (!S.singular) {
+        if (!S.singular && S.nf > 0) {
             const SpMat Kff = research::reduceFF(S.K, S.fmap, S.nf);
-            char nm[64]; std::snprintf(nm, sizeof(nm), "mixed(%d,%d,%d)", nx, ny, st);
             testSuperLimit(nm, Kff, 16, nt);
         } else {
-            std::printf("[sn-limit] mixed(%d,%d,%d) singular -- skipped\n", nx, ny, st);
+            std::printf("[sn-limit] %s singular/empty -- skipped\n", nm);
         }
         return 0;
     }
