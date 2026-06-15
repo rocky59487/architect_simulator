@@ -23,6 +23,14 @@ public class FrameCore : ModuleRules
         // FrameCore public API never see Eigen.
         AddEngineThirdPartyPrivateStaticDependencies(Target, "Eigen");
 
+        // UE-bundled METIS (MSVC static lib) for the supernodal lane's fill-reducing ordering.
+        // Linked as preparation; the supernodal body stays compiled out here (FRAMECORE_SUPERNODAL
+        // is left undefined -> 0 in FrameSnChol.h), so SnSolver.cpp routes to LDLT and METIS is not
+        // yet referenced. Activated in stage 3 together with an MSVC-clean OpenBLAS ThirdParty module
+        // (IntelOIDN four-part pattern). NOTE before enabling FRAMECORE_SUPERNODAL=1: confirm the UE
+        // metis build is IDXTYPEWIDTH==32 (sn_chol assumes idx_t=int32).
+        AddEngineThirdPartyPrivateStaticDependencies(Target, "metis");
+
         // Flip FrameEigen.h to the UE-guarded include path (THIRD_PARTY_INCLUDES_*).
         PublicDefinitions.Add("FRAMECORE_UE=1");
         PublicDefinitions.Add("EIGEN_MPL2_ONLY");

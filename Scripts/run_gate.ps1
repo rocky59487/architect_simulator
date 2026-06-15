@@ -13,7 +13,7 @@
 #   -Root <repo> -Engine <UE root>   (or set UE_ENGINE_ROOT)
 param(
     [switch]$RequireOpenSees,       # CI: fail (not skip) when openseespy is absent
-    [int]$ExpectedUeTests = 50,      # guard against silently running only a subset (S10: +1 N-M interaction hinge)
+    [int]$ExpectedUeTests = 51,      # guard against silently running only a subset (S10 +1; supernodal opt-in +1)
     [string]$Root = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path,
     [string]$Engine = $env:UE_ENGINE_ROOT,
     [string]$UProject = ''
