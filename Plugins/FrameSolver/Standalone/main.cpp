@@ -24,6 +24,7 @@
 #include "FrameCore/HpSolver.h"
 #include "FrameCore/HpSession.h"
 #include "FrameCore/SnSolver.h"
+#include "FrameCore/SnSession.h"
 #include "FrameTestFixtures.h"
 
 #include <vector>
@@ -3363,6 +3364,38 @@ int main() {
           PreparedSystem ps = assembleAndFactor(m);
           const SolveResult got = solveLoadSupernodal(ps, m, snOpt);
           checkTrue("F57-C mechanism -> singular via fallback (not NaN)", got.singular, got.diagnostic); }
+    }
+#endif // FRAMECORE_SUPERNODAL
+
+#if FRAMECORE_SUPERNODAL
+    // ---------- F58: SnSession (factor-once + solve-many, reused supernodal factor) vs LDLT ----------
+    // Stage 3b: the session factors ONCE in the ctor and reuses that factor across solveFrame calls
+    // (the production payoff). Each frame must match the LDLT oracle; a disabled session is a drop-in.
+    {
+        std::printf("[F58] SnSession: reused supernodal factor (factor-once + solve-many) vs LDLT oracle\n");
+        FrameModel m; fixtures::simplySupportedUDL(m, 5.0, 3000.0, mat, sec);
+        PreparedSystem ps = assembleAndFactor(m);
+        SnSession sess(ps);   // enabled default true -> factors once in the ctor
+        checkTrue("F58 session valid (supernodal factor ready)", sess.valid(), sess.diagnostic());
+
+        const SolveResult ref = solveLoad(ps, m);
+        for (int frame = 0; frame < 3; ++frame) {   // each solveFrame reuses the SAME factor
+            const SolveResult got = sess.solveFrame(m);
+            double un = 1e-30, du = 0;
+            for (real v : ref.u) un = std::max(un, std::fabs((double)v));
+            for (size_t k = 0; k < got.u.size(); ++k) du = std::max(du, std::fabs((double)got.u[k] - (double)ref.u[k]));
+            checkTrue((std::string("F58 frame ") + std::to_string(frame) + " reused factor == LDLT (rel<1e-10)").c_str(),
+                      !got.singular && du / un <= 1e-10, "uRel=" + std::to_string(du / un) + " | " + got.diagnostic);
+        }
+
+        SnSessionOptions off; off.enabled = false;   // disabled session -> drop-in equal to solveLoad
+        SnSession sessOff(ps, off);
+        const SolveResult gotOff = sessOff.solveFrame(m);
+        double un = 1e-30, du = 0;
+        for (real v : ref.u) un = std::max(un, std::fabs((double)v));
+        for (size_t k = 0; k < gotOff.u.size(); ++k) du = std::max(du, std::fabs((double)gotOff.u[k] - (double)ref.u[k]));
+        checkTrue("F58 disabled session == LDLT drop-in (rel<1e-12)", !gotOff.singular && du / un <= 1e-12,
+                  "uRel=" + std::to_string(du / un) + " | " + gotOff.diagnostic);
     }
 #endif // FRAMECORE_SUPERNODAL
 

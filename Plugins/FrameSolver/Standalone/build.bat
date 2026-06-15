@@ -71,6 +71,7 @@ cl /nologo /EHsc /std:c++17 /O2 /MD /utf-8 /DEIGEN_MPL2_ONLY /DFRAMECORE_SUPERNO
    Source\FrameCore\Private\SizeOpt.cpp ^
    Source\FrameCore\Private\Topology.cpp ^
    Source\FrameCore\Private\SnSolver.cpp ^
+   Source\FrameCore\Private\SnSession.cpp ^
    Standalone\main.cpp ^
    /link /LIBPATH:"%CONDA_SS%\lib" openblas.lib metis.lib
 if errorlevel 1 ( echo [build] COMPILE FAILED & popd & exit /b 1 )
