@@ -89,13 +89,11 @@ BucklingResult solveBuckling(const PreparedSystem& prepared, const FrameModel& m
     // 1) reference linear solve -> member axial forces (compression-positive)
     const SolveResult lin = solveLoad(prepared, model);
     if (lin.singular) { R.singular = true; R.diagnostic = "reference linear solve singular"; return R; }
-    std::vector<real> axial(model.members.size(), 0.0);
-    for (size_t e = 0; e < lin.memberForces.size() && e < axial.size(); ++e)
-        axial[e] = lin.memberForces[e].endI.N;
-
-    // 2) geometric stiffness Kg from those axial forces
+    // 2) geometric stiffness Kg from that linear stress state. Each element reads what it needs:
+    //    a beam its compression-positive axial force from lin.memberForces, a shell its membrane
+    //    field from lin.u (opt-in). Shells stay no-op unless SolveOptions::shellGeometricStiffness.
     std::vector<Triplet> gtrips;
-    for (const auto& el : S.elems) el->assembleGeometric(gtrips, axial);
+    for (const auto& el : S.elems) el->assembleGeometric(gtrips, lin);
     SpMat Kg(N, N);
     Kg.setFromTriplets(gtrips.begin(), gtrips.end());
     Kg.makeCompressed();

@@ -167,7 +167,10 @@ to the previous monolithic solver (regression-checked, F19).
 
 Two new `IElement` hooks feed the dynamic/stability analyses (default-empty, so existing elements
 are unaffected): `assembleMass` (consistent mass `localMass12` / shell `shellMass24`) and
-`assembleGeometric` (geometric stiffness `localGeometric12` from the prior solve's axial forces).
+`assembleGeometric` (geometric stiffness from the prior linear solve — passed the whole `SolveResult`
+so each element reads what it needs: a beam its axial force `localGeometric12`, a MITC4 shell its
+membrane-stress transverse stiffening `k_w=∫Gᵂᵀ S Gᵂ dA` recomputed per Gauss point, opt-in via
+`SolveOptions::shellGeometricStiffness` and otherwise a no-op).
 The analysis modules (each a free function + POD result, **no `solve()` flag bloat**):
 
 | Module | Entry point | Math |
@@ -176,7 +179,7 @@ The analysis modules (each a free function + POD result, **no `solve()` flag blo
 | Self-weight | `addSelfWeight` (`SelfWeight.h`) | `w=ρgA` / `p=ρgt`; unit bridge ρ·1e-12 |
 | Influence line | `reactionInfluenceLine` (`InfluenceLine.h`) | unit load marched, reusing the factorization |
 | Modal | `solveModal` (`ModalAnalysis.h`) | generalized eigenproblem `Kφ=ω²Mφ` (dense) |
-| Buckling | `solveBuckling` (`BucklingAnalysis.h`) | `(-Kg_ff)φ = γ K_ff φ`, λ_cr = 1/γ_max |
+| Buckling | `solveBuckling` (`BucklingAnalysis.h`) | `(-Kg_ff)φ = γ K_ff φ`, λ_cr = 1/γ_max; beam Kg always, shell Kg opt-in (`shellGeometricStiffness`, F57) |
 | P-Delta (S3) | `runPDelta` (`PDeltaAnalysis.h`) | second-order Theory-II: frozen pseudo-load `u ← K_e⁻¹(F − Kg u)` reusing the existing LDLᵀ (default, zero re-factor) **or** fresh LDLᵀ of `K_T = K_e+Kg` (reference, Wilson 1987); axial frozen at first order; `F_ff = K_ff·u_lin_ff` shared by both paths; protected geometric extrapolation + 20-step sliding-window divergence detector; bit-for-bit linear at P=0 |
 | Tension-only (S4) | `runTensionOnly` (`TensionOnly.h`) | active-set fixed point: deactivate a `Member.tensionOnly` member that reads compression / re-activate on axial elongation `(u_j−u_i)·x̂>0`; inner re-solves via `ReSolveSession` (rank-6 Woodbury per flip); transition-hash cycle guard + monotone (deactivate-only) fallback for finite termination; converged state == omitting the slack members |
 | Response spectrum | `solveResponseSpectrum` (`ResponseSpectrum.h`) | modal participation + SRSS/CQC |

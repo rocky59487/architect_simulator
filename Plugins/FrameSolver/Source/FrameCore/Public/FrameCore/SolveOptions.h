@@ -31,6 +31,16 @@ struct SolveOptions {
     // only (t/L < ~1/20); mid/thick plates MUST keep this false (MITC4). Membrane + drilling
     // are shared -- this flag ONLY swaps the bending block. Recovered Qx=Qy=0 (Kirchhoff).
     bool useDKQPlate = false;
+
+    // Opt-in SHELL geometric stiffness (stress stiffening) for MITC4 shells, so a model containing
+    // shells gets a meaningful linear buckling factor (and shell P-Delta). false keeps shells a
+    // no-op in assembleGeometric -> buckling/P-Delta stay BIT-FOR-BIT today's beam-column-only
+    // behavior. Unlike the flags above this one does NOT change K_e / the factorization -- it only
+    // feeds assembleGeometric from the prior linear solve's membrane field -- so it lives here purely
+    // for shell opt-in consistency, and forcing a fresh assembleAndFactor on change is harmless.
+    // Transverse-displacement (w) stress stiffening only: the standard thin-shell buckling term;
+    // in-plane (u,v) second-order terms are intentionally excluded (documented limitation).
+    bool shellGeometricStiffness = false;
 };
 
 } // namespace frame

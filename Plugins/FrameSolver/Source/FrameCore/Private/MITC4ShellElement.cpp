@@ -529,6 +529,7 @@ bool MITC4ShellElement::prepare(const FrameModel& model, const SolveOptions& opt
     // membrane (plane stress) + drilling mapped into the in-plane DOFs. ----
     useQM6_ = opts.useIncompatibleMembrane;   // 8a: QM6 incompatible-mode membrane (opt-in)
     useDKQ_ = opts.useDKQPlate;               // 8b: DKQ discrete-Kirchhoff thin plate (opt-in)
+    useShellKsigma_ = opts.shellGeometricStiffness;   // shell geometric stiffness (opt-in, S-shell)
     const Mat12 Kp = useDKQ_ ? plateK_DKQ(xl_, yl_, E_, nu_, G_, t_)
                              : plateK(xl_, yl_, E_, nu_, G_, t_);
     const Mat12 Km = useQM6_ ? membraneK_QM6(xl_, yl_, E_, nu_, G_, t_)
@@ -632,6 +633,65 @@ void MITC4ShellElement::recover(const VecX& u, SolveResult& R) const {
         sf.MxxC[k] = Mk(0); sf.MyyC[k] = Mk(1); sf.MxyC[k] = Mk(2);
     }
     R.shellForces[static_cast<size_t>(s_)] = sf;
+}
+
+// Shell geometric stiffness (stress stiffening), opt-in via SolveOptions::shellGeometricStiffness.
+// Transverse-displacement (w) form  k_w = INT G_w^T S G_w dA, with the in-plane membrane stress
+// tensor  S = [[Nxx,Nxy],[Nxy,Nyy]]  (tension-positive) recomputed from the prior linear solve at
+// EACH Gauss point (shell membrane fields can vary strongly across a facet -- richer than a beam's
+// constant axial force). G_w = [dN/dx ; dN/dy] is the Cartesian gradient of the bilinear w shape
+// functions. The 4x4 w-block scatters into the local Uz DOFs (6i+2, the same w->Uz map as
+// plateToShellMap) and rotates to global (T^T k T) exactly like assemble(). Unlike the beam
+// (compression only) the FULL membrane tensor is used, so biaxial / shear buckling are captured.
+// Sign matches the beam's localGeometric12 (compression -> softening), so shell and beam Kg add
+// directly. w-only: in-plane (u,v) second-order terms are intentionally excluded (thin-shell term).
+void MITC4ShellElement::assembleGeometric(std::vector<Triplet>& trips, const SolveResult& prestress) const {
+    if (!useShellKsigma_) return;   // opt-in off -> shells stay a no-op (buckling/P-Delta bit-exact)
+
+    // Element displacements from the prior linear solve -> local -> membrane DOFs (u,v,thz)x4.
+    Vec24 ug;
+    for (int a = 0; a < 24; ++a) ug(a) = prestress.u[static_cast<size_t>(dofs_[a])];
+    const Vec24 ul = T_ * ug;
+    static const Eigen::Matrix<real, 12, 24> Pmem = membraneToShellMap();
+    const Eigen::Matrix<real, 12, 1> dm = Pmem * ul;
+    const Mat3x3 Dm = planeDm(E_, nu_);
+
+    // k_w (4x4 over the corner w DOFs) = sum_gp  wgt * G_w^T S G_w.
+    Eigen::Matrix<real, 4, 4> kw = Eigen::Matrix<real, 4, 4>::Zero();
+    for (int a = 0; a < 2; ++a)
+        for (int b = 0; b < 2; ++b) {
+            const real xi = kG[a], eta = kG[b];
+            real Jinv[2][2];
+            const real detJ = jacobian(xl_, yl_, xi, eta, Jinv);
+            const real wgt = kW[a] * kW[b] * detJ;
+
+            // Membrane stress resultants at this Gauss point: N = t * Dm * (Bm * dm)  [N/mm].
+            const Mat3x12 Bm = Bmembrane(xl_, yl_, xi, eta);
+            const Eigen::Matrix<real, 3, 1> Nf = t_ * (Dm * (Bm * dm));
+            Eigen::Matrix<real, 2, 2> S;
+            S << Nf(0), Nf(2),
+                 Nf(2), Nf(1);
+
+            // G_w = Cartesian gradient of the bilinear w shape functions (2x4).
+            real dNxi[4], dNeta[4];
+            shapeDN(xi, eta, dNxi, dNeta);
+            Eigen::Matrix<real, 2, 4> Gw;
+            for (int i = 0; i < 4; ++i) {
+                Gw(0, i) = Jinv[0][0] * dNxi[i] + Jinv[0][1] * dNeta[i];   // dNi/dx
+                Gw(1, i) = Jinv[1][0] * dNxi[i] + Jinv[1][1] * dNeta[i];   // dNi/dy
+            }
+            kw += wgt * (Gw.transpose() * S * Gw);
+        }
+
+    // Scatter the w-block into local Uz (6i+2), rotate to global, append (filter zeros like assemble()).
+    Mat24 kgeo = Mat24::Zero();
+    for (int i = 0; i < 4; ++i)
+        for (int j = 0; j < 4; ++j)
+            kgeo(6 * i + 2, 6 * j + 2) = kw(i, j);
+    const Mat24 kGg = T_.transpose() * kgeo * T_;
+    for (int a = 0; a < 24; ++a)
+        for (int b = 0; b < 24; ++b)
+            if (kGg(a, b) != 0.0) trips.emplace_back(dofs_[a], dofs_[b], kGg(a, b));
 }
 
 } // namespace frame

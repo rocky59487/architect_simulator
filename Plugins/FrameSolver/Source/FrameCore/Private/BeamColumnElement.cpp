@@ -101,8 +101,11 @@ void BeamColumnElement::assembleMass(std::vector<Triplet>& trips) const {
             trips.emplace_back(dofs_[a], dofs_[b], mg(a, b));
 }
 
-void BeamColumnElement::assembleGeometric(std::vector<Triplet>& trips, const std::vector<real>& memberAxial) const {
-    const real N = (e_ >= 0 && e_ < static_cast<int>(memberAxial.size())) ? memberAxial[e_] : 0.0; // compression +
+void BeamColumnElement::assembleGeometric(std::vector<Triplet>& trips, const SolveResult& prestress) const {
+    // Compression-positive axial force from the prior linear solve -- the same value the old
+    // memberAxial[e_] carried (the caller used to pre-extract it into a vector).
+    const real N = (e_ >= 0 && e_ < static_cast<int>(prestress.memberForces.size()))
+                 ? prestress.memberForces[static_cast<size_t>(e_)].endI.N : 0.0;  // compression +
     if (N <= 0.0) return;                                  // tension is stabilizing; not a buckling source
     const Mat12 kgL = localGeometric12(-N, L_);           // tension-positive P = -N
     const Mat12 kgG = T_.transpose() * kgL * T_;

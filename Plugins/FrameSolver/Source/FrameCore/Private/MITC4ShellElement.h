@@ -32,6 +32,7 @@ public:
     bool prepare(const FrameModel& model, const SolveOptions& opts, std::string& why) override;
     void assemble(std::vector<Triplet>& trips) const override;
     void assembleMass(std::vector<Triplet>& trips) const override;
+    void assembleGeometric(std::vector<Triplet>& trips, const SolveResult& prestress) const override;
     void addEquivalentNodalLoads(VecX& F) const override;
     void recover(const VecX& u, SolveResult& R) const override;
 
@@ -64,6 +65,7 @@ private:
     // Both false -> original MITC4 (bilinear Q4 membrane + assumed-shear plate), bit-for-bit.
     bool  useQM6_ = false;           // 8a: QM6 incompatible-mode membrane
     bool  useDKQ_ = false;           // 8b: DKQ discrete-Kirchhoff thin-plate bending
+    bool  useShellKsigma_ = false;   // shell geometric stiffness opt-in (SolveOptions::shellGeometricStiffness)
     // Note: QM6 needs NO recover cache. B_inc(0,0)=0 (dP1/dxi=-2xi, dP2/deta=-2eta vanish at
     // the centre), and ShellElementForces.N is a CENTRE value, so the centre membrane strain
     // is Bm(0,0)*d with zero bubble contribution -- the existing recover path is already

@@ -66,13 +66,10 @@ PDeltaResult runPDelta(const FrameModel& model, const PDeltaOptions& opts) {
     if (lin.singular) { R.finalState = lin; return R; }
     const int N = S.N, nf = S.nf;
 
-    std::vector<real> axial(model.members.size(), 0.0);
-    for (size_t e = 0; e < lin.memberForces.size() && e < axial.size(); ++e)
-        axial[e] = lin.memberForces[e].endI.N;   // compression-positive
-
-    // 2) geometric stiffness Kg from the frozen axial forces; reduce to the free block.
+    // 2) geometric stiffness Kg from the frozen linear stress state (beam: axial from
+    //    lin.memberForces; shell: membrane field from lin.u, opt-in); reduce to the free block.
     std::vector<Triplet> gtrips;
-    for (const auto& el : S.elems) el->assembleGeometric(gtrips, axial);
+    for (const auto& el : S.elems) el->assembleGeometric(gtrips, lin);
     SpMat Kg(N, N);
     Kg.setFromTriplets(gtrips.begin(), gtrips.end());
     Kg.makeCompressed();

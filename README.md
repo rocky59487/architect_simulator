@@ -13,8 +13,8 @@ The public API uses only plain C++/POD types (no UE, no Eigen leakage), so the s
 compiles as a standalone console gate *and* as an Unreal Engine module. The core remains
 C++17-compatible; the UE module target is compiled as C++20 because of the current UBT/toolchain.
 
-> **Status (2026-06, S1–S10 + supernodal direct lane):** the five-leg verification gate is green —
-> standalone `ALL PASS` (fixtures **F1–F56**) · **52** UE automation tests ·
+> **Status (2026-06, S1–S10 + supernodal direct lane + shell K_σ):** the five-leg verification gate is green —
+> standalone `ALL PASS` (fixtures **F1–F57**) · **53** UE automation tests ·
 > **OpenSees** strict cross-validation PASS · deep audit **104** independent checks ·
 > CLI round-trip ALL PASS. One repo-relative command reproduces it (`-Engine` or `UE_ENGINE_ROOT`
 > can point at a non-sibling Unreal install):
@@ -52,7 +52,7 @@ types, `PreparedSystem` for factorization reuse), and each gated by its own orac
 | Prescribed support settlement | matches OpenSees `sp()` to 0 |
 | Influence lines / moving loads | unit load marched on the shared factorization; Müller-Breslau cross-check |
 | Modal analysis | `Kφ=ω²Mφ`, consistent mass; dense default + opt-in sparse path; vs OpenSees `eigen` ~1e-11 |
-| Linear buckling | geometric stiffness from axial force → Euler factor; opt-in sparse subspace path (F34) |
+| Linear buckling | geometric stiffness from axial force → Euler factor; opt-in sparse subspace path (F34). Opt-in **shell** K_σ (`shellGeometricStiffness`): MITC4 membrane stress → transverse stress stiffening → plate buckling `N_cr=4π²D/a²` (F57; w-only, flat-facet O(1/N²)) |
 | Response spectrum | modal participation + SRSS/CQC (the code spectrum curve is an input) |
 | Real-time transient | modal superposition + Newmark-β, O(nModes)/step |
 
@@ -133,7 +133,10 @@ Grasshopper ecosystem) are explicitly not claimed.
   spectrum oracle. QM6/DKQ help membranes / thin plates respectively; DKQ has deliberately
   **no** transverse shear. The grillage over-estimates transverse moments (~2 % deflection).
 - **Dynamics, buckling, response spectrum are linear** (proportional damping; buckling is the
-  onset eigenvalue). **P-Delta is a Theory-II linearization** (axial force frozen at first
+  onset eigenvalue). Shell buckling (opt-in shell K_σ) is **facet-level w-only stress stiffening**
+  verified against the analytic plate load (F57); a curved-shell buckling result is that facet K_σ
+  plus flat-facet mesh approximation — no curved-shell benchmark yet, and no post-buckling (that is
+  the shell co-rotational line). **P-Delta is a Theory-II linearization** (axial force frozen at first
   order, small sway) — large displacement belongs to the co-rotational driver.
 - **The co-rotational driver is beams-only, small-strain / large-rotation**: nodal loads,
   member UDL (initial-configuration equivalent) and prescribed displacement; no shells, no
@@ -192,7 +195,7 @@ Engine\Binaries\Win64\UnrealEditor-Cmd.exe ...\ArchSim.uproject -ExecCmds="Autom
 
 > `run_gate.ps1` runs the UE automation but does **not** rebuild the UE module — rebuild
 > first (command above) after touching engine code, or the automation runs a stale binary.
-> The `$ExpectedUeTests = 52` guard catches a silently-missing test.
+> The `$ExpectedUeTests = 53` guard catches a silently-missing test.
 
 **Try the engine without writing C++** — the text bridge solves a model from stdin:
 
@@ -257,7 +260,7 @@ Plugins/FrameSolver/
                                         collapse, reanalysis, corotational, optimization)
     Private/*.cpp                       implementation (+ Private/FrameEigen.h: the single
                                         Eigen include site, dual-build guarded)
-    Private/Tests/*.cpp                 52 UE automation tests (UE-side oracle mirrors)
+    Private/Tests/*.cpp                 53 UE automation tests (UE-side oracle mirrors)
   Standalone/                           console gates + CLI/C-API drivers (see its README)
   Grasshopper/                          C# reference client for the text bridge
 Scripts/run_gate.ps1                    the one-click five-leg gate

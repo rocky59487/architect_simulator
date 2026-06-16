@@ -3040,6 +3040,114 @@ int main() {
     }
 #endif // FRAMECORE_SUPERNODAL
 
+    // ---------- F57: shell geometric stiffness -> simply-supported plate buckling ----------
+    // First independent oracle for the new shell K_sigma (opt-in SolveOptions::shellGeometricStiffness).
+    // A simply-supported square plate under uniform uniaxial in-plane compression buckles at the
+    // classical Kirchhoff load  N_cr = 4 pi^2 D / a^2  (D = E t^3 / [12(1-nu^2)]; square plate, lowest
+    // mode m=n=1 -> factor k=4). MITC4 (flat facet) converges to this as O(1/N^2); we show the error
+    // shrink and assert ~3% at n=20. Plus: axis invariance (plate normal z vs x -> same factor, which
+    // exercises the T transform), sparse==dense on the shell Kg, and an opt-in-OFF regression (no shell
+    // Kg -> no compression source -> singular), so the flag is demonstrably doing the work.
+    {
+        const real kPi = 3.14159265358979323846;
+        std::printf("[F57] shell K_sigma: SS square-plate uniaxial buckling (N_cr = 4 pi^2 D / a^2)\n");
+        const real Es = 200000.0, nus = 0.3;
+        Material smat(Es, Es / (2.0 * (1.0 + nus))); smat.nu = nus;
+        const real a = 1000.0, tpl = 5.0;                      // thin plate: t/a = 0.005 (Kirchhoff limit)
+        const real Dpl = Es * tpl * tpl * tpl / (12.0 * (1.0 - nus * nus));
+        const real Ncr = 4.0 * kPi * kPi * Dpl / (a * a);      // SS square plate, uniaxial, k=4
+        const real Pref = 1.0;                                 // reference edge line-load (N/mm), compression
+
+        // n x n MITC4 plate in the plane whose NORMAL is global axis `axN` (2=z or 0=x). SS (w=0 on the
+        // 4 edges), reaction edge i=0 (so sigma along local x is uniform), one corner pins the 2nd
+        // in-plane axis, all drilling DOFs fixed; uniform uniaxial edge compression (consistent nodal
+        // loads: corner trib h/2, interior h) on the i=n edge.
+        auto buildPlate = [&](FrameModel& m, int n, int axN) {
+            m = FrameModel{};
+            m.materials.push_back(smat);
+            const int ax1 = (axN == 2) ? 0 : 1;               // local-x -> global ax1
+            const int ax2 = (axN == 2) ? 1 : 2;               // local-y -> global ax2
+            const real hh = a / n;
+            auto gid = [n](int i, int j) { return j * (n + 1) + i; };
+            for (int j = 0; j <= n; ++j)
+                for (int i = 0; i <= n; ++i) {
+                    real p[3] = { 0, 0, 0 };
+                    p[ax1] = i * hh; p[ax2] = j * hh;          // p[axN] stays 0 (planar facet)
+                    Node nd(gid(i, j), p[0], p[1], p[2]);
+                    nd.fixed[3 + axN] = true;                 // drilling (rotation about the facet normal)
+                    const bool edge = (i == 0 || i == n || j == 0 || j == n);
+                    if (edge) nd.fixed[axN] = true;           // simple support: w = 0 on all 4 edges
+                    if (i == 0) nd.fixed[ax1] = true;         // reaction edge -> uniform sigma along local x
+                    if (i == 0 && j == 0) nd.fixed[ax2] = true;  // pin 2nd in-plane axis (rigid body + spin)
+                    m.nodes.push_back(nd);
+                }
+            int sid = 0;
+            for (int j = 0; j < n; ++j)
+                for (int i = 0; i < n; ++i)
+                    m.shells.push_back(ShellQuad(sid++, gid(i, j), gid(i + 1, j), gid(i + 1, j + 1), gid(i, j + 1), 0, tpl));
+            for (int j = 0; j <= n; ++j) {                    // uniform uniaxial compression on the i=n edge
+                const real trib = (j == 0 || j == n) ? 0.5 * hh : hh;
+                NodalLoad nl; nl.node = gid(n, j);
+                nl.comp[ax1] = -Pref * trib;                  // compression along local x (-ax1)
+                m.nodalLoads.push_back(nl);
+            }
+        };
+
+        SolveOptions soOn;  soOn.shellGeometricStiffness = true;
+        SolveOptions soOff; soOff.shellGeometricStiffness = false;
+        BucklingOptions denseOpt;  denseOpt.denseThreshold  = 1 << 30;   // force dense
+        BucklingOptions sparseOpt; sparseOpt.denseThreshold = 0;         // force sparse
+
+        // (a) convergence to the analytic N_cr (plate normal = z), default path
+        real lastRel = 1.0;
+        for (int n : { 12, 16, 20 }) {
+            FrameModel m; buildPlate(m, n, 2);
+            PreparedSystem ps = assembleAndFactor(m, soOn);
+            const BucklingResult b = solveBuckling(ps, m);
+            checkTrue(("F57 n=" + std::to_string(n) + " non-singular").c_str(), !b.singular, b.diagnostic);
+            const real NcrNum = b.criticalFactor * Pref;
+            const real rel = std::fabs(NcrNum - Ncr) / Ncr;
+            std::printf("   n=%2d: Ncr_num=%.7g Ncr_exact=%.7g rel=%.3e\n", n, NcrNum, Ncr, rel);
+            lastRel = rel;
+        }
+        checkTrue("F57 SS plate buckling -> 4 pi^2 D/a^2 (rel<3% at n=20)", lastRel < 3e-2,
+                  "rel=" + std::to_string(lastRel));
+
+        // (b) axis invariance: normal=z vs normal=x must agree (validates the T transform). Dense both
+        //     so the comparison is at machine precision rather than the sparse tolerance.
+        {
+            FrameModel mz; buildPlate(mz, 12, 2);
+            FrameModel mx; buildPlate(mx, 12, 0);
+            PreparedSystem pz = assembleAndFactor(mz, soOn);
+            PreparedSystem px = assembleAndFactor(mx, soOn);
+            const BucklingResult bz = solveBuckling(pz, mz, denseOpt);
+            const BucklingResult bx = solveBuckling(px, mx, denseOpt);
+            checkTrue("F57 axis-z non-singular", !bz.singular, bz.diagnostic);
+            checkTrue("F57 axis-x non-singular", !bx.singular, bx.diagnostic);
+            checkClose("F57 axis invariance (normal z == normal x)", bx.criticalFactor, bz.criticalFactor, 1e-9);
+        }
+
+        // (c) sparse == dense on the same shell Kg (forces the subspace path)
+        {
+            FrameModel m; buildPlate(m, 16, 2);
+            PreparedSystem ps = assembleAndFactor(m, soOn);
+            const BucklingResult d = solveBuckling(ps, m, denseOpt);
+            const BucklingResult s = solveBuckling(ps, m, sparseOpt);
+            checkTrue("F57 dense non-singular", !d.singular, d.diagnostic);
+            checkTrue("F57 sparse non-singular", !s.singular, s.diagnostic);
+            checkClose("F57 sparse == dense (shell Kg)", s.criticalFactor, d.criticalFactor, 1e-6);
+        }
+
+        // (d) opt-in OFF regression: shells contribute no Kg -> no compression source -> singular,
+        //     proving the flag (not some incidental path) is what produces the buckling factor.
+        {
+            FrameModel m; buildPlate(m, 16, 2);
+            PreparedSystem ps = assembleAndFactor(m, soOff);
+            const BucklingResult b = solveBuckling(ps, m);
+            checkTrue("F57 opt-in OFF -> no shell Kg -> singular (no buckling source)", b.singular, b.diagnostic);
+        }
+    }
+
     std::printf("\n%s  (failures=%d)\n", g_fail == 0 ? "ALL PASS" : "FAILURES", g_fail);
     return g_fail == 0 ? 0 : 1;
 }

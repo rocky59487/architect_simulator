@@ -39,12 +39,14 @@ struct IElement {
     // need it) are unaffected; BeamColumnElement and MITC4ShellElement override it.
     virtual void assembleMass(std::vector<Triplet>& trips) const { (void)trips; }
 
-    // Append this element's global-DOF GEOMETRIC stiffness contribution (stress stiffening
-    // from the prior linear solve's member axial forces; basis of P-Delta / buckling).
-    // `memberAxial[memberIndex]` carries the compression-positive axial force. Default empty
-    // (e.g. shells, which don't yet contribute geometric stiffness).
-    virtual void assembleGeometric(std::vector<Triplet>& trips, const std::vector<real>& memberAxial) const {
-        (void)trips; (void)memberAxial;
+    // Append this element's global-DOF GEOMETRIC stiffness contribution (stress stiffening from
+    // the prior linear solve's stress state; basis of P-Delta / buckling). `prestress` is that
+    // linear SolveResult: a beam reads its compression-positive axial force from
+    // prestress.memberForces[memberIndex]; a shell reads its membrane stress field from
+    // prestress.u (recomputed per Gauss point, opt-in). Default empty (an element contributing
+    // no geometric stiffness, e.g. a shell with SolveOptions::shellGeometricStiffness off).
+    virtual void assembleGeometric(std::vector<Triplet>& trips, const SolveResult& prestress) const {
+        (void)trips; (void)prestress;
     }
 
     // Add this element's equivalent nodal loads (P_equiv = -T^T Qf) into global F.
