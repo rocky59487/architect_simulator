@@ -13,8 +13,8 @@ The public API uses only plain C++/POD types (no UE, no Eigen leakage), so the s
 compiles as a standalone console gate *and* as an Unreal Engine module. The core remains
 C++17-compatible; the UE module target is compiled as C++20 because of the current UBT/toolchain.
 
-> **Status (2026-06, S1–S10 + supernodal direct lane + shell K_σ):** the five-leg verification gate is green —
-> standalone `ALL PASS` (fixtures **F1–F57**) · **53** UE automation tests ·
+> **Status (2026-06, S1–S10 + supernodal direct lane + shell K_σ + shell CR):** the five-leg verification gate is green —
+> standalone `ALL PASS` (fixtures **F1–F59**) · **54** UE automation tests ·
 > **OpenSees** strict cross-validation PASS · deep audit **104** independent checks ·
 > CLI round-trip ALL PASS. One repo-relative command reproduces it (`-Engine` or `UE_ENGINE_ROOT`
 > can point at a non-sibling Unreal install):
@@ -76,7 +76,7 @@ types, `PreparedSystem` for factorization reuse), and each gated by its own orac
 | **ReSolve ladder (S1)** | three-tier incremental reanalysis for interactive editing: Tier-1 rank-k **Woodbury** (formula-exact; ~1e-12 of fresh — float path, not bit-identical), Tier-2 **stale-LDLᵀ PCG** (tolerance-grade), Tier-3 rebaseline (always-correct fallback); mechanism detection preserved across tiers |
 | **P-Delta (S3)** | Theory-II second order: frozen pseudo-load iteration reusing the existing LDLᵀ (zero re-factor) **or** a K_T re-factor reference — the two paths cross-check to ~1e-13; P=0 is bit-identical to linear; past P_cr it reports `diverged` instead of a silent wrong answer |
 | **Tension-only members (S4)** | cables / slender X-braces drop out under compression; active-set iteration whose inner re-solves ride the ReSolve ladder (rank-6 per flip); converged state == omitting the slack members; cycle guard + monotone fallback ensure finite termination |
-| **Co-rotational large displacement (S9/S9b/S9c)** | geometrically nonlinear beam driver: planar → general 3-D (torsion + biaxial + SO(3) finite rotations, vs OpenSees corotational 1.22e-9) → **arc-length snap-through** path following (limit load vs OpenSees `ArcLength` 6.4e-3), consistent FD tangent, member UDL, prescribed large displacement; elastica benchmarks to ~1e-4 of Mattiasson's tables |
+| **Co-rotational large displacement (S9/S9b/S9c + shell EICR)** | geometrically nonlinear beam driver: planar → general 3-D (torsion + biaxial + SO(3) finite rotations, vs OpenSees corotational 1.22e-9) → **arc-length snap-through** path following (limit load vs OpenSees `ArcLength` 6.4e-3), consistent FD tangent, member UDL, prescribed large displacement; elastica benchmarks to ~1e-4 of Mattiasson's tables. Opt-in **EICR shells** (`shellCorotational`): large-displacement MITC4 facets, rotation-invariant to 1e-14, strip elastica ~1e-4 of Mattiasson (NR load-control; shell arc-length later phase) |
 
 ### 5 · Optimization
 
@@ -138,10 +138,14 @@ Grasshopper ecosystem) are explicitly not claimed.
   plus flat-facet mesh approximation — no curved-shell benchmark yet, and no post-buckling (that is
   the shell co-rotational line). **P-Delta is a Theory-II linearization** (axial force frozen at first
   order, small sway) — large displacement belongs to the co-rotational driver.
-- **The co-rotational driver is beams-only, small-strain / large-rotation**: nodal loads,
-  member UDL (initial-configuration equivalent) and prescribed displacement; no shells, no
-  hinge/tension-only coupling, no snap-back / bifurcation branching (cylindrical arc-length
-  follows the primary path); the consistent tangent is finite-difference, not analytic.
+- **The co-rotational driver is beams + opt-in EICR shells, small-strain / large-rotation**: nodal
+  loads, member UDL (initial-configuration equivalent) and prescribed displacement. Opt-in
+  `shellCorotational` adds EICR large-displacement MITC4 shells (NR load-control; rotation-invariant
+  to 1e-14, large-deflection strip to ~1e-4 of Mattiasson) — but **shell arc-length post-buckling,
+  CR-consistent shell-force recover and an analytic shell tangent are later phases**, and the
+  flat-facet O(1/N²) surface approximation is unchanged (the CR frame removes rigid rotation, not the
+  faceting). No hinge/tension-only coupling, no snap-back / bifurcation branching (cylindrical
+  arc-length follows the primary path); the consistent tangent is finite-difference, not analytic.
 - **The collapse driver is LSP-grade sequential linear analysis** (linear between events, no
   inertia beyond scalar `dlf`, no membrane/catenary; literature places LSP at roughly ±30 %
   on collapse extent — expect conservative results). **Hinges are event-to-event**: no
@@ -195,7 +199,7 @@ Engine\Binaries\Win64\UnrealEditor-Cmd.exe ...\ArchSim.uproject -ExecCmds="Autom
 
 > `run_gate.ps1` runs the UE automation but does **not** rebuild the UE module — rebuild
 > first (command above) after touching engine code, or the automation runs a stale binary.
-> The `$ExpectedUeTests = 53` guard catches a silently-missing test.
+> The `$ExpectedUeTests = 54` guard catches a silently-missing test.
 
 **Try the engine without writing C++** — the text bridge solves a model from stdin:
 
@@ -260,7 +264,7 @@ Plugins/FrameSolver/
                                         collapse, reanalysis, corotational, optimization)
     Private/*.cpp                       implementation (+ Private/FrameEigen.h: the single
                                         Eigen include site, dual-build guarded)
-    Private/Tests/*.cpp                 53 UE automation tests (UE-side oracle mirrors)
+    Private/Tests/*.cpp                 54 UE automation tests (UE-side oracle mirrors)
   Standalone/                           console gates + CLI/C-API drivers (see its README)
   Grasshopper/                          C# reference client for the text bridge
 Scripts/run_gate.ps1                    the one-click five-leg gate

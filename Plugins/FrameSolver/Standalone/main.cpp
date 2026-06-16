@@ -3148,6 +3148,132 @@ int main() {
         }
     }
 
+    // ---------- F58: shell EICR co-rotational -- small-disp==linear + arbitrary-axis rotation invariance ----------
+    // First oracle for the opt-in EICR shell co-rotational (CorotationalOptions::shellCorotational). A clamped
+    // cantilever shell strip: (a) at a tiny load the CR solution matches the linear solve (the CR tangent/force
+    // degenerate to linear); (b) rigidly rotating the whole model + load about an arbitrary axis leaves |u_tip|
+    // invariant to machine precision -- the defining CR frame-indifference, which validates the natural-deformation
+    // rigid-body removal (d_k = theta_k = 0 under rigid motion -> f_int = 0). Finite deformation (w/L ~ 0.1).
+    {
+        std::printf("[F58] shell EICR CR: small-disp==linear + arbitrary-axis invariance (NR + FD tangent)\n");
+        const real Es = 68950.0, nus = 0.3;
+        Material smat(Es, Es / (2.0 * (1.0 + nus))); smat.nu = nus;
+        const real L = 100.0, W = 10.0, tpl = 1.0;
+        const int nx = 8, ny = 1;
+        const real hx = L / nx, hy = W / ny;
+        auto gid = [nx](int i, int j) { return j * (nx + 1) + i; };
+        const int tip = gid(nx, 0);
+
+        auto buildCantShell = [&](FrameModel& m, real Pz) {
+            m = FrameModel{};
+            m.materials.push_back(smat);
+            for (int j = 0; j <= ny; ++j)
+                for (int i = 0; i <= nx; ++i) {
+                    Node nd(gid(i, j), i * hx, j * hy, 0.0);
+                    if (i == 0) for (int d = 0; d < 6; ++d) nd.fixed[d] = true;   // clamped edge x=0
+                    m.nodes.push_back(nd);
+                }
+            int sid = 0;
+            for (int j = 0; j < ny; ++j)
+                for (int i = 0; i < nx; ++i)
+                    m.shells.push_back(ShellQuad(sid++, gid(i, j), gid(i + 1, j), gid(i + 1, j + 1), gid(i, j + 1), 0, tpl));
+            for (int j = 0; j <= ny; ++j) {                                       // transverse (z) tip load on x=L edge
+                const real trib = (j == 0 || j == ny) ? 0.5 * hy : hy;
+                NodalLoad nl; nl.node = gid(nx, j); nl.comp[Uz] = Pz * trib;
+                m.nodalLoads.push_back(nl);
+            }
+        };
+
+        // (a) tiny load: shell CR == linear solve (CR degenerates to linear at small displacement)
+        {
+            const real Pz = 1e-5;
+            FrameModel mc; buildCantShell(mc, Pz);
+            CorotationalOptions co; co.shellCorotational = true; co.loadSteps = 1; co.maxIter = 40;
+            const CorotationalResult Rc = runCorotational(mc, co);
+            FrameModel ml; buildCantShell(ml, Pz);
+            const SolveResult Rl = solve(ml);
+            const real wc = Rc.finalState.u[(size_t)gdof(tip, Uz)];
+            const real wl = Rl.u[(size_t)gdof(tip, Uz)];
+            std::printf("   (a) small-disp  w_cr=%.7g w_lin=%.7g rel=%.2e\n", wc, wl, relErr(wc, wl));
+            checkTrue("F58a shell CR small-disp converged", Rc.converged, Rc.finalState.diagnostic);
+            checkTrue("F58a linear non-singular", !Rl.singular, Rl.diagnostic);
+            checkClose("F58a shell CR small-disp == linear", wc, wl, 1e-3);
+        }
+
+        // (b) arbitrary-axis rotational invariance at a FINITE deformation (machine precision)
+        {
+            auto rotv = [](Vec3 v, Vec3 k, real ang) -> Vec3 {
+                const real nk = std::sqrt(k.x * k.x + k.y * k.y + k.z * k.z); k = Vec3(k.x / nk, k.y / nk, k.z / nk);
+                const real c = std::cos(ang), s = std::sin(ang), kd = k.x * v.x + k.y * v.y + k.z * v.z;
+                const Vec3 kxv(k.y * v.z - k.z * v.y, k.z * v.x - k.x * v.z, k.x * v.y - k.y * v.x);
+                return Vec3(v.x * c + kxv.x * s + k.x * kd * (1 - c), v.y * c + kxv.y * s + k.y * kd * (1 - c), v.z * c + kxv.z * s + k.z * kd * (1 - c));
+            };
+            const real Pz = 2.0;
+            CorotationalOptions co; co.shellCorotational = true; co.consistentTangent = true; co.loadSteps = 12; co.maxIter = 80;
+            FrameModel m0; buildCantShell(m0, Pz);
+            const CorotationalResult R0 = runCorotational(m0, co);
+            const Vec3 axisN(1, 1, 1); const real phi = 2.0;
+            FrameModel m1; buildCantShell(m1, Pz);
+            for (auto& nd : m1.nodes) nd.pos = rotv(nd.pos, axisN, phi);
+            for (auto& nl : m1.nodalLoads) { const Vec3 f(nl.comp[Ux], nl.comp[Uy], nl.comp[Uz]); const Vec3 rf = rotv(f, axisN, phi); nl.comp[Ux] = rf.x; nl.comp[Uy] = rf.y; nl.comp[Uz] = rf.z; }
+            const CorotationalResult R1 = runCorotational(m1, co);
+            auto mag = [&](const CorotationalResult& R) { const real ux = R.finalState.u[(size_t)gdof(tip, Ux)], uy = R.finalState.u[(size_t)gdof(tip, Uy)], uz = R.finalState.u[(size_t)gdof(tip, Uz)]; return std::sqrt(ux * ux + uy * uy + uz * uz); };
+            const real a = mag(R0), b = mag(R1);
+            std::printf("   (b) arbitrary-axis invariance |u_tip| base=%.6g rot=%.6g rel=%.2e (w/L=%.3f)\n", a, b, relErr(b, a), a / L);
+            checkTrue("F58b shell CR rotated converged", R0.converged && R1.converged, R0.finalState.diagnostic + R1.finalState.diagnostic);
+            checkClose("F58b shell CR arbitrary-axis rotation invariance", b, a, 1e-9);
+        }
+    }
+
+    // ---------- F59: shell EICR large-deflection strip vs Mattiasson elastica (external oracle) ----------
+    // A slender nu=0 shell strip has plate-strip bending stiffness D*W = E*W*t^3/12 = a beam EI (at nu=0 the
+    // anticlastic 1/(1-nu^2) factor is unity). Under a transverse tip shear its large-deflection tip path
+    // (dv/L axial-perpendicular, dh/L axial-shortening) is the plate analogue of the planar elastica and
+    // converges to the Bisshopp-Drucker / Mattiasson shooting table -- the SAME independent semi-analytic
+    // oracle used for the beam F50/F51. This is an EXTERNAL oracle (F58b only proves self-consistency).
+    {
+        struct Row { real alpha, dv, dh; };
+        const Row tab[] = { {1.0, 0.3017207738, 0.0564332363}, {5.0, 0.7137915236, 0.3876283607}, {10.0, 0.8106090249, 0.5549955978} };
+        std::printf("[F59] shell EICR large-deflection strip vs Mattiasson elastica (nu=0 plate strip == beam EI)\n");
+        const real Es = 1.0, nus = 0.0;
+        Material smat(Es, Es / (2.0 * (1.0 + nus))); smat.nu = nus;
+        const real L = 1.0, W = 0.05, tpl = 0.01;
+        const int nx = 16, ny = 1;
+        const real hx = L / nx, hy = W / ny;
+        const real Istrip = W * tpl * tpl * tpl / 12.0;     // plate-strip bending I (= D*W/E at nu=0)
+        auto gid = [nx](int i, int j) { return j * (nx + 1) + i; };
+        const int tip = gid(nx, 0);
+
+        for (const Row& r : tab) {
+            const real P = r.alpha * Es * Istrip / (L * L);
+            FrameModel m; m.materials.push_back(smat);
+            for (int j = 0; j <= ny; ++j)
+                for (int i = 0; i <= nx; ++i) {
+                    Node nd(gid(i, j), i * hx, j * hy, 0.0);
+                    if (i == 0) for (int d = 0; d < 6; ++d) nd.fixed[d] = true;
+                    m.nodes.push_back(nd);
+                }
+            int sid = 0;
+            for (int j = 0; j < ny; ++j)
+                for (int i = 0; i < nx; ++i)
+                    m.shells.push_back(ShellQuad(sid++, gid(i, j), gid(i + 1, j), gid(i + 1, j + 1), gid(i, j + 1), 0, tpl));
+            for (int j = 0; j <= ny; ++j) {                 // total transverse tip shear = P (sum of per-node)
+                const real trib = (j == 0 || j == ny) ? 0.5 * hy : hy;
+                NodalLoad nl; nl.node = gid(nx, j); nl.comp[Uz] = P * trib / W;
+                m.nodalLoads.push_back(nl);
+            }
+            CorotationalOptions co; co.shellCorotational = true; co.consistentTangent = true;
+            co.loadSteps = std::max(15, (int)(r.alpha * 4)); co.maxIter = 100;
+            const CorotationalResult R = runCorotational(m, co);
+            const real uz = R.finalState.u[(size_t)gdof(tip, Uz)], ux = R.finalState.u[(size_t)gdof(tip, Ux)];
+            const real dv = uz / L, dh = -ux / L;
+            std::printf("   alpha=%2.0f dv/L=%.5f(exp %.5f) dh/L=%.5f(exp %.5f)\n", r.alpha, dv, r.dv, dh, r.dh);
+            checkTrue(("F59 converged alpha=" + std::to_string((int)r.alpha)).c_str(), R.converged, R.finalState.diagnostic);
+            checkClose(("F59 strip dv/L alpha=" + std::to_string((int)r.alpha)).c_str(), dv, r.dv, 3e-3);
+            checkClose(("F59 strip dh/L alpha=" + std::to_string((int)r.alpha)).c_str(), dh, r.dh, 5e-3);
+        }
+    }
+
     std::printf("\n%s  (failures=%d)\n", g_fail == 0 ? "ALL PASS" : "FAILURES", g_fail);
     return g_fail == 0 ? 0 : 1;
 }

@@ -3,6 +3,7 @@
 #include "ElementStiffness.h"          // localAxes (initial element frame from refVec)
 #include "FrameCore/FrameModel.h"
 #include "FrameCore/SolveResult.h"
+#include "MITC4ShellElement.h"         // EICR shell CR: borrow the linear MITC4 kl_ + initial facet frame
 
 #include <vector>
 #include <string>
@@ -185,6 +186,60 @@ void crCompute3D(CrBeam3D& b, const FrameModel& M, const std::vector<real>& u,
     Ke.block(6, 0, 3, 3) -= NA; Ke.block(6, 6, 3, 3) += NA;
 }
 
+// ----------------------------- EICR shell facet (v3 surface line, phase A) -----------------------------
+// Element-Independent Co-Rotational MITC4 shell: the linear local stiffness kl0 (the MITC4 "black box")
+// is fixed; a per-facet co-rotational frame R_cr tracks the large rigid rotation. The natural
+// (deformational) displacement removes rigid translation (via the centroid) AND rigid rotation (via
+// R_cr / R0):  d_k = R_cr (x_k - x_c) - R0 (X0_k - X0_c),  theta_k = logSO3(R_cr * Rnode_k * R0^T).
+// A pure rigid body motion gives R_cr = R0 R_rig^T, hence d_k = theta_k = 0 -> f_int = 0 (the defining
+// CR property; the F58 arbitrary-axis rotational-invariance oracle exercises exactly this). SCOPE:
+// small-strain large-rotation (kl0 stays the valid linear element); the flat-facet O(1/N^2) surface
+// approximation is UNCHANGED (the CR frame removes rigid rotation, it does not refine the faceting).
+// Tangent here is the material part blkdiag(R_cr)^T kl0 blkdiag(R_cr); the spin/geometric terms come
+// from the driver's FD consistent tangent (opts.consistentTangent). Arc-length shell post-buckling and
+// a CR-consistent shell-force recover are later phases.
+struct CrShell24D {
+    int   s   = -1;                 // shell index in model.shells
+    int   id_ = 0;                  // ShellQuad::id (result mapping)
+    int   ni[4] = { -1, -1, -1, -1 };
+    int   gmap[24] = { 0 };         // global DOF of [u(3), th(3)] x 4 corners
+    Eigen::Matrix<real, 24, 24> kl0 = Eigen::Matrix<real, 24, 24>::Zero();        // initial linear MITC4 stiffness
+    Mat3  R0  = Mat3::Identity();   // initial facet frame (rows = local axes in global)
+    Vec3e X0[4] = { Vec3e::Zero(), Vec3e::Zero(), Vec3e::Zero(), Vec3e::Zero() };  // initial corner positions
+    Vec3e X0c = Vec3e::Zero();      // initial centroid
+};
+
+void crComputeShell24D(const CrShell24D& s, const std::vector<real>& u, const std::vector<Mat3>& Rnode,
+                       Eigen::Matrix<real, 24, 1>& fe, Eigen::Matrix<real, 24, 24>& Ke) {
+    // current corner positions + centroid
+    Vec3e x[4];
+    for (int k = 0; k < 4; ++k) x[k] = s.X0[k] + nodeTrans(u, s.ni[k]);
+    const Vec3e xc = 0.25 * (x[0] + x[1] + x[2] + x[3]);
+
+    // current facet frame R_cr (rows = local axes), same construction as MITC4ShellElement::prepare()
+    Vec3e n = skew(x[2] - x[0]) * (x[3] - x[1]);           // (P2-P0) x (P3-P1)
+    n /= std::max<real>(1e-300, n.norm());
+    Vec3e e1 = x[1] - x[0]; e1 -= n * n.dot(e1); e1.normalize();
+    const Vec3e e2 = skew(n) * e1;                         // n x e1
+    Mat3 Rcr; Rcr.row(0) = e1.transpose(); Rcr.row(1) = e2.transpose(); Rcr.row(2) = n.transpose();
+
+    // natural deformation: local disp with rigid translation + rotation removed
+    Eigen::Matrix<real, 24, 1> ul;
+    for (int k = 0; k < 4; ++k) {
+        const Vec3e dk  = Rcr * (x[k] - xc) - s.R0 * (s.X0[k] - s.X0c);
+        const Vec3e thk = logSO3(Rcr * Rnode[(size_t)s.ni[k]] * s.R0.transpose());
+        ul(6 * k + 0) = dk(0);  ul(6 * k + 1) = dk(1);  ul(6 * k + 2) = dk(2);
+        ul(6 * k + 3) = thk(0); ul(6 * k + 4) = thk(1); ul(6 * k + 5) = thk(2);
+    }
+    const Eigen::Matrix<real, 24, 1> fl = s.kl0 * ul;      // local internal force
+
+    // rotate local force / material tangent back to global (per 3-block: local->global = R_cr^T)
+    Eigen::Matrix<real, 24, 24> Tcr = Eigen::Matrix<real, 24, 24>::Zero();
+    for (int blk = 0; blk < 8; ++blk) Tcr.block(3 * blk, 3 * blk, 3, 3) = Rcr;
+    fe = Tcr.transpose() * fl;
+    Ke = Tcr.transpose() * s.kl0 * Tcr;
+}
+
 }  // namespace
 
 CorotationalResult runCorotational(const FrameModel& model, const CorotationalOptions& opts) {
@@ -212,8 +267,10 @@ CorotationalResult runCorotational(const FrameModel& model, const CorotationalOp
     };
 
     // --- scope guards (honest: REJECT rather than silently mis-handle; all fill finalState.u) ---
-    for (const auto& sh : model.shells)
-        if (sh.active) return reject("co-rotational large-displacement is beam-column only; model contains shells");
+    // v3 phase A: active shells are rejected UNLESS opts.shellCorotational (EICR shell CR, NR load-control).
+    if (!opts.shellCorotational)
+        for (const auto& sh : model.shells)
+            if (sh.active) return reject("co-rotational is beam-column only; set opts.shellCorotational for EICR shell CR");
     std::string why;
     if (!model.validate(why)) return reject(why.c_str());
     // S9c: member UDLs (-> equivalent nodal loads) and prescribed support displacements (-> lambda-ramped
@@ -259,6 +316,32 @@ CorotationalResult runCorotational(const FrameModel& model, const CorotationalOp
         const Section&  sec = model.sections[(size_t)m.secIdx];
         b.EA = mat.E * sec.A; b.EIy = mat.E * sec.Iy; b.EIz = mat.E * sec.Iz; b.GJ = mat.G * sec.J;
         elems.push_back(b);
+    }
+
+    // --- build EICR shell elements (opt-in; borrow each active MITC4 facet's linear kl_ + initial frame) ---
+    std::vector<CrShell24D> shellElems;
+    if (opts.shellCorotational) {
+        for (size_t si = 0; si < model.shells.size(); ++si) {
+            const ShellQuad& sh = model.shells[si];
+            if (!sh.active) continue;
+            MITC4ShellElement mel((int)si);
+            std::string mwhy;
+            if (!mel.prepare(model, opts.solve, mwhy)) return reject(mwhy.c_str());
+            CrShell24D cs;
+            cs.s = (int)si; cs.id_ = sh.id;
+            Vec3e sum = Vec3e::Zero();
+            for (int k = 0; k < 4; ++k) {
+                cs.ni[k] = model.nodeIndex(sh.n[k]);
+                if (cs.ni[k] < 0) return reject("co-rotational shell references a missing node");
+                cs.X0[k] = toE(model.nodes[(size_t)cs.ni[k]].pos);
+                sum += cs.X0[k];
+                for (int d = 0; d < 6; ++d) cs.gmap[6 * k + d] = gdof(cs.ni[k], d);
+            }
+            cs.X0c = 0.25 * sum;
+            cs.kl0 = mel.localKForAudit();
+            cs.R0  = mel.localFrameForAudit();
+            shellElems.push_back(cs);
+        }
     }
 
     // --- external nodal force vector ---
@@ -309,6 +392,17 @@ CorotationalResult runCorotational(const FrameModel& model, const CorotationalOp
                 for (int c = 0; c < 12; ++c) { const int fc = fmap[(size_t)el.gmap[c]]; if (fc >= 0) tf.emplace_back(fr, fc, Ke(a, c)); }
             }
         }
+        for (auto& sel : shellElems) {                 // EICR shell facets (opt-in; empty unless shellCorotational)
+            Eigen::Matrix<real, 24, 1> fes; Eigen::Matrix<real, 24, 24> Kes;
+            crComputeShell24D(sel, U, Rn, fes, Kes);
+            for (int a = 0; a < 24; ++a) {
+                fint((Eigen::Index)sel.gmap[a]) += fes(a);
+                if (useFD) continue;
+                const int fr = fmap[(size_t)sel.gmap[a]];
+                if (fr < 0) continue;
+                for (int c = 0; c < 24; ++c) { const int fc = fmap[(size_t)sel.gmap[c]]; if (fc >= 0) tf.emplace_back(fr, fc, Kes(a, c)); }
+            }
+        }
         if (useFD) {                                   // numerical consistent tangent (oracle / small models)
             VecX f0 = VecX::Zero(nf);
             for (int g = 0; g < N; ++g) if (fmap[(size_t)g] >= 0) f0(fmap[(size_t)g]) = fint((Eigen::Index)g);
@@ -325,6 +419,11 @@ CorotationalResult runCorotational(const FrameModel& model, const CorotationalOp
                         Eigen::Matrix<real, 12, 1> fe; Eigen::Matrix<real, 12, 12> Ke;
                         crCompute3D(el, model, Uc, Rc, fe, Ke);
                         for (int a = 0; a < 12; ++a) fp((Eigen::Index)el.gmap[a]) += fe(a);
+                    }
+                    for (auto& sel : shellElems) {
+                        Eigen::Matrix<real, 24, 1> fes; Eigen::Matrix<real, 24, 24> Kes;
+                        crComputeShell24D(sel, Uc, Rc, fes, Kes);
+                        for (int a = 0; a < 24; ++a) fp((Eigen::Index)sel.gmap[a]) += fes(a);
                     }
                     for (int r = 0; r < N; ++r) { const int rr = fmap[(size_t)r]; if (rr >= 0) { const real v = (fp((Eigen::Index)r) - f0(rr)) / eps; if (v != 0.0) tf.emplace_back(rr, col, v); } }
                 }
@@ -378,7 +477,12 @@ CorotationalResult runCorotational(const FrameModel& model, const CorotationalOp
         }
         for (int g = 0; g < N; ++g) SR.reactions[(size_t)g] = fint((Eigen::Index)g) - lam * Fext((Eigen::Index)g);
         SR.memberForces.resize(model.members.size());
-        SR.shellForces.clear();
+        // v3 phase A: CR shell-force recover is a later phase (this phase delivers the displacement field +
+        // stability, the primary CR outputs). A linear recover would mis-read the large nodal rotation as
+        // strain -> wrong stress, so entries are id-tagged + zero-filled (shellForces stays parallel to
+        // model.shells; stress resultants are NOT yet CR-recovered -- honest, not silently wrong).
+        SR.shellForces.assign(model.shells.size(), ShellElementForces{});
+        for (size_t si = 0; si < model.shells.size(); ++si) SR.shellForces[si].shell = model.shells[si].id;
         for (size_t e = 0; e < model.members.size(); ++e) SR.memberForces[e].member = model.members[e].id;
         for (const CrBeam3D& b : elems) {
             const real Ln = std::max<real>(1e-300, b.Ln);

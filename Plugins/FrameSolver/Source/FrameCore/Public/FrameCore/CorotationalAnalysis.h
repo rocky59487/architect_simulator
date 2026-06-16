@@ -22,6 +22,11 @@ struct CorotationalOptions {
     int  arcSteps          = 50;     // max arc-length increments
     int  monitorDof        = -1;     // global DOF recorded in result.pathDisp (-1 -> tip translation auto)
     bool consistentTangent = false;  // numerical (finite-difference) consistent tangent -> quadratic NR
+    // --- v3 surface line, phase A: opt-in EICR shell co-rotational (experimental; default off ->
+    //     beam-column only, bit-for-bit today). Treats the linear MITC4 kl_ as a black box and tracks
+    //     large rigid rotations with a per-facet co-rotational frame. NR load-control only this phase
+    //     (arc-length shell post-buckling is a later phase). Does NOT enter modelFingerprint. ---
+    bool shellCorotational = false;
 };
 
 // POD result. converged / diverged are mutually exclusive on a healthy run; both false means a step
@@ -64,7 +69,8 @@ struct CorotationalResult {
 // diverged (not tracked). Snap-back (load+displacement double reversal) needs spherical arc-length -> future.
 //
 // The caller's model is NEVER mutated (internal working copy; safe to call concurrently, same contract as
-// runPDelta / runProgressiveCollapse). A model containing shells is rejected (beam-column only).
+// runPDelta / runProgressiveCollapse). A model containing shells is rejected UNLESS opts.shellCorotational
+// is set (v3 phase A: EICR large-displacement MITC4 shells, NR load-control).
 FRAMECORE_API CorotationalResult runCorotational(const FrameModel& model,
                                                  const CorotationalOptions& opts = {});
 

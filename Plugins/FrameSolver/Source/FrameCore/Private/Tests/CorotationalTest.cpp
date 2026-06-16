@@ -190,4 +190,80 @@ bool FFrameCoreCorotationalSnapTest::RunTest(const FString& /*Parameters*/)
     return true;
 }
 
+// UE mirror of the standalone F58 -- opt-in EICR shell co-rotational (CorotationalOptions::shellCorotational).
+// A clamped cantilever shell strip: at a tiny load the CR solution matches the linear solve, and rigidly
+// rotating the whole shell model + load about an arbitrary axis leaves the tip-displacement magnitude
+// invariant to machine precision (the defining CR frame-indifference -> validates the EICR natural-deformation
+// rigid-body removal). Do NOT name constants IN/OUT (Windows SAL macros via CoreMinimal.h).
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FFrameCoreShellCorotationalTest,
+    "FrameCore.Corotational.ShellRotationInvariance",
+    EAutomationTestFlags_ApplicationContextMask | EAutomationTestFlags::SmokeFilter)
+bool FFrameCoreShellCorotationalTest::RunTest(const FString& /*Parameters*/)
+{
+    using namespace frame;
+    const real Es = 68950.0, nus = 0.3;
+    Material smat(Es, Es / (2.0 * (1.0 + nus))); smat.nu = nus;
+    const real L = 100.0, W = 10.0, tpl = 1.0;
+    const int nx = 8, ny = 1;
+    const real hx = L / nx, hy = W / ny;
+    auto gid = [nx](int i, int j) { return j * (nx + 1) + i; };
+    const int tip = gid(nx, 0);
+    auto buildCantShell = [&](FrameModel& m, real Pz) {
+        m = FrameModel{};
+        m.materials.push_back(smat);
+        for (int j = 0; j <= ny; ++j)
+            for (int i = 0; i <= nx; ++i) {
+                Node nd(gid(i, j), i * hx, j * hy, 0.0);
+                if (i == 0) for (int d = 0; d < 6; ++d) nd.fixed[d] = true;   // clamped edge
+                m.nodes.push_back(nd);
+            }
+        int sid = 0;
+        for (int j = 0; j < ny; ++j)
+            for (int i = 0; i < nx; ++i)
+                m.shells.push_back(ShellQuad(sid++, gid(i, j), gid(i + 1, j), gid(i + 1, j + 1), gid(i, j + 1), 0, tpl));
+        for (int j = 0; j <= ny; ++j) {
+            const real trib = (j == 0 || j == ny) ? 0.5 * hy : hy;
+            NodalLoad nl; nl.node = gid(nx, j); nl.comp[Uz] = Pz * trib;
+            m.nodalLoads.push_back(nl);
+        }
+    };
+    auto rotv = [](Vec3 v, Vec3 k, real ang) -> Vec3 {
+        const real nk = FMath::Sqrt(k.x * k.x + k.y * k.y + k.z * k.z); k = Vec3(k.x / nk, k.y / nk, k.z / nk);
+        const real c = FMath::Cos(ang), s = FMath::Sin(ang), kd = k.x * v.x + k.y * v.y + k.z * v.z;
+        const Vec3 kxv(k.y * v.z - k.z * v.y, k.z * v.x - k.x * v.z, k.x * v.y - k.y * v.x);
+        return Vec3(v.x * c + kxv.x * s + k.x * kd * (1 - c), v.y * c + kxv.y * s + k.y * kd * (1 - c), v.z * c + kxv.z * s + k.z * kd * (1 - c));
+    };
+
+    // (a) tiny load: shell CR == linear solve
+    {
+        const real Pz = 1e-5;
+        FrameModel mc; buildCantShell(mc, Pz);
+        CorotationalOptions co; co.shellCorotational = true; co.loadSteps = 1; co.maxIter = 40;
+        const CorotationalResult Rc = runCorotational(mc, co);
+        FrameModel ml; buildCantShell(ml, Pz);
+        const SolveResult Rlin = solve(ml);
+        const double wc = Rc.finalState.u[(size_t)gdof(tip, Uz)], wl = Rlin.u[(size_t)gdof(tip, Uz)];
+        TestTrue(TEXT("shell CR small-disp converged + linear non-singular"), Rc.converged && !Rlin.singular);
+        TestTrue(TEXT("shell CR small-disp == linear (rel<1e-3)"), FMath::Abs(wc - wl) <= 1e-3 * FMath::Abs(wl) + 1e-15);
+    }
+
+    // (b) arbitrary-axis rotational invariance at a FINITE deformation (machine precision)
+    {
+        const real Pz = 2.0;
+        CorotationalOptions co; co.shellCorotational = true; co.consistentTangent = true; co.loadSteps = 12; co.maxIter = 80;
+        FrameModel m0; buildCantShell(m0, Pz);
+        const CorotationalResult R0 = runCorotational(m0, co);
+        const Vec3 axisN(1, 1, 1); const real phi = 2.0;
+        FrameModel m1; buildCantShell(m1, Pz);
+        for (auto& nd : m1.nodes) nd.pos = rotv(nd.pos, axisN, phi);
+        for (auto& nl : m1.nodalLoads) { const Vec3 f(nl.comp[Ux], nl.comp[Uy], nl.comp[Uz]); const Vec3 rf = rotv(f, axisN, phi); nl.comp[Ux] = rf.x; nl.comp[Uy] = rf.y; nl.comp[Uz] = rf.z; }
+        const CorotationalResult R1 = runCorotational(m1, co);
+        auto mag = [&](const CorotationalResult& R) { const double ux = R.finalState.u[(size_t)gdof(tip, Ux)], uy = R.finalState.u[(size_t)gdof(tip, Uy)], uz = R.finalState.u[(size_t)gdof(tip, Uz)]; return FMath::Sqrt(ux * ux + uy * uy + uz * uz); };
+        const double a = mag(R0), b = mag(R1);
+        TestTrue(TEXT("shell CR rotated converged"), R0.converged && R1.converged);
+        TestTrue(TEXT("shell CR arbitrary-axis rotation invariance (rel<1e-9)"), FMath::Abs(b - a) <= 1e-9 * FMath::Abs(a) + 1e-12);
+    }
+    return true;
+}
+
 #endif // WITH_DEV_AUTOMATION_TESTS

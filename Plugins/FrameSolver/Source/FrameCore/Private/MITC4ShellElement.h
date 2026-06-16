@@ -42,6 +42,11 @@ public:
     // Private header, so it does NOT touch the POD public API.
     const Eigen::Matrix<real, 24, 24>& localKForAudit() const { return kl_; }
 
+    // Audit/CR-only: the initial facet frame (rows = local axes in global, valid after prepare()).
+    // Lets the co-rotational driver build an EICR shell element around this element's linear kl_
+    // (the local stiffness is treated as a black box; the CR frame tracks large rigid rotations).
+    const Mat3& localFrameForAudit() const { return R_; }
+
 private:
     using Mat24 = Eigen::Matrix<real, 24, 24>;
     using Vec24 = Eigen::Matrix<real, 24, 1>;
