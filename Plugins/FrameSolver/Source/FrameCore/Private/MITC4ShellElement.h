@@ -63,6 +63,7 @@ private:
     Mat3  R_   = Mat3::Identity();   // rows = facet local axes in global coords (R v_g = v_l)
     real  xl_[4] = { 0, 0, 0, 0 };   // corner x in the facet local 2D frame (mm)
     real  yl_[4] = { 0, 0, 0, 0 };   // corner y in the facet local 2D frame (mm)
+    real  warp_[4] = { 0, 0, 0, 0 }; // corner signed distance to the best-fit plane (warping correction)
     real  t_   = 0;                  // thickness
     real  E_   = 0, nu_ = 0, G_ = 0; // material
 

@@ -41,6 +41,18 @@ struct SolveOptions {
     // Transverse-displacement (w) stress stiffening only: the standard thin-shell buckling term;
     // in-plane (u,v) second-order terms are intentionally excluded (documented limitation).
     bool shellGeometricStiffness = false;
+
+    // Opt-in WARPING CORRECTION for warped (non-coplanar) MITC4 quads. false keeps today's behavior
+    // BIT-FOR-BIT (corner coords projected onto the P0-origin facet plane, normal = diagonal cross
+    // product). true projects the corners onto the BEST-FIT plane through the centroid (Newell average
+    // normal), which reduces the projection error of a warped facet. MITC4 stays a flat facet -- this
+    // only reduces the per-element projection error; the O(1/N^2) faceting of a curved surface is
+    // unchanged, and a strongly warped quad still needs mesh refinement (documented limitation).
+    bool useWarpingCorrection = false;
+    // Relaxes validate()'s HARD rejection of non-coplanar shell quads. 1e-6 (default) = strict (today's
+    // gate). Raise (e.g. 1e-2) to admit gently-warped free-surface meshes; pairs with useWarpingCorrection
+    // to keep the projection error bounded. validate() rejects warp above warpTolerance * maxEdge.
+    real warpTolerance = 1.0e-6;
 };
 
 } // namespace frame

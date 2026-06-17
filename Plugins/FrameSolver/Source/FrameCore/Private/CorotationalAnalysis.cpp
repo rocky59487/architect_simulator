@@ -272,7 +272,7 @@ CorotationalResult runCorotational(const FrameModel& model, const CorotationalOp
         for (const auto& sh : model.shells)
             if (sh.active) return reject("co-rotational is beam-column only; set opts.shellCorotational for EICR shell CR");
     std::string why;
-    if (!model.validate(why)) return reject(why.c_str());
+    if (!model.validate(why, opts.solve.warpTolerance)) return reject(why.c_str());
     // S9c: member UDLs (-> equivalent nodal loads) and prescribed support displacements (-> lambda-ramped
     // Dirichlet BC) are now SUPPORTED; the guards below still reject what CR genuinely cannot do.
     for (const auto& h : model.hinges)

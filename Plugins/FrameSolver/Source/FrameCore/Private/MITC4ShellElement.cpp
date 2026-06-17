@@ -497,7 +497,23 @@ bool MITC4ShellElement::prepare(const FrameModel& model, const SolveOptions& opt
     // axes in global coords, so R_ * v_global = v_local. ----
     const Vec3 P0 = model.nodes[idx[0]].pos, P1 = model.nodes[idx[1]].pos;
     const Vec3 P2 = model.nodes[idx[2]].pos, P3 = model.nodes[idx[3]].pos;
-    Vec3 n = cross(P2 - P0, P3 - P1);
+    const Vec3 Pg[4] = { P0, P1, P2, P3 };
+    Vec3 n, origin;
+    if (opts.useWarpingCorrection) {
+        // Best-fit plane through the centroid with the Newell average normal -- reduces the projection
+        // error of a WARPED (non-coplanar) facet vs the P0 / diagonal-cross-product plane (the else path).
+        origin = (P0 + P1 + P2 + P3) * 0.25;
+        n = Vec3(0, 0, 0);
+        for (int k = 0; k < 4; ++k) {
+            const Vec3 a = Pg[k], b = Pg[(k + 1) % 4];
+            n.x += (a.y - b.y) * (a.z + b.z);
+            n.y += (a.z - b.z) * (a.x + b.x);
+            n.z += (a.x - b.x) * (a.y + b.y);
+        }
+    } else {
+        origin = P0;
+        n = cross(P2 - P0, P3 - P1);          // diagonal cross product (today's bit-for-bit normal)
+    }
     const real nlen = norm(n);
     if (nlen <= 0) { why = "degenerate shell quad (zero normal)"; return false; }
     n = n * (1.0 / nlen);
@@ -512,12 +528,13 @@ bool MITC4ShellElement::prepare(const FrameModel& model, const SolveOptions& opt
     R_(1, 0) = e2.x; R_(1, 1) = e2.y; R_(1, 2) = e2.z;
     R_(2, 0) = n.x;  R_(2, 1) = n.y;  R_(2, 2) = n.z;
 
-    // Corner coordinates in the facet 2D frame (origin at P0; planar projection).
-    const Vec3 Pg[4] = { P0, P1, P2, P3 };
+    // Corner coordinates in the facet 2D frame (origin = P0, or the centroid under warping correction).
+    // warp_[k] = signed distance to the projection plane (0 for a flat facet / the P0 path).
     for (int k = 0; k < 4; ++k) {
-        const Vec3 r = Pg[k] - P0;
+        const Vec3 r = Pg[k] - origin;
         xl_[k] = dot(r, e1);
         yl_[k] = dot(r, e2);
+        warp_[k] = dot(r, n);
     }
 
     // ---- transform T_ = blockdiag(R_) x8 (disp + rot block per node). ----

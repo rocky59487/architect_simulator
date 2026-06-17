@@ -36,7 +36,9 @@ struct FrameModel {
 
     // Structural sanity (ids resolve, non-null mat/sec, positive A/I/E/L). On
     // failure returns false and fills `why`.
-    FRAMECORE_API bool validate(std::string& why) const;
+    // warpTol relaxes the non-coplanar shell-quad rejection (default 1e-6 = strict, today's gate;
+    // SolveOptions::warpTolerance threads through for warped free-surface meshes).
+    FRAMECORE_API bool validate(std::string& why, real warpTol = 1.0e-6) const;
 };
 
 } // namespace frame

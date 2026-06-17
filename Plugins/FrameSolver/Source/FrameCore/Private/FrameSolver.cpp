@@ -33,7 +33,7 @@ PreparedSystem assembleAndFactor(const FrameModel& model, const SolveOptions& op
     PreparedSystem::Impl& S = *ps.impl;
 
     std::string why;
-    if (!model.validate(why)) {
+    if (!model.validate(why, opts.warpTolerance)) {
         S.singular = true;
         S.diagnostic = "invalid model: " + why;
         S.N = std::max(0, model.dofCount());

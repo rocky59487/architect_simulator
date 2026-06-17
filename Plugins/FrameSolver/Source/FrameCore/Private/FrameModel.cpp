@@ -26,7 +26,7 @@ int FrameModel::shellIndex(int id) const {
     return -1;
 }
 
-bool FrameModel::validate(std::string& why) const {
+bool FrameModel::validate(std::string& why, real warpTol) const {
     if (nodes.empty())                  { why = "no nodes"; return false; }
     if (members.empty() && shells.empty()) { why = "no members or shells"; return false; }
     auto finiteVec3 = [](const Vec3& v) {
@@ -117,8 +117,9 @@ bool FrameModel::validate(std::string& why) const {
         const Vec3 p0 = nodes[idx[0]].pos;
         for (int k = 0; k < 4; ++k)
             maxWarp = std::max(maxWarp, std::abs(dot(nodes[idx[k]].pos - p0, nhat)));
-        if (maxWarp > 1.0e-6 * std::max(real(1), maxEdge)) {
-            why = "non-coplanar shell quad (MITC4 flat facet requires planar corners)";
+        if (maxWarp > warpTol * std::max(real(1), maxEdge)) {
+            why = "non-coplanar shell quad (warp exceeds warpTolerance; raise SolveOptions::warpTolerance "
+                  "for warped meshes, ideally with useWarpingCorrection)";
             return false;
         }
         Vec3 e1 = nodes[idx[1]].pos - nodes[idx[0]].pos;

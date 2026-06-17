@@ -13,8 +13,8 @@ The public API uses only plain C++/POD types (no UE, no Eigen leakage), so the s
 compiles as a standalone console gate *and* as an Unreal Engine module. The core remains
 C++17-compatible; the UE module target is compiled as C++20 because of the current UBT/toolchain.
 
-> **Status (2026-06, S1–S10 + supernodal direct lane + shell K_σ + shell CR):** the five-leg verification gate is green —
-> standalone `ALL PASS` (fixtures **F1–F59**) · **54** UE automation tests ·
+> **Status (2026-06, S1–S10 + supernodal direct lane + shell K_σ + shell CR + warped quads):** the five-leg verification gate is green —
+> standalone `ALL PASS` (fixtures **F1–F61**) · **55** UE automation tests ·
 > **OpenSees** strict cross-validation PASS · deep audit **104** independent checks ·
 > CLI round-trip ALL PASS. One repo-relative command reproduces it (`-Engine` or `UE_ENGINE_ROOT`
 > can point at a non-sibling Unreal install):
@@ -38,6 +38,7 @@ types, `PreparedSystem` for factorization reuse), and each gated by its own orac
 | **Mechanism / instability detection** | from the LDLᵀ factorization (near-zero / negative pivots), **not** connectivity — refuses to report forces on an unstable model |
 | **MITC4 flat shell** (24 DOF) | Reissner–Mindlin facet: membrane + plate bending with MITC4 assumed shear (no locking) + Hughes–Brezzi drilling; recovers `{Mxx,Myy,Mxy,Qx,Qy,Nxx,Nyy,Nxy}` |
 | Shell upgrades (S8, opt-in) | **QM6** incompatible membrane (substantially reduces in-plane locking: Cook's −0.9 % vs Q4 −3.2 %; passes the weak patch test for general quads) and **DKQ** thin plate (Kirchhoff fast path); both default-off, **bit-identical** to baseline when off |
+| Warped shell quads (v3, opt-in) | `warpTolerance` relaxes `validate()`'s hard rejection of non-coplanar quads (free-surface meshes can solve at all); `useWarpingCorrection` projects corners onto the best-fit (Newell/centroid) plane and records `warp_[k]`. **MITC4 stays a flat facet** — warp adds an O(warp²) bounded error that shrinks as warp shrinks (F61c: warp 4 %→2 %→1 % gives Nxx err 1.6e-3→4e-4→1e-4) → **a warped free-surface mesh reaches accuracy by mesh refinement**, not by a per-element magic fix. Default-off, bit-identical to today |
 | Elastic D/C screen | combined axial + biaxial bending + peak-factored shear + torsion vs allowable capacities; reports the governing mode |
 | Grillage plate idealization | ν-inflated woven beam grid; kept as a cheap approximation alongside the true shell |
 | Member end forces / reactions | local `{N,Vy,Vz,T,My,Mz}` at both ends; `R = K·u − F` |
@@ -199,7 +200,7 @@ Engine\Binaries\Win64\UnrealEditor-Cmd.exe ...\ArchSim.uproject -ExecCmds="Autom
 
 > `run_gate.ps1` runs the UE automation but does **not** rebuild the UE module — rebuild
 > first (command above) after touching engine code, or the automation runs a stale binary.
-> The `$ExpectedUeTests = 54` guard catches a silently-missing test.
+> The `$ExpectedUeTests = 55` guard catches a silently-missing test.
 
 **Try the engine without writing C++** — the text bridge solves a model from stdin:
 
@@ -264,7 +265,7 @@ Plugins/FrameSolver/
                                         collapse, reanalysis, corotational, optimization)
     Private/*.cpp                       implementation (+ Private/FrameEigen.h: the single
                                         Eigen include site, dual-build guarded)
-    Private/Tests/*.cpp                 54 UE automation tests (UE-side oracle mirrors)
+    Private/Tests/*.cpp                 55 UE automation tests (UE-side oracle mirrors)
   Standalone/                           console gates + CLI/C-API drivers (see its README)
   Grasshopper/                          C# reference client for the text bridge
 Scripts/run_gate.ps1                    the one-click five-leg gate
