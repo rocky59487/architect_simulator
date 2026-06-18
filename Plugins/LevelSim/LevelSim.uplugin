@@ -1,7 +1,7 @@
 {
     "FileVersion": 3,
-    "Version": 1,
-    "VersionName": "0.1",
+    "Version": 10,
+    "VersionName": "1.0.0",
     "FriendlyName": "LevelSim",
     "Description": "Surveying level-instrument simulator (TW skill-cert 04200 levelling). Pure C++17 measurement core (Core/) + playable UE presentation module (LevelSimPlay). Independent of FrameSolver.",
     "Category": "Surveying",

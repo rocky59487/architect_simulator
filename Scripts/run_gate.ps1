@@ -11,6 +11,19 @@
 #   powershell -ExecutionPolicy Bypass -File Scripts\run_gate.ps1 -RequireOpenSees
 # Optional:
 #   -Root <repo> -Engine <UE root>   (or set UE_ENGINE_ROOT)
+#
+# PRECONDITIONS (R-AUDIT B-03 / B-04 — silent until now, documented here):
+#   * This script does **NOT rebuild the UE module**. Touch any FrameCore .cpp / add a
+#     UE automation test? Rebuild ArchSimEditor first with Engine\Build\BatchFiles\Build.bat,
+#     or leg 2 runs the stale binary and tests added in this session are silently absent
+#     (the $ExpectedUeTests guard catches the silent-absent case as a gate failure).
+#   * Standalone (leg 1) + deep audit (leg 4) link the opt-in supernodal lane (OpenBLAS +
+#     METIS via the conda `framecore-direct` env). The Standalone build .bat files exit 1
+#     when the env is not on PATH; this script does NOT activate conda for you. Activate
+#     `conda activate framecore-direct` before running, or expect leg 1 / leg 4 to fail at
+#     the compile step with a clear "could not locate openblas / metis" diagnostic.
+#   * OpenSeesPy (leg 3) lives in its own Python env (Tools/opensees_compare.py). With
+#     `-RequireOpenSees`, missing OpenSeesPy is a gate failure rather than a soft skip.
 param(
     [switch]$RequireOpenSees,       # CI: fail (not skip) when openseespy is absent
     [int]$ExpectedUeTests = 57,      # guard against silently running only a subset (S10 +1; supernodal opt-in +1; SnSession +1; shell K_sigma buckling +1; shell CR rotation invariance +1; warped MITC4 admit +1; shell knockdown +1; shell curvature guard +1) -- v2.1 audit DHL-NEW-2/BLDG SLV-NEW-4 fix

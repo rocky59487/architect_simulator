@@ -74,8 +74,9 @@ go/no-go 三重約束(百萬 + 即時 + 1e-9)外推(numpy log-log,混合建築):
 | 記憶體 fit 32GB | ✗(百萬 peak 外推 ~117GB;此機實測上限 ~190k) |
 | 相對誤差 ≤1e-9 | ◐(≤~113k OK;191k 1.6e-9,受高 cond 限) |
 
-**可達邊界(32GB + 混合建築)**:每幀即時(back-sub ≤100ms)~**150k** DOF;互動(~1s)
-~**390k**(peak 限);factor 百萬 ~80s 可行。百萬 + 即時 + 1e-9 同時達成是**單機物理牆**
+**可達邊界(32GB + 混合建築)** `[THEORY: 外推自 17k/32k/64k log-log fit]`:每幀即時
+(back-sub ≤100ms)~**150k** DOF;互動(~1s)~**390k**(peak 限);factor 百萬 ~80s 可行。
+百萬 + 即時 + 1e-9 同時達成是**單機物理牆**
 (記憶體 + back-substitution 頻寬),非演算法問題。後續候選見 research handoff
 (extended-precision residual 破 cond 底限、記憶體實測)。
 

@@ -18,7 +18,10 @@ bool validate(const InstrumentParams& P) {
     if (!(fin(P.readPartial) && P.readPartial > P.readTol)) return false;
     if (!(fin(P.bubbleRoughDiv) && P.bubbleRoughDiv > 0)) return false;
     if (!(fin(P.bubbleFineDiv) && P.bubbleFineDiv > 0 && P.bubbleFineDiv <= P.bubbleRoughDiv)) return false;
-    if (!(fin(P.refractionK) && P.refractionK < 1.0 && fin(P.earthRadius) && P.earthRadius > 0)) return false; // k<1 → (1−k)>0
+    // R-AUDIT C-01: refractionK is the atmospheric refraction coefficient k of the
+    // curvature+refraction correction c = (1−k)·D²/(2R). Physical k is always > 0
+    // (typical 0.13); k ≤ 0 would invert/over-amplify the correction. Reject up front.
+    if (!(fin(P.refractionK) && P.refractionK > 0.0 && P.refractionK < 1.0 && fin(P.earthRadius) && P.earthRadius > 0)) return false;
     return true;
 }
 
@@ -72,6 +75,10 @@ TiltState tiltFromScrews(const InstrumentParams& P, const LevelSetup& S) {
 BubbleState bubbleFromTilt(const InstrumentParams& P, const TiltState& t) {
     BubbleState b;
     if (!t.valid || P.bubbleSensRad <= 0) return b; // 退化 → 不視為置中（roughLevel/fineLevel 保持 false）
+    // R-AUDIT C-02: tiltFromScrews validates roll/pitch, but a caller may construct a
+    // hand-rolled TiltState directly; guard against non-finite roll/pitch so we never
+    // emit ±∞ in offX/offY/magDiv.
+    if (!fin(t.rollRad) || !fin(t.pitchRad) || !fin(t.magRad)) return b;
 
     const real denom = std::tan(P.bubbleSensRad);
     b.magDiv = std::tan(t.magRad) / denom;          // 偏移量（格）；magRad>π/2 → tan<0 → magDiv<0

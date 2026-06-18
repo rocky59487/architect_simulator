@@ -48,3 +48,9 @@ S 系列之前的線性套件(8 段)與崩塌 C 線(6 階段)沒有獨立 PROGRE
 > 慣例:史料**不回頭改寫內文**(保留當時的狀態數字與判斷),只在檔首加狀態 banner。
 > 宣稱分級 `[VERIFIED]` / `[NEW CODE]` / `[THEORY]` / `[UNKNOWN]` 的定義見
 > `KARAMBA3D_ROADMAP.md` §0,沿用於全部 specs 與 PROGRESS。
+
+## 其他引擎(同 repo,獨立子系統)
+
+| 子系統 | 入口 | 說明 |
+|--------|------|------|
+| LevelSim — 水準儀模擬器 | [`Plugins/LevelSim/README.md`](../Plugins/LevelSim/README.md) | 純 C++17 測量核心 + UE5 可玩 MVP;**與 FrameCore 完全零耦合**(無共享 header / 無共享 Build.cs 相依),可獨立 build/test/release。本 docs/ 目錄維持 FrameCore 專屬;LevelSim 自有 README、gate、smoke pipeline 與 release notes 段。bundled release `v2.2+1` = FrameCore v2.2 + LevelSim v1。 |

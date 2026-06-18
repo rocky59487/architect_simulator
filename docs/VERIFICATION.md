@@ -32,8 +32,10 @@ Plugins\FrameSolver\Standalone\build.bat
 Guard rails: `run_gate.ps1` hard-fails if fewer than `$ExpectedUeTests = 57` UE tests run
 (catches "new test silently not compiled"); the audit prints its own check count rather than
 a hard-coded number; `-RequireOpenSees` turns a missing OpenSeesPy into a failure instead of
-a soft skip. Fixture numbering is append-only; **F41 is unassigned** (S3 ended at F40, S4
-started at F42) — a numbering gap, not a missing test.
+a soft skip. Fixture numbering is append-only; **F41 and F60 are unassigned** (F41: S3 ended
+at F40, S4 started at F42; F60: numbering jump between F59 — `S9c`'s consistent-tangent FD
+check — and F61 — v3 warped quads — when the v3 surface line was bundled in) — both are
+numbering gaps, not missing tests.
 
 ## 2. Oracle taxonomy
 
@@ -196,8 +198,10 @@ Honest scope:
 - F62 standalone improvement is modest (~18 % at L/d=200, cond ~1e6 — close to the machine-precision
   floor); the IR mechanism's larger payoff appears at 64 k DOF mixed building where the recon's
   `sn_sweep.txt` shows res ~1.40e-9 → expected < 1e-9 (production-scale benchmark pending).
-- F63 single-solve win at scale is data-backed from `perf_sn.exe` (XXL 18.7 k → 8.3 × factor speedup;
-  MEGA 61.5 k → 20 × factor speedup) but the gate fixtures themselves are small.
+- F63 single-solve win at scale is data-backed from `perf_sn.exe` `[VERIFIED: perf_sn first-hand]`
+  (XXL 18.7 k → 8.3 × factor speedup; MEGA 61.5 k → 20 × factor speedup) but the gate fixtures
+  themselves are small and only assert correctness; the speedup ratios are not re-checked on
+  every commit.
 - F64 shell-buckling oracle is the same Kirchhoff plate as F57; curved-shell post-buckling is the
   shell co-rotational arc-length phase (later).
 

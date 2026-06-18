@@ -12,6 +12,23 @@
 #   3. px/cm          = 720 / (2*D*tan(vfov/2)*100), vfov from hfov 2.3 deg @ 16:9
 #   4. reading_at_hair = dm_value + (digit_row - hair_row)/px_per_cm / 100
 # PASS if |reading_at_hair - core_truth| <= 2 mm (eyeball-free, sub-px noise dominated).
+#
+# truth_m derivation (R-AUDIT C-10): the hardcoded truth values below are not magic
+# numbers — they reproduce what `levelsim::measure()` returns for the SmokeAutoLevel
+# scene state, computed from the published core constants in LevelSimPawn:
+#   ScrewTravel = [1e-4, 1e-4, 1e-4]   (SmokeAutoLevel sets equal travels)
+#   opticsHeightZ = kBaseOpticsM + (Σ ScrewTravel)/3.0 = 1.5 + 1e-4 = 1.50010 m
+#   collimationRad = arcsec(10) ≈ 4.8481e-5 rad   (LevelSimPawn ctor)
+#   residual = 0  (equal travels → tilt = 0 → residual clamped to 0 in smoke path)
+#   BM  staff at D=10, baseZ=0     → reading = 1.50010 + 10·tan(c) − 0      ≈ 1.50059 ≈ 1.5006
+#   P1  staff at D= 8, baseZ=0.37  → reading = 1.50010 +  8·tan(c) − 0.37   ≈ 1.13049 ≈ 1.1305
+# If kBaseOpticsM, the smoke screw travel set, the collimation constant, or the P1
+# staff baseZ change, the truth_m arguments below must be re-derived from the formula
+# above (NOT eyeballed from a new screenshot).
+#
+# Resolution assumption (R-AUDIT C-11): smoke shots are taken at 1280×720 by
+# `run_smoke.bat` (`-ResX=1280 -ResY=720`); px_per_cm and the cluster-gap heuristic
+# (gap > 12 px starts a new digit band) both assume this size. analyze() asserts it.
 import sys
 from PIL import Image
 import math

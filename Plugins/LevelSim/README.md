@@ -50,16 +50,18 @@ Plugins\LevelSim\run_game.bat
   不折入真值。標尺永遠鉛直。
 - 已知簡化(MVP,誠實標註):HUD 為英文(引擎字型無 CJK 字模,中文字型屬後續呈現層工作);
   望遠鏡遮罩為方窗非圓窗;粗平(腳架腿)未做,只做腳螺旋精平;只中絲(上下絲為 HUD 視距絲線,
-  不評分);單站不含轉點/閉合(核心 `closeLoop` 已備,屬 M5/M6)。
+  不評分);MVP 單站可玩流程不含轉點/閉合(**多站 closeLoop 核心 + UE FSM 在 M5/M6 已完成**,
+  gate 已驗,但 v1 release 的「主玩流程」仍以單站垂直切片為主)。
 
 ## 驗證
 
-1. **核心 gate(秒級)**:`Standalone\build.bat` → `ALL PASS (failures=0)`(L1..L16/115 asserts;
+1. **核心 gate(秒級)**:`Standalone\build.bat` → `ALL PASS (failures=0)`(L1..L16,**115 = 執行時 PASS 計數**,
+   由 `level_gate.exe` 自己印出;每組 L 含多筆 `checkAbs/checkClose/checkTrue` assertion,合計 115;
    4 輪對抗式審核 R1=27→R2=14→R3=5→R4=0 收斂)。
 2. **煙霧測試**:`run_smoke.bat` → 自動 全景→氣泡(已知擾動)→望遠鏡 BM→望遠鏡 P1 截圖
    (`Saved\Screenshots\`)+ `[LevelSimSmoke]` log(氣泡格數、真值讀數、評分路徑、
    dH→高程 vs 場景真值 100.3700)後自動退出。
-3. UE 編譯隨 `ArchSimEditor` target;FrameCore 四腿 gate 不受影響(零耦合,實測 standalone/UE/OpenSees/audit=63 全綠)。
+3. UE 編譯隨 `ArchSimEditor` target;FrameCore 五腿 gate 不受影響(零耦合;FrameCore 對應的 gate 數字維護在 `docs/VERIFICATION.md`,本 plugin 對 FrameCore 零耦合,可獨立 build/test)。
 4. **像素級 oracle**:`Tools\verify_smoke_shots.py` 從截圖反推十字絲落點讀數,與核心 `measure()` 真值比對
    (BM 0.04mm、P1 0.24mm,容差 ±2mm)→ 證明「玩家所見 == 核心所算」,不靠目視。
 
