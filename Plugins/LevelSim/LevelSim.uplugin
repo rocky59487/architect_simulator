@@ -1,0 +1,24 @@
+{
+    "FileVersion": 3,
+    "Version": 1,
+    "VersionName": "0.1",
+    "FriendlyName": "LevelSim",
+    "Description": "Surveying level-instrument simulator (TW skill-cert 04200 levelling). Pure C++17 measurement core (Core/) + playable UE presentation module (LevelSimPlay). Independent of FrameSolver.",
+    "Category": "Surveying",
+    "CreatedBy": "",
+    "CreatedByURL": "",
+    "DocsURL": "",
+    "MarketplaceURL": "",
+    "SupportURL": "",
+    "EnabledByDefault": true,
+    "CanContainContent": false,
+    "IsBetaVersion": true,
+    "Installed": false,
+    "Modules": [
+        {
+            "Name": "LevelSimPlay",
+            "Type": "Runtime",
+            "LoadingPhase": "Default"
+        }
+    ]
+}
