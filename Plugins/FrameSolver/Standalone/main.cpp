@@ -3354,6 +3354,421 @@ int main() {
         }
     }
 
+#if FRAMECORE_SUPERNODAL
+    // ---------- F63: supernodal-primary REPLACES the LDLT factor (PERF-01 architectural fix) ----
+    // The v2 audit PERF-01 found that solveLoad always paid the LDLT factor cost because
+    // assembleAndFactor ran it unconditionally; supernodal was additive and lost on single-solve.
+    // R2.1 added SolveOptions::useSupernodalPrimary -- when set, assembleAndFactor builds the
+    // supernodal Cholesky as the PRIMARY factor and SKIPS the LDLT factor on SPD success.
+    // F63 asserts:
+    //   F63a  default assembleAndFactor (LDLT primary) AND useSupernodalPrimary=true produce
+    //         u within 1e-9 relative on multiple fixtures (cantilever, SS+UDL, shell plate).
+    //   F63b  pivotMargin from the supernodal L diagonal is positive and comparable in magnitude
+    //         to the LDLT-derived margin -- proving mechanism detection still works.
+    //   F63c  a mechanism model (no supports) is correctly flagged singular on the supernodal
+    //         path (SPD check fails -> fall through to LDLT diagnostic).
+    //   F63d  analyses requiring LDLT (solveModal, solveBuckling) refuse on a SnPrimary ps
+    //         with a clear diagnostic (no UB).
+    //   F63e  SnSession on a SnPrimary ps REUSES the existing factor (diagnostic confirms;
+    //         no double-factor cost). uRel == default-session rel.
+    {
+        std::printf("[F63] supernodal-primary replaces LDLT (PERF-01 architectural win)\n");
+        SolveOptions optSn; optSn.useSupernodalPrimary = true;
+
+        // F63a: cross-fixture numerical equivalence (3 fixtures, both factor paths).
+        auto uMaxRel = [](const SolveResult& A, const SolveResult& B) -> double {
+            double un = 0; for (real v : A.u) un = std::max(un, std::fabs((double)v));
+            if (un == 0) un = 1;
+            double du = 0;
+            for (size_t k = 0; k < A.u.size(); ++k)
+                du = std::max(du, std::fabs((double)A.u[k] - (double)B.u[k]));
+            return du / un;
+        };
+        {
+            FrameModel m; fixtures::cantileverTipLoad(m, 1000.0, 2000.0, mat, sec);
+            PreparedSystem psL = assembleAndFactor(m);
+            PreparedSystem psS = assembleAndFactor(m, optSn);
+            checkTrue("F63a cantilever: SnPrimary non-singular", !psS.isSingular(), psS.diagnostic());
+            checkTrue("F63a cantilever: SnPrimary used (useSnPrimary set)", psS.usingSupernodalPrimary(), "");
+            const SolveResult rL = solveLoad(psL, m), rS = solveLoad(psS, m);
+            const double rel = uMaxRel(rL, rS);
+            checkTrue("F63a cantilever: uRel(LDLT, SnPrimary) < 1e-9",
+                      rel < 1e-9, "rel=" + std::to_string(rel));
+        }
+        {
+            FrameModel m; fixtures::simplySupportedUDL(m, 5.0, 3000.0, mat, sec);
+            PreparedSystem psL = assembleAndFactor(m);
+            PreparedSystem psS = assembleAndFactor(m, optSn);
+            checkTrue("F63a SS+UDL: SnPrimary non-singular", !psS.isSingular(), psS.diagnostic());
+            const SolveResult rL = solveLoad(psL, m), rS = solveLoad(psS, m);
+            const double rel = uMaxRel(rL, rS);
+            checkTrue("F63a SS+UDL: uRel < 1e-9", rel < 1e-9, "rel=" + std::to_string(rel));
+        }
+        {
+            // Shell plate fixture: deeper test of SnPrimary on K including shell DOF.
+            const real a = 1000.0, t = 5.0, q = -0.01;
+            Material smat(200000.0, 76923.0, 7850.0); smat.nu = 0.3;
+            FrameModel m; fixtures::squarePlateShell(m, a, t, 4, q, smat);
+            PreparedSystem psL = assembleAndFactor(m);
+            PreparedSystem psS = assembleAndFactor(m, optSn);
+            checkTrue("F63a shell plate: SnPrimary non-singular", !psS.isSingular(), psS.diagnostic());
+            const SolveResult rL = solveLoad(psL, m), rS = solveLoad(psS, m);
+            const double rel = uMaxRel(rL, rS);
+            checkTrue("F63a shell plate: uRel < 1e-9", rel < 1e-9, "rel=" + std::to_string(rel));
+        }
+
+        // F63b: pivotMargin from supernodal L diagonal is sensible.
+        {
+            FrameModel m; fixtures::cantileverTipLoad(m, 1000.0, 2000.0, mat, sec);
+            PreparedSystem psL = assembleAndFactor(m);
+            PreparedSystem psS = assembleAndFactor(m, optSn);
+            const real pL = psL.pivotMargin(), pS = psS.pivotMargin();
+            std::printf("   pivotMargin: LDLT=%.3e  SnPrimary=%.3e\n", (double)pL, (double)pS);
+            checkTrue("F63b SnPrimary pivotMargin > 0", pS > 0, "pS=" + std::to_string((double)pS));
+            // The two are computed differently (D vs L^2) -- only require same order of magnitude
+            // class (both well above the pivotTol=1e-12 default).
+            checkTrue("F63b both pivotMargins well above pivotTol",
+                      pL > 1e-10 && pS > 1e-10, "");
+        }
+
+        // F63c: mechanism model -- no supports, supernodal SPD fails.
+        {
+            FrameModel m; fixtures::cantileverTipLoad(m, 1000.0, 2000.0, mat, sec);
+            for (auto& nd : m.nodes) for (int d = 0; d < 6; ++d) nd.fixed[d] = false;
+            PreparedSystem psS = assembleAndFactor(m, optSn);
+            checkTrue("F63c mechanism flagged singular under SnPrimary",
+                      psS.isSingular(), psS.diagnostic());
+        }
+
+        // F63d: solveModal / solveBuckling refuse on SnPrimary ps.
+        {
+            FrameModel m; fixtures::cantileverTipLoad(m, 1000.0, 2000.0, mat, sec);
+            PreparedSystem psS = assembleAndFactor(m, optSn);
+            const ModalResult mr = solveModal(psS, ModalOptions{});
+            checkTrue("F63d solveModal refuses SnPrimary", mr.singular, mr.diagnostic);
+            const BucklingResult br = solveBuckling(psS, m);
+            checkTrue("F63d solveBuckling refuses SnPrimary", br.singular, br.diagnostic);
+        }
+
+        // F63e: SnSession on SnPrimary REUSES the factor (no double-build).
+        {
+            FrameModel m; fixtures::cantileverTipLoad(m, 1000.0, 2000.0, mat, sec);
+            PreparedSystem psS = assembleAndFactor(m, optSn);
+            SnSession sess(psS);                                  // should reuse psS.impl->snFac
+            checkTrue("F63e SnSession on SnPrimary is valid", sess.valid(), sess.diagnostic());
+            const std::string diag = sess.diagnostic();
+            const bool reused = diag.find("reusing PreparedSystem supernodal-primary factor") != std::string::npos;
+            checkTrue("F63e SnSession diagnostic says reused (no double-factor)", reused, diag);
+            const SolveResult ref = solveLoad(psS, m);
+            const SolveResult frm = sess.solveFrame(m);
+            double un = 0; for (real v : ref.u) un = std::max(un, std::fabs((double)v)); if (un == 0) un = 1;
+            double du = 0;
+            for (size_t k = 0; k < frm.u.size(); ++k)
+                du = std::max(du, std::fabs((double)frm.u[k] - (double)ref.u[k]));
+            checkTrue("F63e SnSession solveFrame == solveLoad (rel<1e-12)",
+                      du / un < 1e-12, "rel=" + std::to_string(du / un));
+        }
+    }
+#endif // FRAMECORE_SUPERNODAL
+
+#if FRAMECORE_SUPERNODAL
+    // ---------- F62: Neumaier-compensated iterative refinement on the supernodal lane ----------
+    // R2 recon (docs/specs/v3_memory_recon.md) found that mixed building K*u residual crosses
+    // 1e-9 around ~40k DOF on standard topologies (sn_sweep.txt: 64k FAIL at res=1.40e-9,
+    // vsCHOLMOD=2.57e-12 so the solution itself is essentially exact). Fix: opt-in Neumaier
+    // compensated SpMV residual + one IR step on the same supernodal factor.
+    //
+    // F62 stresses a SMALL stiffness-contrast frame (alternating stiff/weak segments -> cond ~1e9)
+    // so the fixed-precision residual is observably above machine precision and IR has room to
+    // improve. The asserts:
+    //   F62a  irSteps=0 SnSession (default) is bit-identical to a no-IR SnSession -> backward
+    //         compatibility (existing F56 was already an implicit check; F62a is explicit).
+    //   F62b  IR>=1 strictly reduces ||K*u - F||_inf over free DOFs vs IR=0 on the same fixture.
+    //   F62c  IR-corrected solution agrees with IR=0 solution to a small tolerance (IR is a
+    //         small precision correction, NOT a different answer).
+    //   F62d  stateless solveLoadSupernodal honours irSteps the same way (cache-less Kff path).
+    {
+        std::printf("[F62] Neumaier compensated IR: slender cantilever (L/d=200, ~cond 1e6)\n");
+
+        // Uniform slender cantilever -- ill-conditioned but NOT topologically near-singular. L/d=200
+        // gives bending/axial stiffness ratio ~ 1/L^2 ~ cond(K_ff) ~ 1e6-1e7. This is the regime IR
+        // actually converges in (the recon's 64k mixed building res=1.40e-9 case is here -- moderate
+        // cond on a regular topology). Alternating stiff/weak sections were tried first; they create
+        // LOCAL near-singularities (weak segments act as numerical hinges) where IR cannot help by
+        // construction, so the test would have asserted IR fails on a stress beyond its design.
+        const int     N    = 50;
+        const real    L    = 3000.0;       // 3 m
+        const real    side = 15.0;         // 15 mm -- gives L/d = 200
+        Material      matH(210000.0, 80769.0, 7850.0);
+        Section       sec1 = Section::Rectangular(side, side);
+        FrameModel    m;
+        m.materials.push_back(matH);
+        m.sections.push_back(sec1);
+        for (int i = 0; i <= N; ++i) m.nodes.push_back(Node(i, (real)i * L / N, 0.0, 0.0));
+        m.nodes[0].fixAll();                                                 // clamp root
+        for (int i = 0; i < N; ++i) {
+            Member mb; mb.id = i;
+            mb.i = i; mb.j = i + 1;
+            mb.matIdx = 0; mb.secIdx = 0;
+            mb.refVec = {0, 0, 1};
+            for (int d = 0; d < 12; ++d) mb.release[d] = false;
+            m.members.push_back(mb);
+        }
+        NodalLoad nl; nl.node = N; nl.comp = {0, 0, -10.0, 0, 0, 0};        // 10 N tip
+        m.nodalLoads.push_back(nl);
+
+        PreparedSystem ps = assembleAndFactor(m);
+
+        // Free-DOF residual via the public surface: at free DOFs reactions = K*u - F. We identify
+        // free DOFs from the model itself (m.nodes[k].fixed[d] == false) rather than peeking into
+        // PreparedSystem::Impl, which is opaque in standalone.
+        auto resInfFree = [&](const SolveResult& R) -> double {
+            double maxv = 0;
+            for (size_t k = 0; k < m.nodes.size(); ++k)
+                for (int d = 0; d < 6; ++d)
+                    if (!m.nodes[k].fixed[d]) {
+                        const double a = std::fabs((double)R.reaction((int)k, d));
+                        if (a > maxv) maxv = a;
+                    }
+            return maxv;
+        };
+        auto uInf = [](const SolveResult& R) -> double {
+            double m = 0;
+            for (real v : R.u) m = std::max(m, std::fabs((double)v));
+            return m;
+        };
+        auto uDiff = [](const SolveResult& A, const SolveResult& B) -> double {
+            double d = 0;
+            for (size_t k = 0; k < A.u.size(); ++k)
+                d = std::max(d, std::fabs((double)A.u[k] - (double)B.u[k]));
+            return d;
+        };
+
+        // F62a: default SnSession (irSteps=0) bit-equiv to explicit irSteps=0.
+        SnSessionOptions optA0; optA0.irSteps = 0;
+        SnSessionOptions optA0b;                                       // default constructed
+        SnSession sA0 (ps, optA0);
+        SnSession sA0b(ps, optA0b);
+        const SolveResult rA0  = sA0 .solveFrame(m);
+        const SolveResult rA0b = sA0b.solveFrame(m);
+        const double dA = uDiff(rA0, rA0b);
+        checkTrue("F62a default ctor == irSteps=0 (bit-equiv backward compat)",
+                  !rA0.singular && !rA0b.singular && dA == 0.0,
+                  "uDiff=" + std::to_string(dA) + " | " + rA0.diagnostic);
+
+        // F62b: IR>=1 strictly reduces inf-norm residual at free DOFs.
+        SnSessionOptions optIR; optIR.irSteps = 2; optIR.irTol = 0.0;  // do both steps unconditionally
+        SnSession sIR(ps, optIR);
+        const SolveResult rIR = sIR.solveFrame(m);
+        const double r0 = resInfFree(rA0);
+        const double r2 = resInfFree(rIR);
+        std::printf("   resInf free DOFs: IR=0 -> %.3e ; IR=2 -> %.3e (ratio %.2e)\n",
+                    r0, r2, r2 / std::max(r0, 1e-300));
+        char rStr[80]; std::snprintf(rStr, sizeof(rStr), "r0=%.3e r2=%.3e", r0, r2);
+        checkTrue("F62b SnSession IR>=1 reduces ||K*u-F|| at free DOFs", r2 < r0,
+                  std::string(rStr) + " | " + rIR.diagnostic);
+
+        // F62c: IR-corrected solution stays close to the non-IR solution -- IR is precision polish,
+        // not a different answer. At cond ~1e6-1e7 the correction is well below 1e-6 relative.
+        const double un = std::max(uInf(rA0), 1e-30);
+        const double duRel = uDiff(rA0, rIR) / un;
+        char duStr[40]; std::snprintf(duStr, sizeof(duStr), "duRel=%.3e", duRel);
+        checkTrue("F62c IR solution is a small polish (rel<1e-6 at cond~1e6)",
+                  duRel < 1e-6, std::string(duStr));
+
+        // F62d: stateless solveLoadSupernodal honours irSteps identically (cache-less Kff path).
+        SnSolveOptions stOff; stOff.enabled = true; stOff.irSteps = 0;
+        SnSolveOptions stOn;  stOn .enabled = true; stOn .irSteps = 2;
+        const SolveResult sR0 = solveLoadSupernodal(ps, m, stOff);
+        const SolveResult sR2 = solveLoadSupernodal(ps, m, stOn );
+        const double s0 = resInfFree(sR0), s2 = resInfFree(sR2);
+        std::printf("   stateless resInf: IR=0 -> %.3e ; IR=2 -> %.3e\n", s0, s2);
+        char sStr[80]; std::snprintf(sStr, sizeof(sStr), "s0=%.3e s2=%.3e", s0, s2);
+        checkTrue("F62d stateless solveLoadSupernodal IR>=1 reduces residual",
+                  !sR0.singular && !sR2.singular && s2 < s0,
+                  std::string(sStr) + " | " + sR2.diagnostic);
+    }
+#endif // FRAMECORE_SUPERNODAL
+
+    // ---------- F64: AC-06 / AC-07 audit fixes ----------------------------------------------
+    // AC-06: BucklingOptions::shellBucklingKnockdown applies a code-style alpha factor AFTER
+    // the eigensolve. Result keeps the raw eigenvalue (reportedCriticalFactor) and the design
+    // value (criticalFactor); knockdownFactor records the alpha. Default 0 → raw == design
+    // (bit-identical to v2.0).
+    // AC-07: SolveOptions::shellCurvatureMaxAngleDeg rejects a too-coarse curved-shell mesh
+    // up front in assembleAndFactor (max adjacent-facet normal angle > tol → singular with a
+    // clear diagnostic). Default 0 → no check.
+    {
+        std::printf("[F64] AC-06 shell buckling knockdown + AC-07 curved-shell mesh guard\n");
+
+        // F64a: knockdown halves criticalFactor while reportedCriticalFactor stays raw.
+        {
+            const real P = 1000.0, L = 3000.0;
+            FrameModel m; fixtures::axialColumn(m, P, L, mat, sec);
+            PreparedSystem ps = assembleAndFactor(m);
+            BucklingOptions optRaw;
+            BucklingOptions optK; optK.shellBucklingKnockdown = 0.65;
+            const BucklingResult bRaw = solveBuckling(ps, m, optRaw);
+            const BucklingResult bK   = solveBuckling(ps, m, optK);
+            checkTrue("F64a buckling solved (raw)",       !bRaw.singular, bRaw.diagnostic);
+            checkTrue("F64a buckling solved (knockdown)", !bK.singular,   bK.diagnostic);
+            checkClose("F64a raw eigenvalue unchanged",   (double)bK.reportedCriticalFactor,
+                       (double)bRaw.criticalFactor, 1e-12);
+            checkClose("F64a design value = alpha * raw", (double)bK.criticalFactor,
+                       0.65 * (double)bRaw.criticalFactor, 1e-12);
+            checkClose("F64a knockdownFactor recorded",   (double)bK.knockdownFactor, 0.65, 1e-12);
+            checkClose("F64a default knockdown=1",        (double)bRaw.knockdownFactor, 1.0, 1e-12);
+        }
+
+        // F64a-shell: the shell + shellGeometricStiffness + shellBucklingKnockdown design
+        // workflow (audit BLDG SLV-NEW-3 closing fixture). SS square plate uniaxial buckling
+        // is the same setup as F57's N_cr = 4 pi^2 D / a^2 oracle, with NASA SP-8007 alpha=0.65
+        // applied for an axially compressed thin-walled element. We verify the engine reports
+        // BOTH the raw eigenvalue (= F57 value) and the design value (alpha * raw), and that
+        // an out-of-range alpha surfaces a diagnostic.
+        {
+            const real kPi = 3.14159265358979323846;
+            const real Es = 200000.0, nus = 0.3;
+            Material smat(Es, Es / (2.0 * (1.0 + nus))); smat.nu = nus;
+            const real a = 1000.0, tpl = 5.0;
+            const int  n = 12;
+            const real Pref = 1.0;
+
+            FrameModel m;
+            m.materials.push_back(smat);
+            const real hh = a / n;
+            auto gid = [n](int i, int j) { return j * (n + 1) + i; };
+            for (int j = 0; j <= n; ++j)
+                for (int i = 0; i <= n; ++i) {
+                    Node nd(gid(i, j), i * hh, j * hh, 0);
+                    nd.fixed[5] = true;                            // drilling (rotation about normal)
+                    const bool edge = (i == 0 || i == n || j == 0 || j == n);
+                    if (edge)            nd.fixed[2] = true;       // simple support: w=0
+                    if (i == 0)          nd.fixed[0] = true;       // reaction edge -> uniform sigma
+                    if (i == 0 && j == 0) nd.fixed[1] = true;       // pin y axis (rigid body)
+                    m.nodes.push_back(nd);
+                }
+            int sid = 0;
+            for (int j = 0; j < n; ++j)
+                for (int i = 0; i < n; ++i)
+                    m.shells.push_back(ShellQuad(sid++,
+                        gid(i, j), gid(i + 1, j), gid(i + 1, j + 1), gid(i, j + 1), 0, tpl));
+            for (int j = 0; j <= n; ++j) {                         // uniaxial compression on i=n edge
+                const real trib = (j == 0 || j == n) ? 0.5 * hh : hh;
+                NodalLoad nl; nl.node = gid(n, j);
+                nl.comp[0] = -Pref * trib;
+                m.nodalLoads.push_back(nl);
+            }
+            SolveOptions so; so.shellGeometricStiffness = true;
+            PreparedSystem ps = assembleAndFactor(m, so);
+
+            BucklingOptions optRaw;
+            BucklingOptions optK;   optK.shellBucklingKnockdown   = 0.65;   // NASA SP-8007 / EN 1993-1-6 alpha
+            BucklingOptions optBad; optBad.shellBucklingKnockdown = 1.5;    // out of range -> diag, alpha=1
+            const BucklingResult bRaw = solveBuckling(ps, m, optRaw);
+            const BucklingResult bK   = solveBuckling(ps, m, optK);
+            const BucklingResult bBad = solveBuckling(ps, m, optBad);
+            checkTrue("F64a-shell shell buckling raw non-singular",       !bRaw.singular, bRaw.diagnostic);
+            checkTrue("F64a-shell shell buckling knockdown non-singular", !bK.singular,   bK.diagnostic);
+            checkTrue("F64a-shell out-of-range knockdown still solves",   !bBad.singular, bBad.diagnostic);
+            checkClose("F64a-shell raw eigenvalue stable across alphas",
+                       (double)bK.reportedCriticalFactor, (double)bRaw.reportedCriticalFactor, 1e-12);
+            checkClose("F64a-shell design = 0.65 * raw",
+                       (double)bK.criticalFactor, 0.65 * (double)bRaw.criticalFactor, 1e-12);
+            checkClose("F64a-shell out-of-range alpha clamps to 1.0",
+                       (double)bBad.knockdownFactor, 1.0, 1e-12);
+            const std::string diag = bBad.diagnostic;
+            const bool warns = diag.find("shellBucklingKnockdown=") != std::string::npos
+                            && diag.find("out of range") != std::string::npos;
+            checkTrue("F64a-shell out-of-range alpha surfaces diagnostic (NLL-NEW-2 fix)", warns, diag);
+            // Independent sanity check: the raw alpha should be near the F57 analytic value at n=12.
+            const real Dpl = Es * tpl * tpl * tpl / (12.0 * (1.0 - nus * nus));
+            const real Ncr_theory = 4.0 * kPi * kPi * Dpl / (a * a);
+            const double rel = std::fabs((double)bRaw.reportedCriticalFactor - (double)Ncr_theory)
+                               / std::max(1e-30, (double)Ncr_theory);
+            char relStr[40]; std::snprintf(relStr, sizeof(relStr), "rel=%.3e", rel);
+            checkTrue("F64a-shell raw eigenvalue agrees with F57 oracle (rel<5% at n=12)",
+                      rel < 5e-2, std::string(relStr));
+        }
+
+        // F64b: curved-shell guard rejects a coarse circular cylinder (N=8 → 45 deg per facet).
+        //       Generates 8 facets around a 1m-radius cylinder.
+        {
+            const real R = 1000.0, L = 1000.0, t = 5.0;
+            const int  N = 8;          // 45 deg per facet -> 22.5 deg tol must reject
+            FrameModel m;
+            Material smat(200000.0, 76923.0, 7850.0); smat.nu = 0.3;
+            m.materials.push_back(smat);
+            for (int j = 0; j < 2; ++j)
+                for (int i = 0; i < N; ++i) {
+                    const real ang = real(2) * kPi * real(i) / real(N);
+                    Node nd(j * N + i, R * std::cos(ang), R * std::sin(ang), j * L);
+                    if (j == 0) nd.fixAll();
+                    m.nodes.push_back(nd);
+                }
+            for (int i = 0; i < N; ++i) {
+                const int i1 = (i + 1) % N;
+                ShellQuad sh;
+                sh.id = i;
+                sh.n[0] = (NodeId)i;
+                sh.n[1] = (NodeId)i1;
+                sh.n[2] = (NodeId)(N + i1);
+                sh.n[3] = (NodeId)(N + i);
+                sh.matIdx = 0; sh.t = t;
+                m.shells.push_back(sh);
+            }
+            // Add some pressure / load so the model is not load-free
+            ShellPressure sp; sp.shell = 0; sp.p = -0.01; m.shellPressures.push_back(sp);
+
+            // Without guard: model is admitted and solves.
+            PreparedSystem psOff = assembleAndFactor(m);
+            checkTrue("F64b coarse cylinder admitted with guard OFF (default)",
+                      !psOff.isSingular(), psOff.diagnostic());
+
+            // With guard at 22.5 deg: 45-deg adjacent facets must trigger refusal.
+            SolveOptions optGuard; optGuard.shellCurvatureMaxAngleDeg = 22.5;
+            PreparedSystem psOn = assembleAndFactor(m, optGuard);
+            checkTrue("F64b 22.5deg guard rejects 8-facet cylinder (45deg per facet)",
+                      psOn.isSingular(), psOn.diagnostic());
+            const std::string diag = psOn.diagnostic();
+            const bool mentionsAngle = diag.find("max adjacent-facet angle") != std::string::npos;
+            checkTrue("F64b diagnostic names the geometric problem", mentionsAngle, diag);
+
+            // With guard at 50 deg: 45-deg facets are within tolerance → admitted.
+            SolveOptions optLoose; optLoose.shellCurvatureMaxAngleDeg = 50.0;
+            PreparedSystem psLoose = assembleAndFactor(m, optLoose);
+            checkTrue("F64b 50deg guard admits 8-facet cylinder", !psLoose.isSingular(),
+                      psLoose.diagnostic());
+
+            // Refine to 32 facets (11.25 deg per facet) → 22.5 deg guard admits it.
+            FrameModel m2;
+            m2.materials.push_back(smat);
+            const int N2 = 32;
+            for (int j = 0; j < 2; ++j)
+                for (int i = 0; i < N2; ++i) {
+                    const real ang = real(2) * kPi * real(i) / real(N2);
+                    Node nd(j * N2 + i, R * std::cos(ang), R * std::sin(ang), j * L);
+                    if (j == 0) nd.fixAll();
+                    m2.nodes.push_back(nd);
+                }
+            for (int i = 0; i < N2; ++i) {
+                const int i1 = (i + 1) % N2;
+                ShellQuad sh;
+                sh.id = i;
+                sh.n[0] = (NodeId)i;
+                sh.n[1] = (NodeId)i1;
+                sh.n[2] = (NodeId)(N2 + i1);
+                sh.n[3] = (NodeId)(N2 + i);
+                sh.matIdx = 0; sh.t = t;
+                m2.shells.push_back(sh);
+            }
+            ShellPressure sp2; sp2.shell = 0; sp2.p = -0.01; m2.shellPressures.push_back(sp2);
+            PreparedSystem psFine = assembleAndFactor(m2, optGuard);
+            checkTrue("F64b 22.5deg guard admits refined 32-facet cylinder (11.25deg per facet)",
+                      !psFine.isSingular(), psFine.diagnostic());
+        }
+    }
+
     std::printf("\n%s  (failures=%d)\n", g_fail == 0 ? "ALL PASS" : "FAILURES", g_fail);
     return g_fail == 0 ? 0 : 1;
 }

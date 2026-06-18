@@ -22,7 +22,7 @@ if errorlevel 1 ( echo [build_perf] vcvars64 failed & exit /b 1 )
 pushd "%ROOT%"
 if not exist "Standalone\obj_perf" mkdir "Standalone\obj_perf"
 
-cl /nologo /EHsc /std:c++17 /O2 /MD /utf-8 /DEIGEN_MPL2_ONLY ^
+cl /nologo /EHsc /std:c++17 /O2 /MD /utf-8 /DEIGEN_MPL2_ONLY /DFRAMECORE_SUPERNODAL=0 ^
    /Fe:Standalone\frame_perf.exe ^
    /Fo:Standalone\obj_perf\ ^
    /I"%EIGEN%" ^

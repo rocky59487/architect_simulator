@@ -8,6 +8,7 @@
 #include "FrameCore/FrameSolver.h"
 #include "FrameEigen.h"
 #include "IElement.h"
+#include "FrameSnChol.h"            // FRAMECORE_SUPERNODAL + sn:: types (header-only guarded)
 
 #include <vector>
 #include <string>
@@ -41,14 +42,27 @@ struct PreparedSystem::Impl {
     SpMat                                  K;          // full global K (reactions, K_ff, M reduction)
     std::vector<int>                       fmap;       // free-DOF map (-1 = constrained)
     int                                    nf = 0;
-    real                                   pivotMargin = 0;   // min/max |LDLT pivot| of K_ff (C4 criticality margin)
-    LDLTSolver                             ldlt;       // factorization of K_ff
+    real                                   pivotMargin = 0;   // min/max |pivot| of K_ff (C4 criticality margin)
+    LDLTSolver                             ldlt;       // factorization of K_ff (default lane)
     std::vector<std::unique_ptr<IElement>> elems;      // prepared elements (stiffness/mass/recovery)
     bool                                   singular = false;
     std::string                            diagnostic;
     uint64_t                               fingerprint = 0;   // structural/geometry/UDL hash baseline;
                                                               // solveLoad rejects a model whose
                                                               // fingerprint changed (see FrameSolver.cpp)
+#if FRAMECORE_SUPERNODAL
+    // R2.1 PERF-01 architectural fix: supernodal-primary lane. When opts.useSupernodalPrimary
+    // is set on assembleAndFactor AND the SPD check passes, useSnPrimary=true and the ldlt
+    // factor above is LEFT UNCOMPUTED (Eigen::SimplicialLDLT has `info()==Eigen::InvalidInput`
+    // until compute() is called). solveLoad then routes through sn::solveSuper instead. When
+    // the SPD check fails, useSnPrimary stays false and the LDLT path runs as the universal
+    // fallback (mechanism detection authoritative). The supernodal-primary path is intended
+    // for the bare solveLoad workflow: PDelta / ReSolve / Modal / Buckling / DynamicCollapse
+    // require LDLT and refuse to run on a SupernodalPrimary PreparedSystem.
+    bool           useSnPrimary = false;
+    sn::SnSymbolic snSym;                              // symbolic analysis (METIS + etree), if SnPrimary
+    sn::SnSuper    snFac;                              // numeric supernodal factor, if SnPrimary
+#endif
 };
 
 }  // namespace frame

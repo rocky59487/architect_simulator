@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <unordered_set>
 
 static_assert(sizeof(frame::Node) > 0, "Node must be a complete type");
 static_assert(sizeof(frame::Material) > 0, "Material must be a complete type");
@@ -40,15 +41,26 @@ bool FrameModel::validate(std::string& why, real warpTol) const {
         if (!finiteVec3(n.pos)) { why = "node has non-finite coordinate"; return false; }
         if (!finiteDof6(n.prescribed)) { why = "node has non-finite prescribed displacement"; return false; }
     }
-    for (size_t a = 0; a < nodes.size(); ++a)
-        for (size_t b = a + 1; b < nodes.size(); ++b)
-            if (nodes[a].id == nodes[b].id) { why = "duplicate node id"; return false; }
-    for (size_t a = 0; a < members.size(); ++a)
-        for (size_t b = a + 1; b < members.size(); ++b)
-            if (members[a].id == members[b].id) { why = "duplicate member id"; return false; }
-    for (size_t a = 0; a < shells.size(); ++a)
-        for (size_t b = a + 1; b < shells.size(); ++b)
-            if (shells[a].id == shells[b].id) { why = "duplicate shell id"; return false; }
+    // R2 audit MI-04: duplicate-id detection used O(n^2) nested loops which made validate()
+    // slow to a crawl on 100k+ DOF building models. Hash-set lookups bring it to O(n).
+    {
+        std::unordered_set<NodeId> seen;
+        seen.reserve(nodes.size() * 2);
+        for (const auto& n : nodes)
+            if (!seen.insert(n.id).second) { why = "duplicate node id"; return false; }
+    }
+    {
+        std::unordered_set<MemberId> seen;
+        seen.reserve(members.size() * 2);
+        for (const auto& m : members)
+            if (!seen.insert(m.id).second) { why = "duplicate member id"; return false; }
+    }
+    {
+        std::unordered_set<int> seen;
+        seen.reserve(shells.size() * 2);
+        for (const auto& s : shells)
+            if (!seen.insert(s.id).second) { why = "duplicate shell id"; return false; }
+    }
     for (const auto& m : members) {
         const int ni = nodeIndex(m.i), nj = nodeIndex(m.j);
         if (ni < 0 || nj < 0)            { why = "member references missing node"; return false; }

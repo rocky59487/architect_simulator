@@ -279,7 +279,7 @@ plates/shells directly and converges to the exact solution.
 - **`Standalone/linear_deep_audit.cpp`** — **104** independent checks: sympy/numpy-derived
   references, bit-identity no-op proofs for every opt-in flag, the MITC4 element-spectrum
   oracle, and fresh-factorization references for every incremental method.
-- **`Private/Tests/*.cpp`** — UE automation mirrors (`FrameCore.*`), **52** tests across
+- **`Private/Tests/*.cpp`** — UE automation mirrors (`FrameCore.*`), **57** tests across
   the same oracle families as the standalone fixtures (the dual-build proof).
 - **`Tools/`** — `opensees_compare.py` (OpenSees cross-validation: beams strict 1e-8; prescribed
   settlement vs `sp()` to 0; the MITC4 shell vs OpenSees' own `ShellMITC4` to ~1e-10 on the
@@ -292,7 +292,7 @@ plates/shells directly and converges to the exact solution.
   `complex_structure_benchmark.py`, `grillage_curve_audit.py` — all black-box the engine
   through `frame_cli.exe`.
 - **`Scripts/run_gate.ps1`** — runs all **five** legs (standalone, UE automation, OpenSees,
-  deep audit, CLI round-trip) and prints a combined verdict + exit code; `$ExpectedUeTests = 52`
+  deep audit, CLI round-trip) and prints a combined verdict + exit code; `$ExpectedUeTests = 57`
   guards against a silently-missing UE test; `-RequireOpenSees` makes a missing OpenSees a hard
   failure for CI.
 

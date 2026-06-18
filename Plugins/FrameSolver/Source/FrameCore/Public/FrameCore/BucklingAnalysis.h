@@ -15,6 +15,22 @@ struct BucklingOptions {
     int  nev            = 1;      // smallest eigenpairs to converge (criticalFactor = lambda[0])
     int  maxIter        = 300;    // sparse subspace-iteration cap before dense fallback
     real tol            = 1e-11;  // sparse relative-eigenvalue convergence tolerance
+
+    // R2.1 audit AC-06 architectural fix: thin-shell linear buckling eigenvalues are an
+    // *upper bound* on the real critical load. Imperfections, post-buckling softening, and
+    // edge effects pull the practical capacity down — for thin-walled cylinders EN 1993-1-6
+    // Table 6.1 gives knockdown alpha ~= 0.6-0.7 for ordinary fabrication (alpha_x ~= 0.62 at
+    // r/t = 500 for Class C quality). Set this to the relevant design-code knockdown to get
+    // a USABLE design value back from solveBuckling instead of just a paper eigenvalue. 0
+    // (default) keeps the un-knocked-down eigenvalue (bit-identical to v2.0). Typical:
+    //   0.65 for general thin shells (NASA SP-8007 lower bound for axially compressed cylinders)
+    //   0.70 for moderate-quality fabrication
+    //   1.00 for stocky shells where imperfection sensitivity is low
+    // The result reports BOTH the un-knocked value (`reportedCriticalFactor`) and the
+    // knocked-down value (`criticalFactor`), so the user always sees the source data and
+    // the design value side by side. Knockdown is applied AFTER the eigensolve, so this
+    // does not change the bit-identity contract for default-options callers.
+    real shellBucklingKnockdown = 0;
 };
 
 // Linear (eigenvalue) BUCKLING. Applies the model's reference load (via solveLoad), builds the

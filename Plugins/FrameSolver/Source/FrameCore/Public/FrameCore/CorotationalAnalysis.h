@@ -18,7 +18,14 @@ struct CorotationalOptions {
     SolveOptions solve;      // pivotTol passthrough (useTimoshenko reserved; CR uses Euler-Bernoulli beams).
     // --- S9c (all default off -> S9b behaviour bit-for-bit; none enter modelFingerprint) ---
     bool useArcLength      = false;  // Crisfield cylindrical arc-length (snap-through); ignores loadSteps
-    real arcLength         = 0;      // arc-length increment Dl (0 -> auto from the first tangent / loadSteps)
+    // arc-length increment Dl. **MUST be set by the caller** for soft-direction structures
+    // (shallow arches, thin-shell snap-through) — set to ~1%-5% of the characteristic rise or
+    // mid-span deflection (e.g. 0.03 for a rise=1.0 shallow arch). The `0 -> auto` fallback
+    // computes Dl from the first tangent and `loadSteps`; for soft-direction problems the first
+    // tangent over-predicts (PROGRESS_S9c.md durable lesson 1: auto Dl can be 1.7 vs rise 0.25,
+    // jumping over the entire snap region in a single step while the corrector still reports
+    // `converged=true` on a post-snap equilibrium — a silent miss of the limit load).
+    real arcLength         = 0;
     int  arcSteps          = 50;     // max arc-length increments
     int  monitorDof        = -1;     // global DOF recorded in result.pathDisp (-1 -> tip translation auto)
     bool consistentTangent = false;  // numerical (finite-difference) consistent tangent -> quadratic NR

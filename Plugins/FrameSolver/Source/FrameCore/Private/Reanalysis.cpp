@@ -71,7 +71,11 @@ struct ReSolveSession::Impl {
 
     // Rebuild the baseline on the current active set and clear the ladder (= Tier-3, always correct).
     void buildBaseline() {
-        ps = assembleAndFactor(workModel(), opts.solve);
+        // R2.1 PERF-01 guard: ReSolve Tier-2/3 use S.ldlt for stale-LDLT PCG and the
+        // rebaseline solve. Force LDLT primary regardless of user's outer flag.
+        SolveOptions sopts = opts.solve;
+        sopts.useSupernodalPrimary = false;
+        ps = assembleAndFactor(workModel(), sopts);
         baseValid = !S().singular;
         diag      = S().diagnostic;
         clearLadder();

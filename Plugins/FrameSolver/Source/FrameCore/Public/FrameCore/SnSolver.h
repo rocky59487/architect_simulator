@@ -25,6 +25,13 @@ namespace frame {
 //
 // Parallel entry point: solve(), solveLoad() and assembleAndFactor() are NOT changed, and the public
 // boundary stays Eigen-free (POD SolveResult).
+//
+// THREAD SAFETY (R2 audit SLV-01): solveLoadSupernodal calls into OpenBLAS through the
+// supernodal factor, which uses `openblas_set_num_threads(...)` as process-global state.
+// **Do not call solveLoadSupernodal concurrently from multiple threads on the same process**
+// (the OpenBLAS thread-count mutation races between calls; the dense panel kernels themselves
+// are thread-safe under a single global thread-count setting). Serialise supernodal calls or
+// fence them with an external lock. The default LDLT lane (`solveLoad`) has no such constraint.
 FRAMECORE_API SolveResult solveLoadSupernodal(const PreparedSystem& prepared,
                                               const FrameModel& model,
                                               const SnSolveOptions& opts = {});

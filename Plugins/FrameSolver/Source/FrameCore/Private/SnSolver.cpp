@@ -68,6 +68,8 @@ SolveResult solveLoadSupernodal(const PreparedSystem& prepared, const FrameModel
     // ---- the ONLY departure from solveLoad: self-built supernodal vs ldlt.solve(Ff) -
     VecX uf;
     bool snOk = false;
+    int  irApplied = 0;
+    double irFinalRes = 0.0;
 #if FRAMECORE_SUPERNODAL
     if (opts.enabled && S.nf > 0) {
         try {
@@ -82,6 +84,26 @@ SolveResult solveLoadSupernodal(const PreparedSystem& prepared, const FrameModel
                 std::vector<double> b((size_t)n), x((size_t)n);
                 for (int i = 0; i < n; ++i) b[(size_t)i] = static_cast<double>(Ff(i));
                 sn::solveSuper(fac, sym, b.data(), x.data());
+
+                // R2: Neumaier-compensated iterative refinement on top of the supernodal factor.
+                // Loop reuses the SAME (sym, fac) so no re-factor cost; each step is one compensated
+                // SpMV + one forward/back substitution. opts.irSteps==0 -> no extra work (bit-identical
+                // to no-IR). If irTol>0, early-stop when ||r||_inf <= irTol * ||b||_inf.
+                if (opts.irSteps > 0) {
+                    const double bNorm = sn::infNorm(n, b.data());
+                    const double absTol = (opts.irTol > 0.0) ? (opts.irTol * bNorm) : 0.0;
+                    std::vector<double> r((size_t)n), d((size_t)n);
+                    for (int k = 0; k < opts.irSteps; ++k) {
+                        sn::neumaierResidualFullSym(n, Kff.outerIndexPtr(), Kff.innerIndexPtr(),
+                                                    Kff.valuePtr(), b.data(), x.data(), r.data());
+                        irFinalRes = sn::infNorm(n, r.data());
+                        if (absTol > 0.0 && irFinalRes <= absTol) break;
+                        sn::solveSuper(fac, sym, r.data(), d.data());
+                        for (int i = 0; i < n; ++i) x[(size_t)i] += d[(size_t)i];
+                        ++irApplied;
+                    }
+                }
+
                 uf.resize(n);
                 for (int i = 0; i < n; ++i) uf(i) = static_cast<real>(x[(size_t)i]);
                 if (uf.allFinite()) snOk = true;
@@ -93,6 +115,10 @@ SolveResult solveLoadSupernodal(const PreparedSystem& prepared, const FrameModel
     std::string note;
     if (snOk) {
         note = "[SnSolver] self-built supernodal Cholesky";
+        if (irApplied > 0) {
+            note += " + IR" + std::to_string(irApplied) + "/" + std::to_string(opts.irSteps);
+            if (opts.irTol > 0.0) note += " (resInf=" + std::to_string(irFinalRes) + ")";
+        }
     } else {
         const char* why =
             !opts.enabled ? "supernodal lane disabled"
@@ -106,6 +132,15 @@ SolveResult solveLoadSupernodal(const PreparedSystem& prepared, const FrameModel
             R.diagnostic = std::string("solveLoadSupernodal: ") + why + "; fallback disabled";
             return R;
         }
+#if FRAMECORE_SUPERNODAL
+        // R2.1 PERF-01: supernodal-primary PreparedSystem has no LDLT factor.
+        if (S.useSnPrimary) {
+            R.singular = true;
+            R.diagnostic = std::string("solveLoadSupernodal: ") + why +
+                           "; LDLT fallback unavailable (useSupernodalPrimary=true)";
+            return R;
+        }
+#endif
         uf = S.ldlt.solve(Ff);                        // the oracle / safety net
         if (S.ldlt.info() != Eigen::Success || !uf.allFinite()) {
             R.singular = true;

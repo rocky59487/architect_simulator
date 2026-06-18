@@ -570,4 +570,46 @@ inline void solveSuper(const SnSuper& S, const SnSymbolic& sym, const double* b,
     for (int i = 0; i < n; ++i) x[i] = y[sym.iperm[i]];
 }
 
+// --- R2: Neumaier-compensated iterative-refinement primitives -----------------------------------
+// Compensated residual `r = b - A*x` for a FULL-symmetric CSC A (n x n; both triangles stored, as
+// produced by reduceFF). Neumaier-style compensation: accumulating into per-row compensation slots
+// preserves precision when individual A_ij*x_j terms are large vs. the converging row sum -- exactly
+// the regime where fixed-precision residual stalls (Higham, Accuracy and Stability, ch.4 + ch.12).
+// MSVC's `long double` is the same width as `double`, so the conventional long-double-residual trick
+// is a no-op on our platform; compensated summation is the portable alternative.
+//
+// Cost: one full sweep of A (same FLOPs as a naive CSC matvec) plus O(n) ops on c[]. Memory: one
+// extra double[n]. Used inside SnSession::solveFrame / solveLoadSupernodal IR loops; not on the
+// per-frame hot path when opts.irSteps == 0 (default).
+inline void neumaierResidualFullSym(int n,
+                                    const int* Ap, const int* Ai, const double* Ax,
+                                    const double* b, const double* x, double* r) {
+    std::vector<double> c((size_t)n, 0.0);
+    for (int i = 0; i < n; ++i) r[i] = b[i];
+    for (int j = 0; j < n; ++j) {
+        const double xj = x[j];
+        if (xj == 0.0) continue;
+        for (int p = Ap[j]; p < Ap[j + 1]; ++p) {
+            const int    i   = Ai[p];
+            const double add = -Ax[p] * xj;            // r = b - A*x  -> add the NEGATIVE here
+            const double s   = r[i] + add;
+            const double absR = std::abs(r[i]);
+            const double absA = std::abs(add);
+            c[i] += (absR >= absA) ? ((r[i] - s) + add) : ((add - s) + r[i]);
+            r[i] = s;
+        }
+    }
+    for (int i = 0; i < n; ++i) r[i] += c[i];
+}
+
+// Inf-norm of a length-n vector. Used for IR convergence checks and diagnostics.
+inline double infNorm(int n, const double* x) {
+    double m = 0.0;
+    for (int i = 0; i < n; ++i) {
+        const double a = std::abs(x[i]);
+        if (a > m) m = a;
+    }
+    return m;
+}
+
 } // namespace sn

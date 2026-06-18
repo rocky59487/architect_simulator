@@ -19,6 +19,11 @@ struct SnSessionOptions {
     int  numThreads      = 0;      // 0 = sqrt(nf)/20 memory-bandwidth heuristic (recommendedThreads)
     int  blasThreadsRoot = 0;      // 0 = nt (mixed parallelism); 1 = single-thread BLAS everywhere
     bool fallbackOnFail  = true;   // supernodal non-finite -> fall back to LDLT
+    // R2: Neumaier-compensated iterative refinement (see SnSolveOptions.h for rationale).
+    // The session caches the K_ff CSC structure (~nnz*16B; tens of MB at 100k DOF) when irSteps>0
+    // so compensated SpMV reuses the same matrix the factor was built from.
+    int    irSteps = 0;            // 0 = off (bit-identical to no-IR); 1-2 typical
+    double irTol   = 0.0;          // 0 = no early stop; >0 = break when ||r||_inf <= irTol * ||b||_inf
 };
 
 // Stateful supernodal solve session: factor ONCE in the ctor, reuse the factor across solveFrame
@@ -34,6 +39,14 @@ struct SnSessionOptions {
 // assembleAndFactor yields a singular SolveResult (re-run assembleAndFactor). When the supernodal
 // factor is not ready (disabled / non-SPD / FRAMECORE_SUPERNODAL=0), solveFrame transparently uses
 // the LDLT oracle, so the result never deviates from the direct solve.
+//
+// THREAD SAFETY (R2 audit SLV-01): the supernodal factor builds on OpenBLAS, which uses
+// `openblas_set_num_threads(...)` as **process-global state**. A SnSession ctor mutates it; so
+// does each solveFrame call when the supernodal path is taken. **Do not construct or call
+// solveFrame() concurrently on multiple SnSession instances on the same process** — even if
+// each instance has its own PreparedSystem, the OpenBLAS thread-count is shared. Serialise
+// supernodal work with an external lock if your host is multi-threaded. The LDLT fallback
+// inside solveFrame() has no such constraint, but you cannot rely on it being chosen.
 class FRAMECORE_API SnSession {
 public:
     explicit SnSession(const PreparedSystem& prepared, const SnSessionOptions& opts = {});

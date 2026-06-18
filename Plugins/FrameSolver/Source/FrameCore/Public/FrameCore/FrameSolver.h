@@ -23,6 +23,17 @@ struct FRAMECORE_API PreparedSystem {
     // Criticality margin = min/max |LDLT pivot| of K_ff (see SolveResult::pivotMargin). Available
     // straight after assembleAndFactor without a solve. 0 if singular / not yet factored.
     real pivotMargin() const;
+
+    // Inspect the prepared system without peeking into the opaque Impl. R2.1 PERF-01: an
+    // assembleAndFactor caller needs to ask "did the supernodal-primary path succeed?" to
+    // route follow-on workflows (e.g. ReSolve / Modal must use a non-SnPrimary baseline).
+    bool        isSingular() const;
+    const char* diagnostic() const;
+    // True iff this PreparedSystem was built with SolveOptions::useSupernodalPrimary=true
+    // AND the supernodal SPD factor succeeded. Analyses that internally rely on the LDLT
+    // factor (modal, buckling, P-Delta, ReSolve, dynamic-collapse) refuse to run on such a
+    // system; use a default PreparedSystem for those workflows.
+    bool        usingSupernodalPrimary() const;
 };
 
 // Phase 1 (once per fixed model): build K, apply the support pattern, factorize (LDLᵀ),

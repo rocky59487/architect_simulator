@@ -13,6 +13,15 @@ ModalResult solveModal(const PreparedSystem& prepared, const ModalOptions& opts)
     if (S.singular) { R.singular = true; R.diagnostic = S.diagnostic; return R; }
     const int N = S.N, nf = S.nf;
     if (nf == 0) { R.singular = true; R.diagnostic = "no free DOF for modal analysis"; return R; }
+#if FRAMECORE_SUPERNODAL
+    // R2.1 PERF-01 guard: modal subspaceSmallest uses S.ldlt for generalized inverse iteration.
+    if (S.useSnPrimary) {
+        R.singular = true;
+        R.diagnostic = "solveModal requires the LDLT factor; rebuild PreparedSystem with "
+                       "SolveOptions::useSupernodalPrimary=false";
+        return R;
+    }
+#endif
 
     // assemble global consistent mass M
     std::vector<Triplet> mtrips;

@@ -85,6 +85,16 @@ BucklingResult solveBuckling(const PreparedSystem& prepared, const FrameModel& m
     if (S.singular) { R.singular = true; R.diagnostic = S.diagnostic; return R; }
     const int N = S.N, nf = S.nf;
     if (nf == 0) { R.singular = true; R.diagnostic = "no free DOF for buckling"; return R; }
+#if FRAMECORE_SUPERNODAL
+    // R2.1 PERF-01 guard: buckling subspaceSmallest uses S.ldlt as the inner solver for
+    // generalized inverse iteration. A supernodal-primary PreparedSystem has no LDLT factor.
+    if (S.useSnPrimary) {
+        R.singular = true;
+        R.diagnostic = "solveBuckling requires the LDLT factor; rebuild PreparedSystem with "
+                       "SolveOptions::useSupernodalPrimary=false";
+        return R;
+    }
+#endif
 
     // 1) reference linear solve -> member axial forces (compression-positive)
     const SolveResult lin = solveLoad(prepared, model);
@@ -103,8 +113,26 @@ BucklingResult solveBuckling(const PreparedSystem& prepared, const FrameModel& m
     //    the dense path, which reports the historical "no compression" diagnostic unchanged. The
     //    sparse path falls back to dense on any non-convergence, so correctness is never at risk.
     const bool wantSparse = !gtrips.empty() && (opts.denseThreshold <= 0 || nf > opts.denseThreshold);
-    if (wantSparse && bucklingSparse(S, Kg, opts, R)) return R;
-    return bucklingDense(S, Kg);
+    if (!(wantSparse && bucklingSparse(S, Kg, opts, R))) {
+        R = bucklingDense(S, Kg);
+    }
+    if (R.singular) return R;
+
+    // R2.1 audit AC-06: apply shell-buckling knockdown (EN 1993-1-6 / NASA SP-8007 style) AFTER
+    // the eigensolve. Report both the raw eigenvalue (reportedCriticalFactor) and the design
+    // value (criticalFactor). Default knockdown 0 keeps v2.0 behaviour bit-identical (raw == design).
+    R.reportedCriticalFactor = R.criticalFactor;
+    const bool kdRequested = (opts.shellBucklingKnockdown != real(0));
+    const bool kdValid     = (opts.shellBucklingKnockdown > 0 && opts.shellBucklingKnockdown <= 1);
+    R.knockdownFactor = kdValid ? opts.shellBucklingKnockdown : real(1);
+    R.criticalFactor *= R.knockdownFactor;
+    // R2.1 audit NLL-NEW-2: a request outside (0, 1] silently fell back to alpha=1 -- a
+    // unit-conversion mistake or a misread design table would go undetected. Surface it.
+    if (kdRequested && !kdValid) {
+        R.diagnostic = "shellBucklingKnockdown=" + std::to_string((double)opts.shellBucklingKnockdown)
+                       + " out of range (0, 1]; alpha=1.0 used (raw eigenvalue reported)";
+    }
+    return R;
 }
 
 BucklingResult solveBuckling(const PreparedSystem& prepared, const FrameModel& model) {

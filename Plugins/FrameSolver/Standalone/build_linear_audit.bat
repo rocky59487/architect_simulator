@@ -28,7 +28,7 @@ if not exist "Standalone\obj_linear_audit" mkdir "Standalone\obj_linear_audit"
 set "GITSHA=unknown"
 for /f "usebackq tokens=*" %%g in (`git -C "%ROOT%" rev-parse --short HEAD 2^>nul`) do set "GITSHA=%%g"
 
-cl /nologo /EHsc /std:c++17 /O2 /MD /utf-8 /DEIGEN_MPL2_ONLY /DFRAMECORE_BUILD_SHA=\"!GITSHA!\" ^
+cl /nologo /EHsc /std:c++17 /O2 /MD /utf-8 /DEIGEN_MPL2_ONLY /DFRAMECORE_SUPERNODAL=0 /DFRAMECORE_BUILD_SHA=\"!GITSHA!\" ^
    /Fe:Standalone\linear_deep_audit.exe ^
    /Fo:Standalone\obj_linear_audit\ ^
    /I"%EIGEN%" ^

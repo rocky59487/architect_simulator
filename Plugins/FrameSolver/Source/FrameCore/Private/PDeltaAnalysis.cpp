@@ -58,7 +58,13 @@ PDeltaResult runPDelta(const FrameModel& model, const PDeltaOptions& opts) {
     PDeltaResult R;
 
     // 1) factorize once + first-order linear solve (axial forces freeze Kg).
-    PreparedSystem ps = assembleAndFactor(model, opts.solve);
+    // R2.1 PERF-01 guard: P-Delta's frozen path drives S.ldlt.solve repeatedly with updated
+    // RHS, and the refactorPath crossreference also uses LDLT. The supernodal-primary lane
+    // would leave S.ldlt uncomputed, so silently force-disable the flag for the internal
+    // factor build. (The user's outer opts.solve is untouched; this is a local copy.)
+    SolveOptions sopts = opts.solve;
+    sopts.useSupernodalPrimary = false;
+    PreparedSystem ps = assembleAndFactor(model, sopts);
     const PreparedSystem::Impl& S = *ps.impl;
     if (S.singular) { R.finalState.singular = true; R.finalState.diagnostic = S.diagnostic; return R; }
 

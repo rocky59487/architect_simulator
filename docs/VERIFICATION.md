@@ -23,13 +23,13 @@ Plugins\FrameSolver\Standalone\build.bat
 
 | Leg | What runs | Count | What it proves |
 |---|---|---|---|
-| 1. Standalone | `frametest.exe` (fixtures **F1–F56**, built UE-free) | `ALL PASS (failures=0)` | every capability against analytic / literature / invariance oracles, on the pure-C++ build |
-| 2. UE automation | headless `FrameCore.*` tests | **52** tests | UE-side mirrors of the standalone oracles across the same subsystems — the dual-build contract holds |
+| 1. Standalone | `frametest.exe` (fixtures **F1–F64**, built UE-free) | `ALL PASS (failures=0)` | every capability against analytic / literature / invariance oracles, on the pure-C++ build |
+| 2. UE automation | headless `FrameCore.*` tests | **57** tests | UE-side mirrors of the standalone oracles across the same subsystems — the dual-build contract holds |
 | 3. OpenSees | `Tools/opensees_compare.py` + `pdelta_compare.py` | strict `1e-8` default | agreement with an independent, widely-used FEM code (validation only; never linked) |
 | 4. Deep audit | `linear_deep_audit.exe` | **104** checks | independent re-derivations (sympy/numpy-sourced constants), bit-identity no-op proofs, element-spectrum oracles |
 | 5. CLI round-trip | `Tools/cli_roundtrip.py` | 13 checks | the text/daemon/C-API bridge reproduces engine results bit-for-bit and surfaces modal/dynamic precondition failures |
 
-Guard rails: `run_gate.ps1` hard-fails if fewer than `$ExpectedUeTests = 52` UE tests run
+Guard rails: `run_gate.ps1` hard-fails if fewer than `$ExpectedUeTests = 57` UE tests run
 (catches "new test silently not compiled"); the audit prints its own check count rather than
 a hard-coded number; `-RequireOpenSees` turns a missing OpenSeesPy into a failure instead of
 a soft skip. Fixture numbering is append-only; **F41 is unassigned** (S3 ended at F40, S4
@@ -164,6 +164,42 @@ Correctness is gated against LDLᵀ (and, in research, CHOLMOD) rather than a re
 high-condition mixed shell/frame systems the fixed-precision residual floors at ~cond·eps, so a
 `vsLDLᵀ` relative check is the honest oracle. The lane needs a conda `framecore-direct` env
 (OpenBLAS + METIS) at build time — the standalone gate leg now depends on it.
+
+### 3.9 v3 surface line + v2.1 architectural fixes (F57–F64)
+
+The v3 surface line and the v2.1 audit responses are all opt-in: every flag defaults to off and
+the new fixtures lock in bit-identical v2.0 behaviour when the flag is disabled, so the LDLᵀ-only
+default lane remains untouched. Full write-ups:
+[`docs/specs/shell_geometric_stiffness.md`](specs/shell_geometric_stiffness.md),
+[`docs/specs/shell_corotational.md`](specs/shell_corotational.md),
+[`docs/specs/shell_warping.md`](specs/shell_warping.md),
+[`docs/specs/R2_neumaier_ir.md`](specs/R2_neumaier_ir.md),
+[`docs/specs/v3_memory_recon.md`](specs/v3_memory_recon.md),
+[`docs/PROGRESS_R2.md`](PROGRESS_R2.md),
+[`docs/PROGRESS_V21.md`](PROGRESS_V21.md).
+
+| Fixture | Capability | Oracle → measured |
+|---|---|---|
+| F57 | shell K_σ stress stiffening (opt-in `shellGeometricStiffness`) → SS plate linear buckling | analytic `N_cr = 4π²D/a²` (Timoshenko); MITC4 facet O(1/N²) — rel < 3 % at n=20; axis invariance 1e-9; sparse==dense 1e-6; opt-in OFF → singular (no Kg source) |
+| F58 | EICR shell co-rotational (opt-in `shellCorotational`) — small-disp == linear + arbitrary-axis rotation invariance | F58a small-displacement rel 3.8e-11 (CR == linear); F58b SO(3) arbitrary-axis invariance rel 2.6e-14 (w/L=0.69 large rotation) |
+| F59 | EICR shell large-deflection strip vs Mattiasson elastica (ν=0 plate strip == beam EI) | Mattiasson table (α=1/5/10) — strip dv/L 1.32e-4..7e-4 rel, dh/L 7e-4..2e-3 rel (gate 3e-3/5e-3) |
+| F61 | warped MITC4 quad (`warpTolerance` + `useWarpingCorrection`, v3 phase B) | warp 4%→2%→1% → Nxx err 1.6e-3 → 4e-4 → 1e-4 (O(warp²) refinement); flat patch bit-identical (eOff/eOn < 1e-10) |
+| F62 | R2 Neumaier-compensated iterative refinement on the supernodal lane (`irSteps` / `irTol`) | slender cantilever L/d=200 (~cond 1e6): IR=0 res 6.12e-8 → IR=2 res 5.03e-8 (ratio 0.82, polish); IR solution rel 1.15e-9 (small correction, not redirect); irSteps=0 bit-identical to no-IR |
+| F63 | PERF-01 supernodal-primary factor (`useSupernodalPrimary` — supernodal REPLACES LDLᵀ when SPD) | cantilever / SS+UDL / shell plate u-rel < 1e-9 vs LDLᵀ; pivotMargin from L diagonal (1.875e-7 > pivotTol 1e-12); mechanism (no supports) → singular; SnSession on SnPrimary reuses factor (no double-build, rel<1e-12); solveModal/solveBuckling refuse SnPrimary ps with clear diagnostic |
+| F64 | AC-06 shell buckling knockdown (`shellBucklingKnockdown`) + AC-07 curved-shell mesh guard (`shellCurvatureMaxAngleDeg`) | F64a alpha=0.65 → design = alpha·raw (rel 1e-12), `reportedCriticalFactor` stable across alphas; F64a-shell SS plate alpha=0.65 also rel 9.2e-3 vs F57 oracle; F64b 22.5° guard rejects 8-facet cylinder (45°/facet), admits 32-facet (11.25°/facet); inactive shells skipped (progressive-collapse false-rejection guard) |
+
+UE mirrors: `FrameCore.Buckling.ShellGeometricStiffness` / `FrameCore.Buckling.ShellKnockdown`
+/ `FrameCore.Validation.ShellCurvatureGuard` cover F57 / F64-knockdown / F64-curvature on the UE
+side, contributing 3 of the 57-test gate count.
+
+Honest scope:
+- F62 standalone improvement is modest (~18 % at L/d=200, cond ~1e6 — close to the machine-precision
+  floor); the IR mechanism's larger payoff appears at 64 k DOF mixed building where the recon's
+  `sn_sweep.txt` shows res ~1.40e-9 → expected < 1e-9 (production-scale benchmark pending).
+- F63 single-solve win at scale is data-backed from `perf_sn.exe` (XXL 18.7 k → 8.3 × factor speedup;
+  MEGA 61.5 k → 20 × factor speedup) but the gate fixtures themselves are small.
+- F64 shell-buckling oracle is the same Kirchhoff plate as F57; curved-shell post-buckling is the
+  shell co-rotational arc-length phase (later).
 
 ## 4. OpenSees cross-validation summary
 

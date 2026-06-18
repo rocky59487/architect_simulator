@@ -271,6 +271,11 @@ CorotationalResult runCorotational(const FrameModel& model, const CorotationalOp
     if (!opts.shellCorotational)
         for (const auto& sh : model.shells)
             if (sh.active) return reject("co-rotational is beam-column only; set opts.shellCorotational for EICR shell CR");
+    // R2.1 audit NLL-NEW-1: arc-length shell post-buckling is a LATER PHASE of the v3 surface line
+    // (documented in shell_corotational.md). The shellCorotational + useArcLength combination would
+    // run an untested code path; refuse it up front rather than silently mis-handle.
+    if (opts.shellCorotational && opts.useArcLength)
+        return reject("shellCorotational + useArcLength is not yet supported (v3 phase B); pick one");
     std::string why;
     if (!model.validate(why, opts.solve.warpTolerance)) return reject(why.c_str());
     // S9c: member UDLs (-> equivalent nodal loads) and prescribed support displacements (-> lambda-ramped
@@ -499,6 +504,31 @@ CorotationalResult runCorotational(const FrameModel& model, const CorotationalOp
 
     // --- S9c: Crisfield cylindrical arc-length (snap-through; load factor lambda is an unknown) ---
     if (opts.useArcLength) {
+        // R2 audit MA-02 guard: arc-length needs a non-zero reference load vector. With
+        // ||Fext_f|| = 0 the cylindrical constraint is geometrically meaningless and the
+        // predictor `Dlam0 = Dl / sqrt(||dut||^2)` divides by ~1e-300 (silent overflow); the
+        // corrector quadratic also degenerates (a=b=0). Crisfield's method assumes a
+        // proportional load family with non-zero magnitude — reject zero-load up front with
+        // a clear diagnostic so the caller can fix the load case rather than chase NaNs.
+        {
+            const real FextNorm = Fext_f.norm();
+            // Threshold: well above the corrector's 1e-300 guard, well below any real load.
+            // Anything below this either means the load case is empty or the free DOFs do
+            // not see the applied loads (validate() catches missing-node loads earlier).
+            constexpr real arcMinLoadNorm = real(1e-30);
+            if (!(FextNorm > arcMinLoadNorm) || !std::isfinite(FextNorm)) {
+                // R2.1 audit FINAL-ARCLEN-1: route through the same `reject` lambda the other
+                // guards use, so the returned CorotationalResult is fully WELL-FORMED (zero-
+                // filled finalState.u/reactions, id-tagged memberForces). Previously this path
+                // returned a partially-initialised R, which could trip downstream consumers
+                // that don't first check singular/diverged before indexing finalState.u.
+                CorotationalResult RR = reject(
+                    "arc-length requires a non-zero external reference load on free DOFs "
+                    "(||Fext_f|| <= 1e-30); set NodalLoad/UDL so the load case is non-trivial");
+                RR.diverged = true;
+                return RR;
+            }
+        }
         int mdof = opts.monitorDof;
         if (mdof < 0) {                          // auto: last node's first free translational DOF
             const int ln = (int)model.nodes.size() - 1;

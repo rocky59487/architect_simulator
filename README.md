@@ -13,8 +13,8 @@ The public API uses only plain C++/POD types (no UE, no Eigen leakage), so the s
 compiles as a standalone console gate *and* as an Unreal Engine module. The core remains
 C++17-compatible; the UE module target is compiled as C++20 because of the current UBT/toolchain.
 
-> **Status (2026-06, S1–S10 + supernodal direct lane + shell K_σ + shell CR + warped quads):** the five-leg verification gate is green —
-> standalone `ALL PASS` (fixtures **F1–F61**) · **55** UE automation tests ·
+> **Status (2026-06, v2.1 candidate: S1–S10 + supernodal direct lane (incl. PERF-01 supernodal-primary + R2 Neumaier IR) + shell K_σ + shell CR + warped quads + shell-buckling knockdown + curved-mesh guard):** the five-leg verification gate is green —
+> standalone `ALL PASS` (fixtures **F1–F64**) · **57** UE automation tests ·
 > **OpenSees** strict cross-validation PASS · deep audit **104** independent checks ·
 > CLI round-trip ALL PASS. One repo-relative command reproduces it (`-Engine` or `UE_ENGINE_ROOT`
 > can point at a non-sibling Unreal install):
@@ -49,7 +49,7 @@ types, `PreparedSystem` for factorization reuse), and each gated by its own orac
 |---|---|
 | Load cases, combinations, envelopes | `combine` / `envelope`; self-weight from `Material.rho` |
 | **Factorize-once, solve-many** | `assembleAndFactor` → opaque `PreparedSystem`; `solveLoad` reuses the LDLᵀ per load/settlement change — the interactive re-solve path |
-| **Supernodal direct lane (opt-in, R-line)** | self-built BLAS3 supernodal Cholesky (METIS ordering + OpenBLAS dense panels): stateless `solveLoadSupernodal` and factor-once `SnSession`; `SimplicialLDLT` stays the **default + fallback**, supernodal is selected explicitly. vs LDLT rel < 1e-10; disabled is a bit-exact drop-in; a mechanism defers to the LDLT pivot guard. Multicore factor within ~1.0–1.2× of MKL-CHOLMOD (1.15–1.21× measured on 8940HX, ~1.0× at 17k DOF); single-machine reachable edge ~150 k DOF real-time on 32 GB (extrapolated from 17k–100k measurements). See [`docs/PROGRESS_R_supernodal.md`](docs/PROGRESS_R_supernodal.md) |
+| **Supernodal direct lane (opt-in, R-line)** | self-built BLAS3 supernodal Cholesky (METIS ordering + OpenBLAS dense panels). Three integration modes: **(a)** `SolveOptions::useSupernodalPrimary` — `assembleAndFactor` builds the supernodal Cholesky as the **primary** factor and **skips the LDLT entirely** on SPD success (R2.1 PERF-01 architectural fix; gate F63 verifies bit-equivalence to the LDLT path and that mechanism detection still works via the L-diagonal pivot screen). Single-solve win at scale: 8× faster factor at 18.7k DOF, **20× at 61.5k DOF** (`perf_sn.exe` first-hand). **(b)** stateless `solveLoadSupernodal` — always builds its own supernodal factor, falls back to LDLT on SPD failure. **(c)** factor-once `SnSession` — reuses the supernodal factor across many `solveFrame` calls (and *transparently reuses the SnPrimary factor* if the PreparedSystem already holds one, so no double-build). vs LDLT rel < 1e-10 in all modes; default (no flags) is bit-exact drop-in. Multicore factor within ~1.0–1.2× of MKL-CHOLMOD (1.15–1.21× measured on 8940HX with conda OpenBLAS at 32k–64k DOF; ~1.0× at 17k DOF — the ratio drifts with the OpenBLAS build, hardware, and DOF range). Single-machine reachable edge **~150 k DOF interactive on 32 GB** with `useSupernodalPrimary` (extrapolated from 18 k / 62 k measured factor scaling at exponent ~1.5; not yet directly measured at 150 k, but the architectural blocker is gone). Constraint: `useSupernodalPrimary` skips LDLT, so analyses that need it (modal / buckling / P-Delta / ReSolve / dynamic-collapse) refuse on a SnPrimary PreparedSystem with a clear diagnostic; build a default PreparedSystem for those workflows. See [`docs/PROGRESS_R_supernodal.md`](docs/PROGRESS_R_supernodal.md) and [`docs/specs/v3_memory_recon.md`](docs/specs/v3_memory_recon.md). |
 | Prescribed support settlement | matches OpenSees `sp()` to 0 |
 | Influence lines / moving loads | unit load marched on the shared factorization; Müller-Breslau cross-check |
 | Modal analysis | `Kφ=ω²Mφ`, consistent mass; dense default + opt-in sparse path; vs OpenSees `eigen` ~1e-11 |
@@ -168,6 +168,35 @@ Grasshopper ecosystem) are explicitly not claimed.
 - The **tension-only** model is an axial-sign active set with **no universal convergence
   guarantee**: a cycle-hash guard detects loops and switches to a monotone (deactivate-only)
   fallback that terminates in ≤ nTO+1 steps. No pretension, no slack length, no cable sag.
+- **Arc-length snap-through (`CorotationalOptions::arcLength`) needs an explicit step**.
+  The `arcLength=0` auto fallback derives an initial step from the first tangent and
+  `loadSteps`; for soft-direction structures (shallow arches, thin shells) this can
+  jump over the entire snap region in a single step. **Set `arcLength` manually to
+  1 %–5 % of the characteristic rise or expected mid-span deflection** (e.g. `0.03` for
+  a `rise=1.0` shallow arch). The auto fallback is a coarse starting point only; the
+  corrector may still report `converged=true` on a post-snap equilibrium without ever
+  flagging the missed limit load. Arc-length also assumes a non-zero reference load
+  vector — `arcLengthSolve` rejects an empty `Fext_f` with a clear diagnostic
+  (Crisfield's cylindrical constraint is geometrically meaningless at zero load).
+- **Curved shells need mesh refinement** — the engine now has an *opt-in guard*. The MITC4
+  facet is flat, so a curved shell's membrane / bending forces converge as O(1/N²). Honest
+  numbers: an internally pressurised cylinder with N=8 sides around the circumference
+  under-predicts the hoop membrane force by **7.6 %**; N=16 gives 1.9 %, N=32 gives 0.48 %,
+  N=64 gives 0.12 %. **Use at least 16 facets per 90° of curvature** for a 2 % engineering
+  tolerance. Set `SolveOptions::shellCurvatureMaxAngleDeg = 22.5` (16-per-90°) to have
+  `assembleAndFactor` *refuse* a too-coarse mesh up front with a diagnostic naming the
+  worst-pair shells — R2.1 AC-07 fix (F64b in the standalone gate). Default 0 keeps v2.0
+  behaviour bit-identical.
+- **Linear-buckling eigenvalues over-predict real buckling loads for thin shells** — the
+  engine now produces a *design-grade* number when asked. `BucklingAnalysis` returns both
+  the raw eigenvalue (`reportedCriticalFactor`) and a knocked-down design value
+  (`criticalFactor = alpha · raw`); `knockdownFactor` records the alpha. Set
+  `BucklingOptions::shellBucklingKnockdown` to the relevant code-style alpha (e.g. 0.65
+  per NASA SP-8007 for axially compressed cylinders, 0.7 for general fabrication) and the
+  result is immediately usable for code checks (R2.1 AC-06 fix, F64a). Default 0 keeps
+  the raw eigenvalue (bit-identical to v2.0). The linear analysis still ignores imperfections,
+  post-buckling softening, and large-displacement coupling — for a definitive analysis use
+  the shell co-rotational arc-length path (later phase).
 
 Per-stage limitation lists (more detailed than the above) close every
 `docs/PROGRESS_S*.md`.
@@ -200,7 +229,7 @@ Engine\Binaries\Win64\UnrealEditor-Cmd.exe ...\ArchSim.uproject -ExecCmds="Autom
 
 > `run_gate.ps1` runs the UE automation but does **not** rebuild the UE module — rebuild
 > first (command above) after touching engine code, or the automation runs a stale binary.
-> The `$ExpectedUeTests = 55` guard catches a silently-missing test.
+> The `$ExpectedUeTests = 57` guard catches a silently-missing test.
 
 **Try the engine without writing C++** — the text bridge solves a model from stdin:
 
@@ -265,7 +294,7 @@ Plugins/FrameSolver/
                                         collapse, reanalysis, corotational, optimization)
     Private/*.cpp                       implementation (+ Private/FrameEigen.h: the single
                                         Eigen include site, dual-build guarded)
-    Private/Tests/*.cpp                 55 UE automation tests (UE-side oracle mirrors)
+    Private/Tests/*.cpp                 57 UE automation tests (UE-side oracle mirrors)
   Standalone/                           console gates + CLI/C-API drivers (see its README)
   Grasshopper/                          C# reference client for the text bridge
 Scripts/run_gate.ps1                    the one-click five-leg gate
@@ -296,5 +325,17 @@ docs/                                   see docs/README.md — architecture, ver
 
 ## License / use
 
-Graduation-project code. FrameCore's default solver depends only on Eigen (MPL2, header-only); the opt-in supernodal lane additionally uses OpenBLAS (BSD) + METIS (Apache-2.0) via the conda `framecore-direct` env. OpenSees is
-used for offline validation only and is **not** redistributed or linked into the engine.
+**FrameCore is released under the MIT License** — see [`LICENSE`](LICENSE) for the
+full text. Graduation-project code, open to reuse and redistribution.
+
+FrameCore's default solver depends only on **Eigen** (MPL-2.0, header-only, with
+`EIGEN_MPL2_ONLY` so the LGPL modules are excluded by the preprocessor).
+The opt-in supernodal lane (`SnSolver` / `SnSession` / `solveLoadSupernodal`,
+gated by `FRAMECORE_SUPERNODAL=1`) additionally links **OpenBLAS** (BSD-3-Clause)
+and **METIS** (Apache-2.0) via the conda `framecore-direct` env; the full
+third-party attribution text required by their licenses is collected in
+[`third_party/NOTICE.md`](third_party/NOTICE.md) — include it alongside any
+redistribution that ships the supernodal binaries.
+
+**OpenSees** is used for offline validation only (Python tooling under `Tools/`)
+and is **not** redistributed or linked into the engine.

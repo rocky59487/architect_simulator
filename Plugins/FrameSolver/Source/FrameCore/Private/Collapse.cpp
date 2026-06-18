@@ -137,7 +137,11 @@ CollapseHistory runProgressiveCollapse(const FrameModel& model, const CollapseOp
             return H;
         }
 
-        // 4) fresh factorization + solve of the grounded remainder
+        // 4) fresh factorization + solve of the grounded remainder.
+        // R2.1 PERF-01: collapse driver uses solveLoad only (no LDLT-internal analyses), so
+        // it's safe to honour the user's useSupernodalPrimary flag here -- the supernodal
+        // factor is built once per collapse step and solveLoad routes through it. No guard
+        // override needed; if the user sets the flag they get the perf win across collapse.
         const PreparedSystem ps = assembleAndFactor(work, opts.solve);
         const SolveResult r = solveLoad(ps, work);
         if (r.singular) {

@@ -127,6 +127,7 @@ void ritzBasis(const SpMat& Kff, const LDLTSolver& ldlt, const SpMat& Mff, const
     if (!(nrm > real(1e-300))) { for (int i = 0; i < nf; ++i) x(i) = dist(rng); x = ldlt.solve(Mff * x); nrm = mNorm(x); }
     X.col(0) = x / std::max<real>(nrm, real(1e-300));
 
+    int validCols = 1;        // R2.1 audit COLLAPSE SLV-NEW-2: track how many basis columns survive.
     for (int i = 1; i < mm; ++i) {
         VecX xi = ldlt.solve(Mff * X.col(i - 1));
         for (int pass = 0; pass < 2; ++pass)                       // two-pass Gram-Schmidt (M-inner)
@@ -138,14 +139,22 @@ void ritzBasis(const SpMat& Kff, const LDLTSolver& ldlt, const SpMat& Mff, const
                 for (int j = 0; j < i; ++j) xi -= (X.col(j).dot(Mff * xi)) * X.col(j);
             beta = mNorm(xi);
         }
-        X.col(i) = xi / std::max<real>(beta, real(1e-300));
+        // R2.1 audit COLLAPSE SLV-NEW-2: previously the loop unconditionally accepted the
+        // post-restart column even when beta stayed below the 1e-8 threshold -- the column
+        // would be normalised by max(beta, 1e-300), embedding garbage of magnitude ~1e8 into
+        // the basis and corrupting the GES. Stop growing the basis when restart still fails.
+        if (!(beta > real(1e-8))) break;
+        X.col(i) = xi / beta;
+        ++validCols;
     }
 
-    const MatX Kr = X.transpose() * (Kff * X);
-    const MatX Mr = X.transpose() * (Mff * X);                     // ~ I; solved as a GES for safety
+    // R2.1 audit COLLAPSE SLV-NEW-2: solve the GES on the valid sub-basis only.
+    const MatX Xv = X.leftCols(validCols);
+    const MatX Kr = Xv.transpose() * (Kff * Xv);
+    const MatX Mr = Xv.transpose() * (Mff * Xv);                   // ~ I; solved as a GES for safety
     Eigen::GeneralizedSelfAdjointEigenSolver<MatX> ges(Kr, Mr);
     W2  = ges.eigenvalues();
-    Phi = X * ges.eigenvectors();                                  // M-orthonormal, ascending W2
+    Phi = Xv * ges.eigenvectors();                                 // M-orthonormal, ascending W2
 }
 
 // ---------------------------------------------------------------- per-mode Newmark (avg accel)
@@ -190,7 +199,11 @@ struct ConfigSystem {
 // (B1: falls back to F' when ||r|| is tiny, then random when ||F'|| is tiny too).
 ConfigSystem buildConfig(const FrameModel& work, const DynCollapseOptions& opts, const VecX* inheritU_N) {
     ConfigSystem cfg;
-    PreparedSystem ps = assembleAndFactor(work, opts.solve);
+    // R2.1 PERF-01 guard: dynamic-collapse drives S.ldlt.solve for the static IC + Ritz basis.
+    // Force LDLT primary for the internal factor (the user's outer opts.solve is untouched).
+    SolveOptions sopts = opts.solve;
+    sopts.useSupernodalPrimary = false;
+    PreparedSystem ps = assembleAndFactor(work, sopts);
     const PreparedSystem::Impl& S = *ps.impl;
     if (S.singular) { cfg.diag = S.diagnostic.empty() ? "singular configuration" : S.diagnostic; cfg.ps = std::move(ps); return cfg; }
     if (S.nf <= 0) {
@@ -376,7 +389,12 @@ DynCollapseHistory runDynamicCollapse(const FrameModel& model, const DynCollapse
         const ScreenEvent best = screenWorst(work, r, opts.removeThreshold);
 
         if (!best.eligible) {                                   // no element over threshold -> stability check
-            if (events == 0) { H.outcome = CollapseOutcome::Stable; return H; }   // undisturbed static equilibrium
+            // R2.1 audit COLLAPSE SLV-NEW-1: the events==0 early-Stable shortcut would fire
+            // prematurely on a t=0 initialRemovals model — the system is in motion from the
+            // initial shock and the screen happens not to trip ELSEWHERE on this step. Honour
+            // the initial event already in H.events; only short-circuit if there were truly
+            // NO events of any kind (a model with no initialRemovals and no in-flight D/C).
+            if (H.events.empty()) { H.outcome = CollapseOutcome::Stable; return H; }
             if (maxKE <= tinyKE || ke < opts.quietKineticRatio * maxKE) {
                 quietTime += opts.screenEvery * opts.dt;
                 if (quietTime >= T1) { H.outcome = CollapseOutcome::Stable; return H; }

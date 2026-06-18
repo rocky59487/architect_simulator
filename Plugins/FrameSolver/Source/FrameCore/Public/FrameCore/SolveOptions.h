@@ -53,6 +53,53 @@ struct SolveOptions {
     // gate). Raise (e.g. 1e-2) to admit gently-warped free-surface meshes; pairs with useWarpingCorrection
     // to keep the projection error bounded. validate() rejects warp above warpTolerance * maxEdge.
     real warpTolerance = 1.0e-6;
+
+    // R2.1 audit AC-07 architectural fix (RBD-NEW-1 caveat): opt-in coarse-curved-mesh guard. assembleAndFactor
+    // computes the angle between adjacent MITC4 facets' normals (edge-shared shell pairs) and
+    // refuses to build the system if any pair exceeds this threshold. 0 (default) disables the
+    // guard (v2.0 bit-identical). Set to e.g. 22.5 deg = 16 facets per 90 deg of curvature to
+    // enforce the rule of thumb that keeps hoop-membrane error below ~2 % on a cylinder
+    // (audit AUDIT_FINDINGS.md: N=8 facets/circle gave 7.6 % hoop error, N=16 gave 1.9 %,
+    // N=32 gave 0.48 % under O(1/N^2)). Designers who knowingly accept coarser meshes set
+    // a larger angle or leave the flag off; the guard is opt-in protection, not a default
+    // policy. Free-form / Gaudi-style meshes can vary curvature locally — the guard reports
+    // the worst pair so refinement can target the trouble spot.
+    //
+    // CAVEAT (audit RBD-NEW-1): the implementation uses |cos(angle)| so the angle is always
+    // mapped into [0, 90 deg] regardless of which side of each facet the normal points to.
+    // This is geometrically correct for convex / smooth surfaces (the use case the guard
+    // was designed for) but it under-estimates dihedral angles on CONCAVE or reflex geometry
+    // (a 270 deg fold reads as 90 deg). For concave free-form meshes, lower the threshold
+    // to compensate, or pre-orient all facet normals consistently before calling.
+    //
+    // CAVEAT (audit FINAL-AC07-1): the guard pairs only ACTIVE shells. If a fine mesh has
+    // every other shell deactivated (e.g. a partial progressive-collapse trace), the
+    // remaining active shells may have no active neighbour and the max-angle stays 0 deg,
+    // silently admitting a geometrically coarse model. This is the intended behaviour for
+    // progressive-collapse use (where deactivated facets are gone, not just hidden), but
+    // a user who deactivates fine-mesh shells expecting the remaining coarse ones to be
+    // checked will see no rejection. Pre-filter such cases yourself or run the guard on
+    // the full pre-deactivation model.
+    real shellCurvatureMaxAngleDeg = 0;
+
+    // R2.1 audit PERF-01 architectural fix: when TRUE, assembleAndFactor builds the self-built
+    // supernodal Cholesky (METIS+OpenBLAS) as the PRIMARY factor and SKIPS the SimplicialLDLT
+    // factor entirely when the SPD check succeeds. solveLoad then pays only the supernodal
+    // factor + back-substitution (measured 8-20x faster than LDLT at 18k-62k DOF on the
+    // `perf_sn` driver). When the supernodal SPD check fails (mechanism / indefinite),
+    // assembleAndFactor falls back to the LDLT path automatically so mechanism detection
+    // remains authoritative.
+    //
+    // CONSTRAINT: this is a fast-path flag for the bare `solveLoad` workflow. Analyses that
+    // internally rely on the LDLT factor (PDeltaAnalysis refactor path, Reanalysis ReSolve
+    // Tier-2/3, ModalAnalysis dense subspace, BucklingAnalysis sparse subspace,
+    // DynamicCollapse static IC + Ritz basis) will refuse to run on a PreparedSystem built
+    // with this flag and return a clear diagnostic. Use the default (LDLT primary) for those
+    // workflows. Default `false` keeps every existing 5-leg test bit-identical.
+    //
+    // FRAMECORE_SUPERNODAL=0 builds (conda env absent): the flag is silently ignored —
+    // assembleAndFactor stays on the LDLT path.
+    bool useSupernodalPrimary = false;
 };
 
 } // namespace frame

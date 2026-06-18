@@ -44,7 +44,7 @@ repository [README](../../README.md) for the honest accuracy envelope of every c
 
 - `Source/FrameCore/`: pure C++17 core. Public headers are POD/std-only; Eigen stays in
   private implementation files behind the single include site `Private/FrameEigen.h`.
-- `Source/FrameCore/Private/Tests/`: UE automation tests for `FrameCore.*` (50 tests,
+- `Source/FrameCore/Private/Tests/`: UE automation tests for `FrameCore.*` (57 tests,
   UE-side oracle mirrors across the same subsystems).
 - `Standalone/`: console gates and CLI drivers used by the Python audits — see
   [Standalone/README.md](Standalone/README.md).

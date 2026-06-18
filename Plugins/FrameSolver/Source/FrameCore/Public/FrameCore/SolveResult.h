@@ -48,8 +48,21 @@ struct SolveResult {
     // It is a dimensionless ratio (scale-invariant). 0 when singular / not factored.
     real pivotMargin = 0;
 
-    real disp(int nodeIndex, int dof) const { return u[static_cast<size_t>(gdof(nodeIndex, dof))]; }
-    real reaction(int nodeIndex, int dof) const { return reactions[static_cast<size_t>(gdof(nodeIndex, dof))]; }
+    // R2 audit LC-06 guard: previously these unconditionally indexed into u/reactions and
+    // would silently invoke UB when the SolveResult is singular (empty u/reactions on some
+    // singular paths) or when nodeIndex/dof are out of range. Return 0 in those cases —
+    // safer default for any caller that forgot a `if (!r.singular)` check (callers who DO
+    // check still see the same value because the vectors are full on a successful solve).
+    real disp(int nodeIndex, int dof) const {
+        if (nodeIndex < 0 || dof < 0 || dof >= DOF_PER_NODE) return 0;
+        const size_t i = static_cast<size_t>(gdof(nodeIndex, dof));
+        return (i < u.size()) ? u[i] : real(0);
+    }
+    real reaction(int nodeIndex, int dof) const {
+        if (nodeIndex < 0 || dof < 0 || dof >= DOF_PER_NODE) return 0;
+        const size_t i = static_cast<size_t>(gdof(nodeIndex, dof));
+        return (i < reactions.size()) ? reactions[i] : real(0);
+    }
 };
 
 } // namespace frame
