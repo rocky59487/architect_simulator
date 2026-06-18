@@ -117,6 +117,11 @@ class Model:
     tags: list[str] = field(default_factory=list)
     os_free_ry: list[int] = field(default_factory=list)
     os_hinge_moments: list[dict[str, float]] = field(default_factory=list)
+    # v2.3: when set, harness io.py emits a `WARP <warp_tol> <use_warping_correction>`
+    # line so the CLI relaxes the default `SolveOptions::warpTolerance = 1e-6`
+    # rejection. Leave as None for any non-warped mesh (back-compat: no WARP line).
+    warp_tol: float | None = None
+    use_warping_correction: bool = True
 
 
 @dataclass

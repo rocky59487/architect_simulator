@@ -72,9 +72,11 @@ bool FrameModel::validate(std::string& why, real warpTol) const {
         const Material& mat = materials[static_cast<size_t>(m.matIdx)];
         const Section&  sec = sections[static_cast<size_t>(m.secIdx)];
         if (!finiteVec3(m.refVec))       { why = "member has non-finite reference vector"; return false; }
-        if (!std::isfinite(mat.E) || !std::isfinite(mat.G) || !std::isfinite(mat.nu))
+        if (!std::isfinite(mat.E) || !std::isfinite(mat.G) || !std::isfinite(mat.nu) || !std::isfinite(mat.rho))
                                          { why = "member material has non-finite property"; return false; }
         if (mat.E <= 0 || mat.G <= 0)    { why = "non-positive E or G"; return false; }
+        // v2.3 A-06: negative density would silently invert self-weight; reject up front.
+        if (mat.rho < 0)                 { why = "negative density"; return false; }
         if (!std::isfinite(sec.A) || !std::isfinite(sec.Iy) || !std::isfinite(sec.Iz) ||
             !std::isfinite(sec.J) || !std::isfinite(sec.cy) || !std::isfinite(sec.cz) ||
             !std::isfinite(sec.Asy) || !std::isfinite(sec.Asz))
@@ -110,9 +112,10 @@ bool FrameModel::validate(std::string& why, real warpTol) const {
         if (s.matIdx < 0 || s.matIdx >= static_cast<int>(materials.size()))
                                              { why = "shell material index out of range"; return false; }
         const Material& smat = materials[static_cast<size_t>(s.matIdx)];
-        if (!std::isfinite(smat.E) || !std::isfinite(smat.G) || !std::isfinite(smat.nu))
+        if (!std::isfinite(smat.E) || !std::isfinite(smat.G) || !std::isfinite(smat.nu) || !std::isfinite(smat.rho))
                                              { why = "shell material has non-finite property"; return false; }
         if (smat.E <= 0 || smat.G <= 0)      { why = "shell non-positive E or G"; return false; }
+        if (smat.rho < 0)                    { why = "shell negative density"; return false; }
         if (smat.nu < 0 || smat.nu >= 0.5)   { why = "shell Poisson ratio out of [0,0.5)"; return false; }
         if (!std::isfinite(s.t))             { why = "shell non-finite thickness"; return false; }
         if (s.t <= 0)                        { why = "shell non-positive thickness"; return false; }

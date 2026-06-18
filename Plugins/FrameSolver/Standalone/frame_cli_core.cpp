@@ -97,6 +97,13 @@ void parseLine(Block& b, const std::string& tag, std::istringstream& ss) {
     else if (tag == "OPT") { int er=0, ut=0; real pt=1e-12; ss >> er >> ut >> pt; b.opt.enableReleases=er!=0; b.opt.useTimoshenko=ut!=0; b.opt.pivotTol=pt;
                              int im; if (ss >> im) b.opt.useIncompatibleMembrane = im!=0;   // S8-8a (optional, back-compat)
                              int dk; if (ss >> dk) b.opt.useDKQPlate            = dk!=0; }  // S8-8b (optional, back-compat)
+    // v2.3 WARP token: expose v3 warped-quad opt-in to the CLI bridge so OpenSees-style
+    // warped/freeform shell meshes can be solved through frame_cli (audit benchmark fix
+    // for 24 CRITICAL C2/C5 cases — they were rejected by validate() because CLI had no
+    // way to relax `warpTolerance`). Format: WARP <warpTolerance> [<useWarpingCorrection:0|1>]
+    else if (tag == "WARP") { real wt = 0.1; int uc = 1;
+                              if (ss >> wt) b.opt.warpTolerance = wt;
+                              if (ss >> uc) b.opt.useWarpingCorrection = (uc != 0); }
     else if (tag == "EIGEN") { ss >> b.nModes; }
     else if (tag == "PDELTA") { ss >> b.pdelta; }
     else if (tag == "TONLY")  { b.analysis = "TONLY";  int v; if (ss >> v) b.toMaxIter = v; if (ss >> v) b.toAllowReact = v; }

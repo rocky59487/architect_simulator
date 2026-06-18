@@ -69,6 +69,10 @@ def _c2_hypar(n: int) -> Model:
         known_gap="warped quads are projected to flat MITC4 facets",
         notes="Oracle: OpenSees ShellMITC4 on identical faceted hypar mesh.",
     )
+    # v2.3: hypar amp/L = 0.025 -> per-element warp <= ~0.5% edge for n>=8; relax
+    # the CLI's strict warpTolerance so FrameCore solves these instead of singular.
+    m.warp_tol = 0.02
+    m.use_warping_correction = True
     nid = 0
     ids = []
     for j in range(n + 1):
@@ -167,6 +171,9 @@ def _c5_freeform_surrogate(n: int) -> Model:
         known_gap="true NURBS freeform shell is unsupported by CLI; this is a faceted surrogate",
         notes="Oracle: OpenSees ShellMITC4 on identical faceted sinusoidal freeform mesh.",
     )
+    # v2.3: sinusoidal amp 250 / L 14000 ~ 1.8%; relax CLI warpTolerance same as C2.
+    m.warp_tol = 0.02
+    m.use_warping_correction = True
     nid = 0
     ids = []
     for j in range(n + 1):

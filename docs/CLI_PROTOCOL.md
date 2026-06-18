@@ -33,6 +33,7 @@ echo "<model lines>\nEND" | frame_cli.exe
 | `SPRESS` | `shellId p` | 殼橫向壓力 |
 | `HINGE` | `member dof Mp` | 塑鉸(dof 4/5/10/11,signed Mp;節點側力矩由 caller 的 NLOAD 給) |
 | `OPT` | `enableReleases useTimoshenko pivotTol [useIncompatibleMembrane [useDKQPlate]]` | 求解選項;後兩個 S8 殼旗標 optional、向後相容 |
+| **`WARP`** | `warpTolerance [useWarpingCorrection]` | **v2.3**:v3 warped/freeform quad 殼的 opt-in。`warpTolerance`(rel,典型 0.02 ~ 0.1)放寬 `FrameModel::validate()` 的非共平面拒絕;`useWarpingCorrection`(0/1,預設 1)啟用 best-fit 平面投影。**不發此 token = `SolveOptions::warpTolerance=1e-6` 嚴格、v2.2+1 位元同**(forward-compatible:老 client 不需動)。對標 OpenSees `ShellMITC4` 的 mega benchmark C2/C5 用 `WARP 0.02 1` 後 24 CRITICAL → 0 |
 | `EIGEN` | `nModes` | 附加模態頻率輸出 |
 | `PDELTA` | `path` | 二階:0=凍結重用、1=K_T 參考;缺/<0=線性 |
 | **`TONLY`** | `[maxIter [allowReact]]` | **S6**:tension-only 主動集 eliminator(讀 `MEMBER … tonly` 桿) |

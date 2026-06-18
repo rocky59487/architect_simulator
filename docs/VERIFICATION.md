@@ -149,6 +149,26 @@ collapse driver rather than the reanalysis line.
 | `COROT` / `ARCL` | planar elastica `dv/L = 0.714138`; shallow-arch λ_peak 0.00586 through the bridge |
 | daemon mode (J1.5) | multi-block single process == independent CLI runs, **bit-identical** |
 | C API DLL (J2) | `frame_capi_solve_text` == `frame_cli.exe`, **bit-identical** (ctypes harness) |
+| `WARP` token (v2.3) | `WARP <warpTolerance> [<useWarpingCorrection>]` exposes the v3 warped-quad opt-in (audit fix for mega benchmark). Omitting it leaves `SolveOptions::warpTolerance=1e-6` (strict, v2.2+1 bit-identical). Forward-compatible — older clients keep working |
+
+### 3.7a OpenSees mega benchmark (v2.3 — 128 cases)
+
+A new external-oracle suite under `benchmarks/opensees_mega/` runs FrameCore via the
+text bridge against OpenSees on 128 case × load × mesh combinations:
+- A1–A8 building frames (beam-column + faceted shell)
+- B1–B4 bridge segments
+- C1 quarter dome / C2 hyperbolic paraboloid / C3 pinched cylinder / C4 Scordelis-Lo /
+  C5 sinusoidal freeform faceted shell, each at 8×8 / 16×16 / 24×24 mesh × L1/L2/L3/L4 loads
+- D1 P-Delta column / D2 release surrogate / D3 modal SDOF / D4 ground-spring beam
+- L6 modal frequencies
+
+Run `20260619-001` (v2.3, post-WARP fix): **0 CRITICAL · 0 MAJOR · 64 MINOR (within tolerance) · 64 KNOWN (CLI-coverage / faceted-vs-smooth oracle gap)**.
+Per-family worst displacement rel: A_building 3.59e-11, B_bridge 3.86e-12,
+C_shell 1.60e-4 (was 1.00 pre-fix), D_special 1.55e-3, L6_modal 0.
+
+Reproduction: `powershell -ExecutionPolicy Bypass -File benchmarks\opensees_mega\rerun.ps1`
+(needs `openseespy`; writes a fresh `results/<run-id>/` with `matrix.csv`, `findings.json`,
+`report.md`, and per-case convergence plots).
 
 ### 3.8 Supernodal direct lane (F55–F56, R-line — opt-in, default LDLᵀ)
 

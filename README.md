@@ -16,9 +16,9 @@ C++17-compatible; the UE module target is compiled as C++20 because of the curre
 > **This repository ships two independent engines:** FrameCore (this document, `Plugins/FrameSolver/`)
 > and **LevelSim** — a surveying-level simulator — at [`Plugins/LevelSim/`](Plugins/LevelSim/README.md).
 > They share no code and can be built, tested, and released independently; the bundled
-> `v2.2 + LevelSim v1` release packages them together.
+> `v2.3` release packages them together (FrameCore v2.3 + LevelSim v1.0.0).
 
-> **Status (2026-06, v2.2 — bundled release with LevelSim v1; FrameCore engine identical to v2.1.0: S1–S10 + supernodal direct lane (incl. PERF-01 supernodal-primary + R2 Neumaier IR) + shell K_σ + shell CR + warped quads + shell-buckling knockdown + curved-mesh guard):** the five-leg verification gate is green —
+> **Status (2026-06, v2.3 — adds the OpenSees mega benchmark (128 cases vs `ShellMITC4`/`elasticBeamColumn`, 0 CRITICAL / 0 MAJOR) plus the warped-shell CLI bridge fix (`WARP` token) and A-06 `mat.rho<0` guard; engine still S1–S10 + supernodal direct lane (incl. PERF-01 supernodal-primary + R2 Neumaier IR) + shell K_σ + shell CR + warped quads + shell-buckling knockdown + curved-mesh guard):** the five-leg verification gate is green —
 > standalone `ALL PASS` (fixtures **F1–F64**) · **57** UE automation tests ·
 > **OpenSees** strict cross-validation PASS · deep audit **104** independent checks ·
 > CLI round-trip ALL PASS. One repo-relative command reproduces it (`-Engine` or `UE_ENGINE_ROOT`

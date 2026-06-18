@@ -27,6 +27,12 @@ def model_to_tokens(model: Model) -> str:
     lines: list[str] = []
     if model.opt:
         lines.append(model.opt)
+    # v2.3: warped/freeform shell meshes need explicit warpTolerance relaxation.
+    # `warp_tol=None` (default) → no WARP line emitted → CLI keeps SolveOptions{}
+    # default (warpTolerance=1e-6, strict) — back-compat for every non-warped case.
+    if getattr(model, "warp_tol", None) is not None:
+        uc = 1 if getattr(model, "use_warping_correction", True) else 0
+        lines.append(f"WARP {model.warp_tol:.17g} {uc}")
     for m in model.materials:
         if m.shell:
             nu = 0.3 if m.nu is None else m.nu

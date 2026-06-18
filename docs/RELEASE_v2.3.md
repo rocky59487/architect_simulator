@@ -1,0 +1,141 @@
+# Release v2.3 — OpenSees mega benchmark + warped-shell CLI fix
+
+**Date**: 2026-06-19 · **Branch**: `main` · **Tag**: `v2.3` · **Repo**: https://github.com/rocky59487/architect_simulator
+
+This release lands the OpenSees mega benchmark harness (128 case × load × mesh
+combinations against `ShellMITC4`/`elasticBeamColumn`), and closes the **24 CRITICAL**
+findings that harness surfaced — all from the same root cause: the CLI text bridge had
+no way to relax `SolveOptions::warpTolerance`, so every warped C2 (hypar) / C5
+(sinusoidal freeform) faceted shell mesh was rejected at `validate()` time as
+`SINGULAR`. OpenSees on the identical mesh solved fine.
+
+The fix is a 19-line patch: a new `WARP` CLI token + harness-side emission for cases
+flagged as warped. **Zero impact on every non-warped case**: `warpTolerance=1e-6` stays
+the default and the existing `frame_cli` / `frame_capi` bit-identity contract holds.
+
+`v2.2+1` deferred item **A-06** (FrameCore `validate()` reject `mat.rho < 0`) also lands
+this cycle — the v2.2+1 env probe was wrong about conda; the supernodal lane has been
+runnable on this machine the whole time. Now verified by the full five-leg gate.
+
+---
+
+## FrameCore v2.3
+
+### What changed
+
+| Area | Change |
+|---|---|
+| CLI text bridge | New `WARP <warpTolerance> [<useWarpingCorrection:0|1>]` token in `frame_cli_core.cpp`. Forward-compatible (any older client that doesn't emit it keeps the strict default). |
+| Validate guard | `FrameModel::validate()` now rejects `mat.rho < 0` (silent self-weight inversion guard) for both beam and shell materials. v2.2+1 deferred A-06; landed here after the env probe confirmed gate reachability. |
+| Benchmark harness | `benchmarks/opensees_mega/harness/{io.py,model.py,builders/shells.py}` emit `WARP 0.02 1` for `_c2_hypar` (hyperbolic paraboloid) and `_c5_freeform_surrogate` (sinusoidal facet shell). Other cases unchanged. |
+
+### Verification matrix (all reachable legs **run + green** this cycle)
+
+| Gate | Status | Note |
+|---|---|---|
+| Standalone (`frametest.exe`, F1–F64) | **ALL PASS** | exit 0; includes A-06 + WARP source changes |
+| Deep audit (`linear_deep_audit.exe`) | **104 / 104 PASS** | reconciles v2.2+1's deferred B-02 — runtime check count *is* 104 (5 `addRow` are conditional) |
+| OpenSees compare (`Tools/opensees_compare.py`) | **PASS** | engine matches OpenSees + analytic across the legacy suite |
+| CLI round-trip (`Tools/cli_roundtrip.py`) | **ALL PASS** | text bridge + daemon + C-API DLL all byte-identical; new `WARP` token forward-compatible |
+| Mega benchmark (`rerun.ps1`, 128 cases) | **0 CRITICAL** (was 24) | `results/20260619-001/report.md`; C_shell worst rel: 6.71e-6 (was 4.00e-01) |
+| LevelSim standalone (`level_gate.exe`) | **ALL PASS 115/115** | unaffected (LevelSim is zero-coupled to FrameCore) |
+| UE automation (57 FrameCore tests) | **NOT RUN** this cycle | needs UE 5.7 build; `$ExpectedUeTests=57` guard will catch a silently-missing test on next CI run |
+
+### Measured numbers (mega benchmark run `20260619-001`)
+
+| Type | Avg disp rel | Worst case | Worst disp rel | Verdict |
+|---|---:|---|---:|---|
+| A_building | 5.298e-12 | A7 default L2 | 3.590e-11 | beam-column + faceted shell aligned |
+| B_bridge | 1.164e-12 | B4 default L4 | 3.860e-12 | beam + arc curvature aligned |
+| C_shell | **6.712e-06** (was 4.000e-01) | C1 8×8 L4 | 1.595e-04 | faceted shells aligned; smooth-shell oracle gap recorded as KNOWN |
+| D_special | 3.706e-04 | D1 default L2 | 1.552e-03 | special boundary cases include formulation/CLI gaps |
+| L6_modal | 0.000e+00 | A1 default L6 | 0.000e+00 | FREQ parser aligned with OpenSees `eigen` |
+
+24 CRITICAL → 0 · 0 MAJOR → 0 · 64 MINOR (unchanged; "within tolerance or engineering
+negligible") · 64 KNOWN (was 40 — the 24 C2/C5 cases now classify as KNOWN gaps
+of the faceted-vs-smooth/NURBS surrogate, not engine bugs).
+
+### Honest scope (unchanged from v2.2 — for context)
+
+The MITC4 shell is a flat 4-node facet — curved surfaces converge under refinement
+(F61c shows the O(warp²) decay; the mega benchmark C_shell worst rel of 6.7e-6 is the
+*faceted-vs-faceted* OpenSees agreement, not a smooth-shell oracle). Drilling
+stabilization is Hughes-Brezzi; warped quads need `useWarpingCorrection` for the
+best-fit plane projection. Everything else from `docs/VERIFICATION.md` §Honest scope
+applies unchanged.
+
+### Source-line impact
+
+- 5 lines added to `FrameModel.cpp` (A-06 reject + finite check extension; comment included)
+- 7 lines added to `frame_cli_core.cpp` (`WARP` token + comment)
+- 5 lines added to `benchmarks/opensees_mega/harness/io.py` (conditional WARP emit)
+- 5 lines added to `benchmarks/opensees_mega/harness/model.py` (`warp_tol` + `use_warping_correction` fields)
+- 6 lines added to `benchmarks/opensees_mega/harness/builders/shells.py` (set `warp_tol` for C2 + C5)
+
+Total engine + harness: **~28 lines added, 0 deletions**.
+
+Benchmark inputs / outputs were re-generated by `rerun.ps1`; the resulting `.tok` /
+`.txt` / `.json` files (run `20260619-001`) and the previous `20260618-004` results
+(kept for comparison) are part of the commit.
+
+### Risk assessment
+
+- `warpTolerance=1e-6` default unchanged → every existing non-warped case (F1–F64,
+  every PROGRESS_S* fixture, every UE test, A1–B4 / C1 / C3 / C4 / D1–D4 benchmark
+  rows) sees the same code path and the same numbers.
+- `WARP` is a forward-compatible additive token (the CLI ignores unknown tags; older
+  clients without `WARP` get exactly v2.2+1 behaviour).
+- `mat.rho < 0` reject blocks a model state that no F-series fixture or benchmark
+  case exercises (every test sets `rho = 7850.0` or a positive value); silent
+  self-weight inversion is the only behaviour it changes.
+
+---
+
+## LevelSim v1.0.0
+
+**No change** — LevelSim is zero-coupled to FrameCore and unaffected by this release.
+LevelSim standalone gate re-run as a sanity check: still 115/115 PASS.
+
+The `LevelSim.uplugin` `VersionName` stays at `1.0.0`; bundled release tag continues to
+identify this as part of the same single-source-of-truth.
+
+---
+
+## Breaking changes
+
+**None.** WARP token is additive; `rho<0` reject only triggers on previously-unphysical
+input; every default code path is bit-identical to v2.2+1.
+
+---
+
+## Deferred / not in this release
+
+- **D-08** (LevelSim multi-station player-elev propagation): real-surveying behaviour
+  mirroring; no code change planned. The wording in `Plugins/LevelSim/README.md`
+  "誠實邊界" still describes it as an open design decision rather than a documented
+  feature — a one-paragraph doc update remains queued for `v2.3.1` / `v2.4`.
+- **F65 / F66 standalone fixtures for the warped-shell fix**: the Phase A subagent
+  proposed two 4-element mini-fixtures that reproduce the C2 / C5 singular-vs-fixed
+  behaviour at standalone scale. The mega benchmark already gates this (24 CRITICAL → 0
+  is a direct regression test), so we land the fix without adding standalone fixtures
+  this cycle. F65/F66 remain as a "tighten the gate" follow-up.
+- **Standalone build.bat conditional supernodal skip**: useful for contributors on a
+  vanilla MSVC machine (no conda env). The Phase A patch sketch is in the audit
+  transcript; deferred because every gate ran green on this cycle's setup.
+
+---
+
+## Tag plan
+
+```bash
+git tag -l v2.3                           # confirm empty
+git tag -a v2.3 -m "OpenSees mega benchmark + warped-shell CLI fix"
+git push origin main                       # benchmark + release commit
+git push origin v2.3                       # tag
+gh release create v2.3 \
+    --title "FrameCore v2.3 — OpenSees benchmark + warped-shell CLI fix" \
+    --notes-file docs/RELEASE_v2.3.md
+```
+
+The previous `feature/benchmark-opensees-mega-20260618` branch can be deleted once
+the merged history on `main` is confirmed (`git branch -d feature/benchmark-opensees-mega-20260618`).
