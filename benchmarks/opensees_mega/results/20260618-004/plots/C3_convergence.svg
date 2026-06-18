@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="400" height="220" viewBox="0 0 400 220">
+<rect width="400" height="220" fill="white"/>
+<text x="20" y="22" font-family="Arial" font-size="14">C3 L3 FC-vs-OS relative displacement</text>
+<line x1="40" y1="180" x2="360" y2="180" stroke="#333"/>
+<line x1="40" y1="40" x2="40" y2="180" stroke="#333"/>
+<polyline points="40.0,180.0 200.0,180.0 360.0,180.0" fill="none" stroke="#1f77b4" stroke-width="2"/>
+<circle cx="40.0" cy="180.0" r="3" fill="#1f77b4"/>
+<circle cx="200.0" cy="180.0" r="3" fill="#1f77b4"/>
+<circle cx="360.0" cy="180.0" r="3" fill="#1f77b4"/>
+</svg>
