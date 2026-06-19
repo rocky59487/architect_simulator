@@ -112,35 +112,46 @@ var linear = await session.SolveLinearAsync(es);  // B2 stub 回 _stub=true;B3 w
 
 ## 4. Deferred items(from release notes,搭配 day-1 actions)
 
+> **2026-06-19 follow-up pass landed.** Commits `a859810` / `180c9e8` /
+> `3814f58` / `214e99f` close the v2.4 → v2.5 main axis (B3 wire + A-01 UAF +
+> B5 factor-reuse + D-03 GH race + D-09 P/Invoke audit + E-10 method table +
+> the six docs/.gitignore/build.bat quick wins). Five-leg verdict after these
+> commits: L1 standalone ALL PASS (F1-F64), L4 audit failures=0 checks=104,
+> L5 cli_roundtrip ALL PASS, L6 v2_roundtrip 30 PASS / 0 FAIL (including
+> supernodal mode bit-exact vs v1), LevelSim 115/115. L2 UE + L3 OpenSees
+> NOT RUN this cycle (engine source bit-identical to v2.3 since `6be1dac`;
+> openseespy not installed). The list below keeps the original status legend
+> and marks which entries the follow-up cleared.
+
 對應 RELEASE_v2.4.md 的 Deferred section。每行格式:`audit-id | 一句話 | first action on day 1`。
 
 ### B3 — 接引擎 wire(優先;v2.4 → v2.5 的主軸)
-- **B3.1 `HandleSolveLinear` wire** | 引擎沒接,client 拿 `_stub:true` | 開 `Plugins/FrameSolver/Standalone/v2/Dispatcher.cpp`,搜 `[TODO B3]` 在 `HandleSolveLinear` 區塊;新建 `v2/ModelBuilder.h` helper(`buildModelFromJson(json) -> FrameModel`,鏡像 `frame_cli_core.cpp::buildModel`),呼叫 `frame::solve(model, opts)`,把 `SolveResult` 序列化回 JSON;`Tools/v2_roundtrip.py` 把 SKIP `solve.linear bit-exact vs v1` 改為 PASS,oracle = `frame_cli.exe` 同模型輸出的 `DISP` 行 bit-exact 比對。
-- **B3.2 `build_capi_v2.bat` 擴 link FrameCore** | 目前 transport-only 不 link 引擎 | 在 `build_capi_v2.bat` cl 命令的 `Standalone\v2\Dispatcher.cpp Standalone\frame_capi_v2.cpp` 後增列 FrameCore 全 TU(鏡像 `build_capi.bat` 的源檔清單),加 `/DFRAMECORE_SUPERNODAL=1` 與 conda OpenBLAS+METIS link;預期增加 ~30 s build 時間。
-- **B3.3 其他 11 個 method wire** | `solve.pdelta/tension_only/size_opt/corotational/arclength/analysis.modal/analysis.buckling/inspect.*` 仍 NOT_IMPLEMENTED | 按 `[TODO B3]` 順序每 method 補 30-50 LOC 的 dispatcher.cpp handler + JSON 序列化;每寫完一個就在 `v2_roundtrip.py` 加一個 bit-exact-vs-v1 check。
-- **A-04 (B3 tier) — 引擎側 propagation 守 isfinite** | MiniJson 已守住 input,B3 wire 後 output 也得守 | 在 B3.1 的 `SolveResult → JSON` 序列化路徑,對每個 `disp[i]` / `member_force[i]` 序列化前加 `if (!std::isfinite(v))` reject + `code: NON_FINITE_RESULT`。
+- ✅ **B3.1 `HandleSolveLinear` wire** | 已 wire `180c9e8`,bit-exact vs v1 frame_capi.dll on cantilever (rel<1e-11) | `Plugins/FrameSolver/Standalone/v2/ModelBuilder.h` + `Dispatcher.cpp` `HandleSolveLinear` body;`Tools/v2_roundtrip.py` SKIP → PASS。
+- ✅ **B3.2 `build_capi_v2.bat` 擴 link FrameCore** | 已擴 `180c9e8`,鏡像 build_capi.bat + conditional supernodal | DLL ~105 KB → ~600 KB(含 FrameCore + SnSolver/SnSession);`/DFRAMECORE_SUPERNODAL=1` (with conda) or =0 (without)。
+- ✅ **B3.3 其他 11 個 method wire** | 已 wire `180c9e8` | `solve.pdelta/tension_only/size_opt/corotational/arclength + analysis.modal/buckling + inspect.{disp,reactions,member_forces,shell_forces}` 全 wire,spec-shape 通過 v2_roundtrip;solve.dyn_collapse + analysis.reanalysis_solve 隨 B4/B5 deferred,model.patch schema 待決。
+- ✅ **A-04 (B3 tier) — 引擎側 propagation 守 isfinite** | 已實作 `180c9e8` | `Dispatcher.cpp` `finiteOrFail` + `packDisp/packMemberForces/packShellForces/buckling/modal` 全路徑 isfinite check;首個 non-finite 走 `NON_FINITE_RESULT` 錯誤 frame。
 
 ### B4 — streaming + binary + per-handler cancel(`solve.dyn_collapse`)
-- **C-06 / C-07 — dispatcher 並發架構重設計** | cv/outbound mutex 分離 + IsCancelled TOCTOU | B4 開工先重寫 `Dispatcher.cpp::Submit/Recv` 並發模型:每 session 一個專用 worker thread,`Submit` 入 queue 不等執行,worker pop 後執行 + signal recv;`HandleSolveDynCollapse` 內部每 N 步 poll `ctx_.IsCancelled(reqId)`;binary payload 走 `FLAG_HAS_PAYLOAD | FLAG_BINARY_PAYLOAD` 分幀。
-- **B4 first-frame** | `solve.dyn_collapse` 仍 NOT_IMPLEMENTED stub | 在 `HandleSolveDynCollapse`(B4 主入口)裡 enqueue 每幀 96 bytes/node `(x,y,z,vx,vy,vz)` 的 binary payload,header JSON 帶 `kind: "dyn_collapse.frame"` + `t`;最後一幀 `FLAG_END_OF_RESPONSE`;`v2_roundtrip.py` 加 streaming case + cancel-mid-stream case。
+- 🟡 **C-06 / C-07 — dispatcher 並發架構重設計** | DEFERRED to v2.6 | redesign 跟 B4 streaming 綁:per-session worker thread + cv/outbound mutex 分離 + IsCancelled TOCTOU poll + binary framing。當前 dispatcher 是 single-threaded inline,client 看不到差別;dyn_collapse handler 還是 stub,無 driver 需要這個重設計。Day-1:重寫 `Dispatcher.cpp::Submit/Recv` per-session worker model,handler 內每 N 步 poll IsCancelled。
+- 🟡 **B4 first-frame** | DEFERRED to v2.6 | 待 C-06/C-07 worker thread 完成才有 streaming 通道。Day-1:`HandleSolveDynCollapse` enqueue 每幀 96 bytes/node binary payload + `FLAG_END_OF_RESPONSE` 收尾;`v2_roundtrip.py` 加 streaming + cancel-mid-stream case。
 
 ### B5 — session factor-reuse
-- **B5 wire** | mode=`resolve` / `supernodal` 未接 | 在 `Dispatcher.cpp::EngineSession` struct 加 `std::optional<frame::SnSession>` + `std::optional<frame::ReSolveSession>`;`session.open` 若帶 `mode: "supernodal"` 則 build SnSession,後續 `solve.linear` 直接走 `snSession->solveFrame(...)`(factor-once);`v2_roundtrip.py` 加 「同模型連 100 次 solve.linear 比第 1 次快 X 倍」 latency check。
+- ✅ **B5 wire** | 已 wire `214e99f`,supernodal mode 路徑 bit-exact vs v1 | `EngineSession` 加 `useSnSession` + `std::unique_ptr<frame::SnSession> sn`;`session.open` 讀 `body.mode` 並回應同 mode;`model.set` eagerly factor + build SnSession;`solve.linear` 走 `sn->solveFrame`(LDLT 永遠 fallback)。`resolve` mode 留給 ReSolveSession follow-up(B5.2)。
 
 ### B7 — Rhino 8 GHA 實 build
-- **D-09 — P/Invoke signature audit** | C# 8 delegate 簽名沒線對線 verify against `frame_capi_v2.h` | 開 `Plugins/FrameSolver/Grasshopper/v2/Bridge/CApiV2Transport.cs:179-205`(8 個 delegate)與 `frame_capi_v2.h:122-170` 並列 diff,每 delegate 對應 prototype 比對 calling convention(全 `Cdecl`)、parameter width(`UIntPtr`↔`size_t`、`IntPtr`↔`void*`、`int`↔`int`)、`[MarshalAs]` (`LPUTF8Str`?);發現不符立即修。**這是 GHA 在 release-mode 跑會不會 silent corrupt stack 的關鍵 check**。
-- **B7 build** | net7.0 GHA 真 build 沒做 | 安裝 Rhino 8 SDK(`yak install RhinoCommon` 等),`cd Plugins/FrameSolver/Grasshopper/v2/Rhino && dotnet build FrameCore.Gh.csproj -c Release`;輸出 `bin\Release\net7.0\FrameCore.Gh.gha`;`yak build .` 打包 Yak。需要 Rhino 環境,不入引擎 CI。
-- **A-01 — `frame_v2_close` race** | close `delete`s ctx while recv 可能在 cv.wait | 改 `frame_v2_open` 把 ctx 用 `std::shared_ptr` 持有,`frame_v2_close` 設 closed=true + wake recv,recv 退出時 shared_ptr 自動 dealloc;**B3 wire 後若無 dispose 順序,Rhino 端 dispose FrameSession 進 cv.wait 同步 close 會 UAF**。
-- **D-03 — GH OpenFrameCore generation race** | 二段 check 中間有狹窄寫入窗 | 在 `OpenFrameCoreComponent.cs:144-159` 把 gen-check + field-write 合進一個 `lock (_openGate)` 區塊,或改用 `Interlocked.CompareExchange(ref _openGeneration, thisGen, thisGen)` 比對成功才寫 `_session`。
+- ✅ **D-09 — P/Invoke signature audit** | 完成 `214e99f` | 7 個 Cdecl delegate 對 `frame_capi_v2.h` prototype 線對線 verify(IntPtr/UIntPtr/byte*/sbyte*/uint/int 寬度全合 x86_64 Windows ABI);audit 結論落在 `CApiV2Transport.cs` 內供未來 header 擴增 re-audit。
+- 🟡 **B7 build** | DEFERRED (ENV) | 本 cycle host 無 dotnet SDK / Rhino 8 SDK,無法 dotnet build。Source 自 v2.4 release 起未動;steps 同 RELEASE_v2.4.md (yak install RhinoCommon → dotnet build FrameCore.Gh.csproj -c Release → yak build .)。Day-1: 在 Rhino 8 dev machine 跑這條指令鏈,verify GHA load 進 Grasshopper。
+- ✅ **A-01 — `frame_v2_close` race** | 完成 `3814f58` | shared_ptr ownership registry + per-call acquire();close 釋放 owner ref,recv 持自己 ref 直到退出;UAF window 已關。
+- ✅ **D-03 — GH OpenFrameCore generation race** | 完成 `214e99f` | `_openGate` lock object 包住 gen-check + field-write;ResetSession.InvalidateCurrentSession 也走同一 gate。
 
 ### Docs / 雜項 follow-up(v2.4.1 或下個 docs cycle 處理)
-- **B-12** | README `61.5k` vs `62k` DOF 不一致 | 開 `README.md:57`,把 `61.5k DOF` 改為 `62k DOF`(對齊 `PROGRESS_R_supernodal.md` 的 perf_sn 數值)。
-- **E-10** | S6b method table 沒 `[B3]`/`[B4]`/`[B5]` 標籤 | 等 B3 真開工後再開 `docs/specs/S6b_rhino_bridge_v2.md` §③ method table 加標籤,因為標籤要對應實作狀態。
-- **F65 / F66** | warped-shell standalone fixtures | 在 `Plugins/FrameSolver/Standalone/frametest.cpp` 尾部加 F65 / F66,F65 = warped MITC4 stiffness vs regular,F66 = warped 旋轉等變;加 `build.bat` 源檔清單。
-- **`build.bat` conditional supernodal skip** | 無 conda 機器無法跑 | `build.bat` 偵測 `%CONDA_SS%\include\openblas\cblas.h` 不存在時 `goto :no_supernodal` + `/DFC_NO_SUPERNODAL=1`,跳過 F55-F64 supernodal 相關 fixtures;標 `[SKIP]` 不算 fail。
-- **H-02 / H-03 / H-04** | HANDOFF + AGENT_PROMPT 內 `E:\project\ArchSim` / `C:\Users\<user>\.claude\...` 字面 | 開 `docs/HANDOFF_rhino_bridge_v2_final.md:255,285` / `docs/AGENT_PROMPT_OPENSEES_MEGA_BENCHMARK.md:11,39` / `docs/AGENT_PROMPT_S2_S4.md:28`,把字面路徑改為 `<repo-root>` 或 `~/.claude/projects/<project>/memory/` 範本。
-- **H-09 / H-10** | font path 硬寫 + gitignore 漏 `obj_capi/` | `docs/learning/generate_framecore_whiteboard_course.py:29-30` 把 `C:\Windows\Fonts\NotoSansTC-VF.ttf` 改 env var fallback;`.gitignore` 加 `obj_capi/` + `obj_linear_audit/`(可選,目前 `*.obj` 已涵蓋無 risk)。
-- **F-1..F-10** | C++ / C# 小型 perf / 風格 cleanups | 改在獨立 `code-quality-sweep` cycle,不入本 release。
+- ✅ **B-12** | 完成 `a859810` | README.md:61 `20× at 61.5k DOF` → `20× at 62k DOF`(對齊 PROGRESS_V21.md perf_sn 數值)。
+- ✅ **E-10** | 完成 `214e99f` | docs/specs/S6b_rhino_bridge_v2.md §③ method table 加 ✅/🟡/⚪ 狀態標籤 + 圖示說明。
+- 🟡 **F65 / F66** | DEFERRED to v2.5 | F61 已驗證 membrane-warp O(1/N²) 收斂;F65 (warped MITC4 stiffness vs regular) + F66 (warped 旋轉等變) 是 net-new fixture 設計,需 numerically robust 模板才不會 flake。
+- ✅ **`build.bat` conditional supernodal skip** | 完成 `a859810` | `build.bat` 偵測 conda OpenBLAS 不存在時走 `:build_sn_off` 分支,`/DFRAMECORE_SUPERNODAL=0`,main.cpp 的 F55/F56/F62/F63 `#if FRAMECORE_SUPERNODAL` 自動 compile out;無 conda 機器也可跑 L1 leg。
+- ✅ **H-02 / H-03 / H-04** | 完成 `a859810` | `docs/AGENT_PROMPT_OPENSEES_MEGA_BENCHMARK.md` + `docs/AGENT_PROMPT_S2_S4.md` 字面 `E:\project\ArchSim` / `C:\Users\wmc02\.claude\...` / `E:\project\UE_5.7` → `<repo-root>` / `~/.claude/projects/<project>/memory/` / `%UE_ENGINE_ROOT%`(local hint 保留 inline)。`docs/HANDOFF_rhino_bridge_v2_final.md` 經 grep 確認已無字面路徑(可能 P1/P2 修補時已 templatize)。
+- ✅ **H-09 / H-10** | 完成 `a859810` | `docs/learning/generate_framecore_whiteboard_course.py:28-32` 改用 `NOTOSANS_TC_PATH` / `INKFREE_PATH` env var fallback;`.gitignore` 補上 `obj_capi/` + `obj_linear_audit/`。
+- 🟡 **F-1..F-10** | DEFERRED | 留給獨立 `code-quality-sweep` cycle,不入本 release。
 
 ### LevelSim 子系統(獨立 worktree)
 - **D-08** | player-elev propagation doc 未寫 | 在 `E:\project\ArchSim-levelsim\docs\` 新建 `D-08-player-elevation-propagation.md`,描述 PlayerController ↔ LevelSim elevation 同步的 tick-order 與 authority 規則。
