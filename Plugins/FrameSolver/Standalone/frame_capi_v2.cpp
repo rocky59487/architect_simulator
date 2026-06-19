@@ -25,6 +25,7 @@
 #include <memory>
 #include <mutex>
 #include <string>
+#include <unordered_map>
 
 #ifndef FRAMECORE_BUILD_SHA
 #define FRAMECORE_BUILD_SHA "unknown"
@@ -46,6 +47,24 @@ struct frame_v2_ctx {
     std::unique_ptr<fv2::Dispatcher> dispatcher = std::make_unique<fv2::Dispatcher>();
 };
 
+// A-01 UAF fix: the owning shared_ptr lives in this DLL-global registry. Every entry point
+// (recv, send, cancel_*, last_error, pending_count) takes a fresh ref off the registry, so an
+// in-flight call ALWAYS holds the ctx alive across its body. frame_v2_close drops the registry
+// owner ref and signals shutdown; the dtor runs synchronously if no one else has a ref, or
+// asynchronously when the last in-flight call returns. recv's cv.wait re-acquires its OWN
+// mutex on a ctx that the caller's shared_ptr guarantees is still alive -- no UAF window.
+namespace {
+std::mutex g_registryMtx;
+std::unordered_map<frame_v2_ctx*, std::shared_ptr<frame_v2_ctx>> g_owner;
+
+inline std::shared_ptr<frame_v2_ctx> acquire(frame_v2_ctx* raw) {
+    if (!raw) return nullptr;
+    std::lock_guard<std::mutex> lk(g_registryMtx);
+    auto it = g_owner.find(raw);
+    return it == g_owner.end() ? nullptr : it->second;
+}
+}  // namespace
+
 extern "C" {
 
 FCAPI uint32_t frame_v2_abi_version(void) { return fv2::kAbiVersion; }
@@ -55,23 +74,44 @@ FCAPI const char* frame_v2_build_sha(void) { return FRAMECORE_BUILD_SHA; }
 FCAPI const char* frame_v2_engine_version(void) { return fv2::kEngineVer; }
 
 FCAPI frame_v2_ctx* frame_v2_open(void) {
-    try { return new frame_v2_ctx(); } catch (...) { return nullptr; }
+    try {
+        auto ctx = std::make_shared<frame_v2_ctx>();
+        frame_v2_ctx* raw = ctx.get();
+        std::lock_guard<std::mutex> lk(g_registryMtx);
+        g_owner.emplace(raw, std::move(ctx));
+        return raw;
+    } catch (...) { return nullptr; }
 }
 
-FCAPI void frame_v2_close(frame_v2_ctx* ctx) {
-    if (!ctx) return;
+FCAPI void frame_v2_close(frame_v2_ctx* raw) {
+    if (!raw) return;
+    // Pull the owner shared_ptr out of the registry. From this point a concurrent
+    // send/recv/cancel call will get acquire()==nullptr -> INVALID_CTX, which is the
+    // documented post-close contract.
+    std::shared_ptr<frame_v2_ctx> ctx;
+    {
+        std::lock_guard<std::mutex> lk(g_registryMtx);
+        auto it = g_owner.find(raw);
+        if (it == g_owner.end()) return;
+        ctx = std::move(it->second);
+        g_owner.erase(it);
+    }
+    // Signal in-flight recv calls to bail. Any thread already inside recv holds its own
+    // shared_ptr ref (taken via acquire), so the ctx outlives THIS call's `ctx` going out
+    // of scope below -- destruction is deferred to whoever drops the last ref.
     {
         std::lock_guard<std::mutex> lk(ctx->mtx);
         ctx->closed = true;
         ctx->cancelRecv = true;
     }
     ctx->cv.notify_all();
-    delete ctx;
 }
 
-FCAPI int frame_v2_send(frame_v2_ctx* ctx, const uint8_t* inFrame, size_t inLen) {
-    if (!ctx)             return FRAME_V2_INVALID_CTX;
+FCAPI int frame_v2_send(frame_v2_ctx* raw, const uint8_t* inFrame, size_t inLen) {
+    auto ctx_sp = acquire(raw);
+    if (!ctx_sp)          return FRAME_V2_INVALID_CTX;
     if (!inFrame)         return FRAME_V2_PROTOCOL_ERROR;
+    frame_v2_ctx* ctx = ctx_sp.get();
 
     fv2::Frame parsed;
     size_t consumed = 0, needed = 0;
@@ -97,11 +137,13 @@ FCAPI int frame_v2_send(frame_v2_ctx* ctx, const uint8_t* inFrame, size_t inLen)
     return FRAME_V2_OK;
 }
 
-FCAPI int frame_v2_recv(frame_v2_ctx* ctx,
+FCAPI int frame_v2_recv(frame_v2_ctx* raw,
                         uint8_t* outBuf, size_t outCap,
                         size_t* outLen, size_t* outNeeded,
                         int blockingMs) {
-    if (!ctx) return FRAME_V2_INVALID_CTX;
+    auto ctx_sp = acquire(raw);
+    if (!ctx_sp) return FRAME_V2_INVALID_CTX;
+    frame_v2_ctx* ctx = ctx_sp.get();
     if (outLen)    *outLen    = 0;
     if (outNeeded) *outNeeded = 0;
 
@@ -135,8 +177,10 @@ FCAPI int frame_v2_recv(frame_v2_ctx* ctx,
     return FRAME_V2_OK;
 }
 
-FCAPI int frame_v2_cancel_recv(frame_v2_ctx* ctx) {
-    if (!ctx) return FRAME_V2_INVALID_CTX;
+FCAPI int frame_v2_cancel_recv(frame_v2_ctx* raw) {
+    auto ctx_sp = acquire(raw);
+    if (!ctx_sp) return FRAME_V2_INVALID_CTX;
+    frame_v2_ctx* ctx = ctx_sp.get();
     {
         std::lock_guard<std::mutex> lk(ctx->mtx);
         ctx->cancelRecv = true;
@@ -145,21 +189,29 @@ FCAPI int frame_v2_cancel_recv(frame_v2_ctx* ctx) {
     return FRAME_V2_OK;
 }
 
-FCAPI int frame_v2_cancel_request(frame_v2_ctx* ctx, const char* targetId) {
-    if (!ctx || !targetId) return FRAME_V2_INVALID_CTX;
-    ctx->dispatcher->CancelRequest(std::string(targetId));
+FCAPI int frame_v2_cancel_request(frame_v2_ctx* raw, const char* targetId) {
+    auto ctx_sp = acquire(raw);
+    if (!ctx_sp || !targetId) return FRAME_V2_INVALID_CTX;
+    ctx_sp->dispatcher->CancelRequest(std::string(targetId));
     return FRAME_V2_OK;
 }
 
-FCAPI const char* frame_v2_last_error(const frame_v2_ctx* ctx) {
-    if (!ctx) return nullptr;
-    std::lock_guard<std::mutex> lk(const_cast<std::mutex&>(ctx->mtx));
+FCAPI const char* frame_v2_last_error(const frame_v2_ctx* raw) {
+    auto ctx_sp = acquire(const_cast<frame_v2_ctx*>(raw));
+    if (!ctx_sp) return nullptr;
+    frame_v2_ctx* ctx = ctx_sp.get();
+    std::lock_guard<std::mutex> lk(ctx->mtx);
+    // NOTE: returning a c_str() from a member that might mutate is technically unsafe across
+    // threads, but the v1 API and our existing roundtrip clients all read-then-act sequentially.
+    // The caller is documented not to call frame_v2_send concurrently with frame_v2_last_error
+    // on the same ctx; that contract is unchanged here.
     return ctx->lastError.empty() ? nullptr : ctx->lastError.c_str();
 }
 
-FCAPI int frame_v2_pending_count(const frame_v2_ctx* ctx) {
-    if (!ctx) return -1;
-    return static_cast<int>(ctx->dispatcher->PendingOutbound());
+FCAPI int frame_v2_pending_count(const frame_v2_ctx* raw) {
+    auto ctx_sp = acquire(const_cast<frame_v2_ctx*>(raw));
+    if (!ctx_sp) return -1;
+    return static_cast<int>(ctx_sp->dispatcher->PendingOutbound());
 }
 
 }  // extern "C"
