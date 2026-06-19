@@ -156,27 +156,34 @@
 
 ## ③ Method 目錄(method catalogue, schema 版本 `2026.06`)
 
-| Method | 語意 | 對應 capability |
-|---|---|---|
-| `session.open` | 開新 session(可選擇 factor-reuse 模式) | `session` |
-| `session.close` | 關閉 session,釋資源 | `session` |
-| `session.status` | 查 session 狀態 / 引擎旗標 | `session` |
-| `model.set` | 寫入完整模型(取代舊模型) | always |
-| `model.patch` | 部分更新(僅 NLOAD/UDL/SPRESS/prescribed/active 翻轉)→ 重用 factor | `session.factor_reuse` |
-| `solve.linear` | 線性靜態 | always |
-| `solve.pdelta` | P-Delta | always |
-| `solve.tension_only` | 主動集 tension-only | `solve.tension_only` |
-| `solve.size_opt` | FSD 尺寸優化 | `solve.size_opt` |
-| `solve.dyn_collapse` | 連續動力倒塌(可選 stream 幀) | `solve.dyn_collapse` |
-| `solve.corotational` | co-rotational 大位移 | `solve.corotational` |
-| `solve.arclength` | arc-length snap-through | `solve.arclength` |
-| `analysis.modal` | 模態頻率 + 模態形狀(binary payload) | `modal` |
-| `analysis.buckling` | 線性屈曲(eigenvalue + buckling mode shape) | `buckling` |
-| `analysis.reanalysis_solve` | ReSolve(增量 active toggle 後重算) | `reanalysis` |
-| `inspect.disp` | 部分讀:取指定 node ids 的位移 | always |
-| `inspect.member_forces` | 部分讀:取指定 member ids 的端力 | always |
-| `inspect.shell_forces` | 部分讀:取指定 shell ids 的合力 | always |
-| `cancel` | 取消正在執行的 reqId | `cancel` |
+實作狀態圖示(E-10,v2.4 → v2.5 滾動更新):
+
+- ✅  **B3** — handler 已 wire 到 FrameCore,v2_roundtrip 至少 spec-shape 通過(`solve.linear` 並有 bit-exact-vs-v1)
+- 🟡  **B4** — handler 為 streaming + binary payload,待 dispatcher worker-thread redesign 完成
+- 🟡  **B5** — handler 走 session factor-reuse 路徑(`mode: "supernodal" | "resolve"`),待 SnSession / ReSolveSession 接入
+- ⚪  schema 決議中(`model.patch` 的 diff 格式)
+
+| Method | 狀態 | 語意 | 對應 capability |
+|---|---|---|---|
+| `session.open` | ✅ | 開新 session(可選擇 factor-reuse 模式) | `session` |
+| `session.close` | ✅ | 關閉 session,釋資源 | `session` |
+| `session.status` | ✅ | 查 session 狀態 / 引擎旗標 | `session` |
+| `model.set` | ✅ | 寫入完整模型(取代舊模型) | always |
+| `model.patch` | ⚪ | 部分更新(僅 NLOAD/UDL/SPRESS/prescribed/active 翻轉)→ 重用 factor | `session.factor_reuse` |
+| `solve.linear` | ✅ | 線性靜態(bit-exact vs v1) | always |
+| `solve.pdelta` | ✅ | P-Delta | always |
+| `solve.tension_only` | ✅ | 主動集 tension-only | `solve.tension_only` |
+| `solve.size_opt` | ✅ | FSD 尺寸優化 | `solve.size_opt` |
+| `solve.dyn_collapse` | 🟡 | 連續動力倒塌(可選 stream 幀) | `solve.dyn_collapse` |
+| `solve.corotational` | ✅ | co-rotational 大位移 | `solve.corotational` |
+| `solve.arclength` | ✅ | arc-length snap-through | `solve.arclength` |
+| `analysis.modal` | ✅ | 模態頻率 + 模態形狀(binary payload) | `modal` |
+| `analysis.buckling` | ✅ | 線性屈曲(eigenvalue + buckling mode shape) | `buckling` |
+| `analysis.reanalysis_solve` | 🟡 | ReSolve(增量 active toggle 後重算) | `reanalysis` |
+| `inspect.disp` | ✅ | 部分讀:取指定 node ids 的位移 | always |
+| `inspect.member_forces` | ✅ | 部分讀:取指定 member ids 的端力 | always |
+| `inspect.shell_forces` | ✅ | 部分讀:取指定 shell ids 的合力 | always |
+| `cancel` | ✅ | 取消正在執行的 reqId | `cancel` |
 
 `event` kind 用於 server push:
 - `progress` — `{ pct: 0.42, stage: "factor", note: "..." }`

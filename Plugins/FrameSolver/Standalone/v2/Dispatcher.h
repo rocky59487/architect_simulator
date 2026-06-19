@@ -56,6 +56,7 @@ namespace frame {
     struct FrameModel;
     struct PreparedSystem;
     struct SolveResult;
+    class  SnSession;
 }
 
 namespace frame_v2 {
@@ -87,6 +88,11 @@ struct EngineSession {
     std::unique_ptr<frame::FrameModel>     model;
     std::unique_ptr<frame::PreparedSystem> prepared;
     std::unique_ptr<frame::SolveResult>    lastSolve;        // last successful solve.linear cache
+    // B5 (factor-reuse) — session.open with body.mode="supernodal" turns this on; model.set then
+    // also builds a SnSession off the prepared system. solve.linear routes through sn->solveFrame
+    // instead of re-factoring; the supernodal factor amortises across many solve.linear calls.
+    bool         useSnSession = false;
+    std::unique_ptr<frame::SnSession>      sn;
     std::vector<std::string> defaultsApplied;     // populated by model.set in simple profile
 };
 

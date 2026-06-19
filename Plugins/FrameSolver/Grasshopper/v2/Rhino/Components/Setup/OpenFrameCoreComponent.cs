@@ -38,6 +38,13 @@ namespace FrameCore.Gh.Components.Setup
         // Open*Async snapshots the generation at start and only commits if it matches at end;
         // ResetSession bumps the generation so all in-flight tasks become stale.
         private long                    _openGeneration = 0;
+        // D-03 fix: the gen-match check (`Interlocked.Read(_openGeneration) == thisGen`) and the
+        // _session/_info/_error writes that follow it have to happen atomically -- otherwise a
+        // ResetSession that bumps _openGeneration after the check but before the writes makes
+        // this task commit a stale session. Hold _openGate across check-then-write to close the
+        // window. ResetSession also acquires _openGate when it bumps the generation, so the
+        // bump is serialised against any in-flight commit.
+        private readonly object         _openGate = new();
 
         public OpenFrameCoreComponent()
             : base("Open FrameCore", "FC",
@@ -138,24 +145,28 @@ namespace FrameCore.Gh.Components.Setup
             catch (NotSupportedException ex) { nextError = ex.Message; }
             catch (Exception ex)             { nextError = "OpenFrameCore: " + ex.Message; }
 
-            // P1.2 fix: commit the result only if the generation still matches. If the user
-            // Reset / switched profile mid-flight, throw away the freshly opened session
-            // rather than overwriting whatever the newer task already wrote.
+            // P1.2 + D-03 fix: commit the result only if the generation still matches AND hold
+            // _openGate across check-then-write so a ResetSession can't slip in between (which
+            // would let us commit a session that the user has already invalidated). The early
+            // return after the gate uses Interlocked.Read for the cheap re-check on the way out.
             bool committed = false;
-            if (Interlocked.Read(ref _openGeneration) == thisGen)
+            lock (_openGate)
             {
-                _session = created;
-                _info    = nextInfo;
-                _error   = nextError;
-                _sessionDllKey = created is not null ? dllKey : "";
-                committed = true;
+                if (Interlocked.Read(ref _openGeneration) == thisGen)
+                {
+                    _session = created;
+                    _info    = nextInfo;
+                    _error   = nextError;
+                    _sessionDllKey = created is not null ? dllKey : "";
+                    committed = true;
+                }
             }
             if (!committed && created is not null)
             {
                 try { await created.DisposeAsync().ConfigureAwait(false); } catch { /* ignore */ }
             }
 
-            if (Interlocked.Read(ref _openGeneration) != thisGen)
+            if (!committed)
                 return;
 
             _opening = null;
@@ -195,15 +206,22 @@ namespace FrameCore.Gh.Components.Setup
 
         private void InvalidateCurrentSession()
         {
-            // P1.2 fix: bump the generation so any in-flight OpenInBackgroundAsync becomes
-            // stale and will discard its result instead of writing it back. Also clear
-            // _opening so SolveInstance launches a fresh task.
-            Interlocked.Increment(ref _openGeneration);
-            _cts.Cancel(); _cts = new CancellationTokenSource();
-            _opening = null;
-            var stale = _session; _session = null; _info = ""; _error = "";
-            _requestedDllKey = "";
-            _sessionDllKey   = "";
+            // P1.2 + D-03 fix: bump the generation and clear cached state under _openGate so
+            // OpenInBackgroundAsync's check-then-write region (which is also gated) cannot
+            // observe a stale _openGeneration value and commit a session that we have just
+            // invalidated. Once the lock is released, any post-lock commit returns early via
+            // the !committed branch and disposes the orphaned session.
+            FrameSession? stale;
+            lock (_openGate)
+            {
+                Interlocked.Increment(ref _openGeneration);
+                _cts.Cancel(); _cts = new CancellationTokenSource();
+                _opening = null;
+                stale = _session;
+                _session = null; _info = ""; _error = "";
+                _requestedDllKey = "";
+                _sessionDllKey   = "";
+            }
             if (stale is not null)
                 _ = Task.Run(async () => { try { await stale.DisposeAsync(); } catch { /* ignore */ } });
         }

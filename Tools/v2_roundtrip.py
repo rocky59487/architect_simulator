@@ -438,6 +438,51 @@ def main() -> int:
             rc, raw = dll.recv(ctx)
             if not check("session.close returns OK", rc == OK, f"rc={rc}"): failures += 1
 
+        # --- B5: session.open mode=supernodal -> solve.linear reuses SnSession factor ---
+        # Same cantilever fixture; SnSession internally falls back to LDLT on failure, so the
+        # disp/RF/MF should still match v1 bit-exact (rel<1e-11) -- proving the supernodal lane
+        # routes correctly AND the LDLT fallback rail is intact.
+        dll.send(ctx, build_frame({
+            "v": 2, "kind": "request", "id": "rb5_o", "method": "session.open",
+            "body": {"mode": "supernodal", "options": {"pivotTol": 1e-12}}
+        }))
+        rc, raw = dll.recv(ctx)
+        if rc == OK:
+            _, hdr, _ = parse_frame(raw)
+            sid_sn = hdr["body"].get("session")
+            if hdr["body"].get("mode") != "supernodal":
+                check("session.open(supernodal) returns mode='supernodal'", False,
+                      f"mode={hdr['body'].get('mode')}"); failures += 1
+            else:
+                check("session.open(supernodal) returns mode='supernodal'", True)
+            if sid_sn:
+                dll.send(ctx, build_frame({
+                    "v": 2, "kind": "request", "id": "rb5_m", "method": "model.set",
+                    "body": {"session": sid_sn, **CANTILEVER_V2_JSON}
+                }))
+                rc2, raw2 = dll.recv(ctx)
+                if rc2 != OK:
+                    check("supernodal session.model.set OK", False, f"rc={rc2}"); failures += 1
+                else:
+                    dll.send(ctx, build_frame({
+                        "v": 2, "kind": "request", "id": "rb5_s", "method": "solve.linear",
+                        "body": {"session": sid_sn, "wantReactions": True}
+                    }))
+                    rc3, raw3 = dll.recv(ctx)
+                    if rc3 != OK:
+                        check("supernodal solve.linear OK", False, f"rc={rc3}"); failures += 1
+                    else:
+                        _, hdr3, _ = parse_frame(raw3)
+                        b3 = hdr3["body"]
+                        if not check("supernodal solve.linear not singular",
+                                      b3.get("singular") is False, f"sing={b3.get('singular')}"):
+                            failures += 1
+                        if V1_DLL.exists() and not b3.get("singular"):
+                            v1_parsed = parse_v1_output(v1_solve_text(CANTILEVER_V1_TEXT))
+                            ok, why = diff_vs_v1(b3, v1_parsed, tol=1e-11)
+                            if not check("supernodal solve.linear bit-exact vs v1 (rel<1e-11)",
+                                          ok, why): failures += 1
+
     finally:
         dll.close(ctx)
 

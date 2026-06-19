@@ -32,6 +32,7 @@
 #include "FrameCore/ModalResult.h"
 #include "FrameCore/BucklingAnalysis.h"
 #include "FrameCore/BucklingResult.h"
+#include "FrameCore/SnSession.h"
 
 #include <cmath>
 
@@ -219,11 +220,17 @@ Frame Dispatcher::HandleSessionOpen(Dispatcher&, Context& ctx, const Frame& in) 
     auto s   = std::make_shared<EngineSession>();
     s->id      = "s_" + std::to_string(ctx.nextSessionSeq++);
     s->profile = ctx.profile;
+    // B5 wire: body.mode picks the factor-reuse lane. "supernodal" turns SnSession on; anything
+    // else (including the default) keeps the plain LDLT lane. The choice is sticky for the
+    // session lifetime -- model.set will allocate the SnSession off the prepared system.
+    const std::string mode = b ? b->getString("mode", "default") : "default";
+    s->useSnSession = (mode == "supernodal");
     ctx.sessions[s->id] = s;
 
     JsonObject body;
     body.emplace("session", Json(s->id));
     body.emplace("ready",   Json(true));
+    body.emplace("mode",    Json(s->useSnSession ? std::string("supernodal") : std::string("default")));
     return MakeResponse(id, std::move(body));
 }
 
@@ -318,13 +325,30 @@ Frame Dispatcher::HandleModelSet(Dispatcher&, Context& ctx, const Frame& in) {
     if (!fresh->validate(why))
         return MakeError(id, "VALIDATION_FAILED", "model validate: " + why);
 
-    // Replace the session's model; invalidate any cached prepared factor / solve result -- a
-    // new model means a new K_ff, so prior caches must not be reused.
+    // Replace the session's model; invalidate any cached prepared factor / solve result / SnSession
+    // -- a new model means a new K_ff, so prior caches must not be reused.
     sess->model     = std::move(fresh);
     sess->prepared.reset();
     sess->lastSolve.reset();
+    sess->sn.reset();
     sess->hasModel  = true;
-    sess->modelFingerprint = 0;  // populated by B5 (factor-reuse) when it lands
+    sess->modelFingerprint = 0;
+    // B5 wire: when session.open selected mode=supernodal, eagerly factor the supernodal here so
+    // the next solve.linear is a forward/back-substitution only (the production factor-once +
+    // solve-many path). Failure inside SnSession is non-fatal: solveFrame transparently falls
+    // back to LDLT (the SnSession contract), so we keep going.
+    if (sess->useSnSession) {
+        try {
+            sess->prepared = std::make_unique<frame::PreparedSystem>(
+                frame::assembleAndFactor(*sess->model));
+            sess->sn = std::make_unique<frame::SnSession>(*sess->prepared);
+        } catch (const std::exception& e) {
+            // Surface the failure but do not refuse model.set; the client can still drop to
+            // LDLT by ignoring the SnSession (we clear `sn` so solve.linear takes the LDLT path).
+            sess->sn.reset();
+            sess->defaultsApplied.push_back(std::string("supernodal disabled: ") + e.what());
+        }
+    }
 
     JsonObject out;
     out.emplace("ok",       Json(true));
@@ -428,16 +452,21 @@ Frame Dispatcher::HandleSolveLinear(Dispatcher&, Context& ctx, const Frame& in) 
 
     const bool wantReactions = body->getBool("wantReactions", true);
 
-    // assembleAndFactor + solveLoad. If the prepared factor is missing or stale we rebuild;
-    // B5 (factor-reuse) makes this conditional on modelFingerprint. For B3 we factor every
-    // call -- the v2_roundtrip gate only cares about correctness, not factor reuse.
+    // assembleAndFactor + solveLoad on first call; subsequent calls reuse the PreparedSystem.
+    // B5 wire: if the session was opened with mode=supernodal AND model.set built the SnSession,
+    // route through sn->solveFrame which reuses the supernodal factor for forward/back-sub only.
     try {
         if (!sess->prepared) {
             sess->prepared = std::make_unique<frame::PreparedSystem>(
                 frame::assembleAndFactor(*sess->model, frame::SolveOptions{}));
         }
-        sess->lastSolve = std::make_unique<frame::SolveResult>(
-            frame::solveLoad(*sess->prepared, *sess->model));
+        if (sess->sn) {
+            sess->lastSolve = std::make_unique<frame::SolveResult>(
+                sess->sn->solveFrame(*sess->model));
+        } else {
+            sess->lastSolve = std::make_unique<frame::SolveResult>(
+                frame::solveLoad(*sess->prepared, *sess->model));
+        }
     } catch (const std::exception& e) {
         return MakeError(id, "INTERNAL", std::string("engine: ") + e.what());
     }

@@ -173,6 +173,23 @@ internal sealed class CApiV2Transport : ITransport
     }
 
     // ----- P/Invoke delegates -----
+    //
+    // D-09 audit (HANDOFF_v2.4 § 4) -- audited line-by-line against frame_capi_v2.h prototypes.
+    // Every delegate is Cdecl. Verified parameter widths against the x86_64 Windows ABI used by
+    // the v2 DLL:
+    //   * `frame_v2_ctx*`     <-> IntPtr               (8 bytes on x64; opaque)
+    //   * `uint32_t`          <-> uint                 (4 bytes)
+    //   * `int`               <-> int                  (4 bytes, signed)
+    //   * `size_t`            <-> UIntPtr              (8 bytes on x64; native pointer-width)
+    //   * `size_t*`           <-> UIntPtr*             (likewise)
+    //   * `uint8_t* / void*`  <-> byte*                (1-byte data pointer)
+    //   * `const char*`       <-> sbyte*               (1-byte data pointer; UTF-8 NUL-terminated
+    //                                                    bytes supplied by the caller -- see
+    //                                                    CancelRequestAsync's Encoding.UTF8.GetBytes
+    //                                                    + explicit '\0' tail)
+    // Result: no signature mismatch. The release-mode "silent stack corruption" failure mode
+    // is ruled out for these 7 delegates. Re-run this audit any time frame_capi_v2.h grows a
+    // new export.
 
     [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
     private delegate uint AbiVersionDelegate();
