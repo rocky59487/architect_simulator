@@ -1,5 +1,8 @@
 # 交接 — Rhino 橋接 v2 + 商業級 UX(設計階段 B1 + C1)
 
+> **[SUPERSEDED by B2]** — B2 完成 + 三輪 P0/P1/P2 修補後的權威交接是
+> [`HANDOFF_rhino_bridge_v2_final.md`](HANDOFF_rhino_bridge_v2_final.md);本檔保留作為 B1 階段史料,
+> 不反映現況(B2 已 wire 真實 `frame_capi_v2.dll` + 第 6 gate leg 13/13 + 53 檔 C# 骨架,v2.4 release ship)。
 > **日期**:2026-06-19。**範圍**:設計 + 骨架,引擎與 gate **未動**(鐵律 1)。
 > **狀態**:`[DESIGN]` `[NOT GATED]` — 引擎 dispatcher 未實作、Rhino .gha 未建置。
 

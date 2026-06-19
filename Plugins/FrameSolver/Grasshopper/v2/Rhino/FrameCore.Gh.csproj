@@ -11,7 +11,7 @@
     dotnet restore Plugins\FrameSolver\Grasshopper\v2\Rhino\FrameCore.Gh.csproj
     dotnet build  Plugins\FrameSolver\Grasshopper\v2\Rhino\FrameCore.Gh.csproj -c Release
 
-  Output `bin\Release\net48\FrameCore.Gh.gha` is the Grasshopper plug-in binary; `manifest.yml`
+  Output `bin\Release\net7.0\FrameCore.Gh.gha` is the Grasshopper plug-in binary; `manifest.yml`
   next to this file is the Yak manifest. `yak build .` packages both.
 
   Rationale for net7.0 (P0.2 fix; was net48):

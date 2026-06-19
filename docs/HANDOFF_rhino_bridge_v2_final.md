@@ -25,7 +25,7 @@ Layer 4  FrameCore.Gh GH 元件    (Rhino 8 SDK,80 件目錄 + 10 件代表 prod
 
 | 規格 / 文檔 | 路徑 | 用途 |
 |---|---|---|
-| 線協議 + 雙 profile | `docs/specs/S6b_rhino_bridge_v2.md` | 22 method、forward-compat、§ ⑭ 雙 profile |
+| 線協議 + 雙 profile | `docs/specs/S6b_rhino_bridge_v2.md` | 19 method 目錄 + 1 connection-mgmt(hello)、forward-compat、§ ⑭ 雙 profile |
 | 商業級 UX | `docs/specs/S6c_rhino_ux_commercial.md` | 80 元件目錄、Display 範式、預設庫、Bake |
 | C ABI v2 | `Plugins/FrameSolver/Standalone/frame_capi_v2.h` | 8 個導出 + thread-safety 契約 |
 | B2 進度 | `docs/PROGRESS_B2.md` | dispatcher 骨架交付 |
@@ -42,7 +42,7 @@ Layer 4  FrameCore.Gh GH 元件    (Rhino 8 SDK,80 件目錄 + 10 件代表 prod
 | **10** | **P0** | Bridge.csproj net8.0 vs Gh.csproj net48 不相容 + NativeLibrary API 在 net48 不存在 | 兩 csproj 統一 `net7.0`(Rhino 8 GA modern host);**放棄 Rhino 7 兼容**(Rhino 7 用戶用 v1 frame_cli.exe);`P0.2 fix` 註解 |
 | **11** | **P0** | Rhino GHA LangVersion 10 但 SolveComponent 用 C# 11 `required` | LangVersion 升 11(net7.0 對應);`P0.2 fix` 註解 |
 | **12** | P1 | `async void SolveInstance` + await 後寫 IGH_DataAccess 違反 GH 規約 | `OpenFrameCoreComponent` + `AssembleModelComponent` 全改寫成 cache + ExpireSolution two-pass pattern(Pass A 啟 async 任務 + 顯示 "opening.../assembling..."、Pass B 寫 DA);AssembleModel 加 input fingerprint cache(slider drag 不變的話直接 cache hit);`P1.1 fix` 註解 |
-| **13** | P1 | Dispatcher capabilities 宣告 22 個但 13 個 handler 是 NOT_IMPLEMENTED stub → client 用 HasCapability 通過會打到 NOT_IMPLEMENTED | Capabilities() 縮到 10 個真實可用(session/profile.*/cancel/model.set/solve.linear/inspect.*);其餘列在註解內「B3-B5 reserved」;`P1.2 fix` 註解 |
+| **13** | P1 | Dispatcher capabilities 起初宣告全部 19+1 但多數 handler 是 NOT_IMPLEMENTED stub → client 用 HasCapability 通過會打到 NOT_IMPLEMENTED | Capabilities() 經 P1.2 + P2.1 兩輪修補後**縮到 6 個真實可用** `{cancel, profile.advanced, profile.simple, session, model.set, solve.linear}`(註:`solve.linear` 仍 stub-but-shape-correct,response body 帶 `_stub:true`);其餘 method 仍註冊在 dispatcher,但不在 hello.capabilities 中宣告,B3-B5 wire 後再陸續加回。`P1.2 fix` + `P2.1 fix` 註解 |
 | **14** | P1 | CancelRequest 寫 `ctx_.cancelled` 沒鎖、IsCancelled 讀沒鎖 → 違反 header concurrent-cancel 契約 | 加 `cancelMtx_` 專保護 cancelled set,獨立於 submitMtx_ 不阻塞 dispatch;`P1.3 fix` 註解 |
 | **1** | P1 | C ABI thread-safety contract ↔ C# dispatcher loop 矛盾 | `frame_capi_v2.h` THREAD SAFETY 段重寫為「RPC pattern: single recv + concurrent send + concurrent cancel 全 safe」;`Dispatcher.cpp` 加 `submitMtx_` 修 Context race |
 | **2** | P1 | CancellationToken 沒真取消 engine | `ITransport.CancelRequestAsync` 新介面;`CApiV2Transport` 載入 `frame_v2_cancel_request` delegate 並實作;`FrameSession.SendAndAwaitInternal` + `SendAndStreamAsync` 的 `ct.Register` 改成同時送 protocol cancel |
@@ -250,46 +250,36 @@ docs/learning/
 
 ---
 
-## ⑪ `.gitignore` patch 提案(本輪不 apply,需使用者授權)
+## ⑪ `.gitignore` patch(已於 `10b767c` 套用,作為 v2.4 release commit 的一部分)
 
-鐵律 5「絕不碰 `.gitignore`」,所以本輪**不修檔**。但為了讓接續者一鍵授權後就能補上漏項,提供如下最小 diff(對照 `E:\project\ArchSim\.gitignore` 第 20-25 行的「Standalone C++ console-gate build artifacts」段):
+> **狀態更新(v2.4 release-hardening pass)**:當初 § ⑪ 提案的 `.gitignore` patch,使用者授權後於
+> commit `10b767c` 一併套用(時間軸:本檔寫完 → 使用者一次性同意 v2 + .gitignore + courseware
+> 隨同 commit)。**現況已套用**;本節從「提案」改寫為「歷史說明」。
+
+實際套用的最小 diff(可由 `git show 10b767c -- .gitignore` 驗證):
 
 ```diff
  # Standalone C++ console-gate build artifacts (FrameCore frame_cli/frametest/frame_perf)
  *.exe
  *.obj
++*.dll
++*.lib
++*.exp
  obj/
  obj_cli/
  obj_perf/
-+# v1 C ABI DLL build artifacts (frame_capi.{dll,lib,exp})
-+frame_capi.dll
-+frame_capi.lib
-+frame_capi.exp
-+# v2 C ABI DLL build artifacts (frame_capi_v2.{dll,lib,exp})
-+frame_capi_v2.dll
-+frame_capi_v2.lib
-+frame_capi_v2.exp
-+# v2 dispatcher obj cache
-+obj_capi/
 +obj_capi_v2/
-+obj_linear_audit/
 ```
 
-**理由(對應審核 P2.2/P3.8)**:
-- `frame_capi.dll/.lib/.exp` 是 v1 J2 build 產物,build_capi.bat 跑就有,從來不該追蹤
-- `frame_capi_v2.dll/.lib/.exp` 是本輪 B2 build 產物,同上
-- `obj_capi/` / `obj_capi_v2/` / `obj_linear_audit/` 是 cl 的中間檔目錄
+**已套用範圍**(對應原本審核 P2.2/P3.8 的核心痛點):
+- `*.dll / *.lib / *.exp` 全域排除 → `frame_capi.dll / .exp / .lib`(v1 J2)+ `frame_capi_v2.dll / .exp / .lib`(本輪 B2)build 產物皆不會再 untrack。
+- `obj_capi_v2/` 已加入 → v2 dispatcher 編譯中繼目錄不漏。
 
-**接續者套用方法**(使用者授權後):
-```bash
-cd E:/project/ArchSim
-# 1. apply the patch above (insert lines after the existing obj_perf/ line)
-# 2. 若這些檔已被 untrack 列出,確認 git status 不再列為 untracked
-# 3. commit 為獨立 commit "git: ignore C ABI DLL build artifacts (v1/v2)"
-```
-
-**不放在本輪 commit 的理由**:`.gitignore` 變更應該獨立 commit、由使用者個別 review,不該與「v2 設計 + B2 骨架」捆綁。
+**仍未加(留作日後微調 — 非 release blocker)**:
+- `obj_capi/`(v1 J2 中繼目錄)、`obj_linear_audit/`(linear_deep_audit 中繼目錄)。
+  目前因為 `*.obj` 已全域排除,中繼目錄裡只有 `.obj` 檔不會被誤加,實務無風險;若日後 build 系統升級會輸出非 `.obj` 中繼檔(如 `.pdb`),再加目錄排除。
+- 顯式 `frame_capi*.{dll,exp,lib}` 條目(以 prefix-match 取代 wildcard 範圍)。`*.dll/.lib/.exp` 已涵蓋,顯式條目只是更明顯的文件,延後處理。
 
 ---
 
-設計閉環完整,**三輪審核 P0/P1/P2 全清**,gate 第 6 leg 綠。接續者拿到的是「真的能跑、文件對齊、無已知矛盾、Rhino 8 GHA 框架可編譯、GH 元件規約合規、無 stale-task race、`.gitignore` patch 待 apply」的 v2 雛形。
+設計閉環完整,**三輪審核 P0/P1/P2 全清**,gate 第 6 leg 綠。接續者拿到的是「真的能跑、文件對齊、無已知矛盾、Rhino 8 GHA 框架可編譯、GH 元件規約合規、無 stale-task race、`.gitignore` patch 已 apply」的 v2 雛形,並於 v2.4 release tag 一併 ship。

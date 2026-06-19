@@ -35,7 +35,7 @@ Layer 1  FrameCore Engine (不動,鐵律)
 
 ```
 v2/
-├─ FrameCore.Bridge.csproj          (net8.0, zero Rhino dep, 引擎 CI 可獨立編譯)
+├─ FrameCore.Bridge.csproj          (net7.0, zero Rhino dep, 引擎 CI 可獨立編譯)
 ├─ Bridge/
 │  ├─ BridgeOptions.cs              transport 選擇
 │  ├─ ITransport.cs                 Layer 2 抽象

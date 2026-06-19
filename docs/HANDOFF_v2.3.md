@@ -5,6 +5,10 @@
 > `docs/HANDOFF_v22p1.md` 紀錄 v2.2+1 bundled release 多出的兩件事;
 > 本檔只補上 v2.3 多出的兩個跨 cycle 主題:**OpenSees mega benchmark** 與 **CLI `WARP` token**。
 > 接手前先讀 `docs/HANDOFF.md` → `docs/HANDOFF_v22p1.md` → 本檔。
+>
+> **下一輪 v2.4(同 2026-06-19 發布)新增**:Rhino bridge v2 + B2 dispatcher + 第 6 gate leg
+> + 26 課白板教材。v2.4 細節見 [`HANDOFF_v2.4.md`](HANDOFF_v2.4.md) + [`RELEASE_v2.4.md`](RELEASE_v2.4.md);
+> 引擎程式碼未動,本檔的所有資訊在 v2.4 仍然有效。
 
 ---
 

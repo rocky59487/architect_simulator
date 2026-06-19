@@ -2,12 +2,15 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
+import os
 import re
 
 
 ROOT = Path(__file__).resolve().parents[3]
 OUT = Path(__file__).resolve().parent
-SAMPLE_LESSON1 = Path(r"C:\Users\wmc02\Downloads\mechanics_engine_course_lesson1.md")
+SAMPLE_LESSON1 = Path(
+    os.environ.get("SAMPLE_LESSON1", str(OUT / "lesson_01_state_vectors_local_frames.md"))
+)
 
 
 @dataclass

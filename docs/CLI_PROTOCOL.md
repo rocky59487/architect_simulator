@@ -3,6 +3,12 @@
 > S6 J1 對接橋的權威線協議。`frame_cli.exe` 是 `frame::solve` 等分析的 stdin/stdout 驅動器,供
 > Grasshopper / 任何外部客戶端 shell-out 驅動。單位 **N, mm, MPa**。原始碼:
 > `Plugins/FrameSolver/Standalone/frame_cli.cpp`;端到端測試:`Tools/cli_roundtrip.py`(gate 第五腿)。
+>
+> **v2 framed bridge(2026-06-19, v2.4 加入)**:本協議(文字橋)永久保留;若需要 in-process P/Invoke
+> + 雙 simple/advanced profile + binary payload + 取消通道的進階使用情境(Rhino 8 .gha / 商業級 GH 元件),
+> 改用 v2 framed JSON 線協議,規格見 [`specs/S6b_rhino_bridge_v2.md`](specs/S6b_rhino_bridge_v2.md);
+> C ABI 在 [`Plugins/FrameSolver/Standalone/frame_capi_v2.h`](../Plugins/FrameSolver/Standalone/frame_capi_v2.h),
+> 第 6 gate leg(手動)`Tools/v2_roundtrip.py`。v1 / v2 是兩個獨立入口,客戶端二選一。
 
 ## 呼叫方式
 把整個模型描述(每行一個 token 指令)寫到 **stdin**,以 `END` 結尾;從 **stdout** 讀回結果行。

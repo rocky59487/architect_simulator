@@ -25,6 +25,7 @@
 
 #pragma once
 
+#include <cmath>
 #include <cstdint>
 #include <cstdlib>
 #include <cstring>
@@ -35,6 +36,10 @@
 #include <vector>
 
 namespace frame_v2 {
+
+// v2.4 release-hardening: cap the parser's nesting depth so an adversarial peer cannot
+// stack-overflow the dispatcher process (typical v2 headers nest 4-5 levels; 64 is roomy).
+inline constexpr int kMaxJsonDepth = 64;
 
 class Json;
 using JsonObject = std::unordered_map<std::string, Json>;
@@ -186,6 +191,7 @@ private:
     struct Parser {
         const std::string& s;
         size_t i = 0;
+        int    depth = 0;   // current object/array nesting; bounded by kMaxJsonDepth
         explicit Parser(const std::string& src) : s(src) {}
 
         void skip() { while (i < s.size() && (s[i] == ' ' || s[i] == '\t' || s[i] == '\n' || s[i] == '\r')) ++i; }
@@ -209,9 +215,10 @@ private:
         }
 
         bool parseObject(Json& out, std::string& err) {
+            if (++depth > kMaxJsonDepth) { err = "JSON nesting too deep"; return false; }
             ++i; skip();
             JsonObject o;
-            if (i < s.size() && s[i] == '}') { ++i; out = std::move(o); return true; }
+            if (i < s.size() && s[i] == '}') { ++i; out = std::move(o); --depth; return true; }
             for (;;) {
                 skip();
                 Json key;
@@ -226,15 +233,16 @@ private:
                 skip();
                 if (i >= s.size()) { err = "unterminated object"; return false; }
                 if (s[i] == ',') { ++i; continue; }
-                if (s[i] == '}') { ++i; out = std::move(o); return true; }
+                if (s[i] == '}') { ++i; out = std::move(o); --depth; return true; }
                 err = "expected ',' or '}'"; return false;
             }
         }
 
         bool parseArray(Json& out, std::string& err) {
+            if (++depth > kMaxJsonDepth) { err = "JSON nesting too deep"; return false; }
             ++i; skip();
             JsonArray a;
-            if (i < s.size() && s[i] == ']') { ++i; out = std::move(a); return true; }
+            if (i < s.size() && s[i] == ']') { ++i; out = std::move(a); --depth; return true; }
             for (;;) {
                 Json v;
                 if (!parseValue(v, err)) return false;
@@ -242,7 +250,7 @@ private:
                 skip();
                 if (i >= s.size()) { err = "unterminated array"; return false; }
                 if (s[i] == ',') { ++i; continue; }
-                if (s[i] == ']') { ++i; out = std::move(a); return true; }
+                if (s[i] == ']') { ++i; out = std::move(a); --depth; return true; }
                 err = "expected ',' or ']'"; return false;
             }
         }
@@ -290,14 +298,14 @@ private:
             err = "unterminated string"; return false;
         }
 
-        bool parseBool(Json& out, std::string&) {
+        bool parseBool(Json& out, std::string& err) {
             if (i + 4 <= s.size() && std::memcmp(&s[i], "true", 4) == 0) { i += 4; out = true; return true; }
             if (i + 5 <= s.size() && std::memcmp(&s[i], "false", 5) == 0) { i += 5; out = false; return true; }
-            return false;
+            err = "expected 'true' or 'false'"; return false;
         }
-        bool parseNull(Json& out, std::string&) {
+        bool parseNull(Json& out, std::string& err) {
             if (i + 4 <= s.size() && std::memcmp(&s[i], "null", 4) == 0) { i += 4; out = Json(); return true; }
-            return false;
+            err = "expected 'null'"; return false;
         }
         bool parseNumber(Json& out, std::string& err) {
             size_t start = i;
@@ -327,8 +335,16 @@ private:
             }
             if (i == start) { err = "expected number"; return false; }
             std::string num(s, start, i - start);
-            if (isDouble) out = std::strtod(num.c_str(), nullptr);
-            else          out = static_cast<int64_t>(std::strtoll(num.c_str(), nullptr, 10));
+            if (isDouble) {
+                // v2.4 release-hardening: catch overflow-to-Inf (e.g. "1e400" is legal JSON
+                // syntax, parses with strtod to HUGE_VAL = +Inf, then silently poisons every
+                // downstream double once B3 wires the engine). Reject as malformed input.
+                double d = std::strtod(num.c_str(), nullptr);
+                if (!std::isfinite(d)) { err = "non-finite number (overflow or denormal)"; return false; }
+                out = d;
+            } else {
+                out = static_cast<int64_t>(std::strtoll(num.c_str(), nullptr, 10));
+            }
             return true;
         }
     };

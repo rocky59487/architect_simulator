@@ -29,6 +29,13 @@ inline constexpr uint8_t  kMagic0          = 'F';
 inline constexpr uint8_t  kMagic1          = 'C';
 inline constexpr size_t   kHeaderFixedBytes = 12;
 
+// Sanity caps: the wire is uint32 length-prefixed so 4 GB is the protocol-level upper bound,
+// but a malicious or buggy peer that sends `headerLen = 0xFFFFFFFF` would have us allocate
+// 4 GB synchronously (and the C# side would int-cast a UIntPtr of that size to a negative
+// `byte[]` length and bomb). Caps are roomy but bounded.
+inline constexpr uint32_t kMaxHeaderLen     = 16 * 1024 * 1024;   // 16 MiB JSON header
+inline constexpr uint32_t kMaxPayloadLen    = 256 * 1024 * 1024;  // 256 MiB binary payload
+
 inline constexpr uint16_t kFlagEndOfResponse = 1u << 0;
 inline constexpr uint16_t kFlagHasPayload    = 1u << 1;
 inline constexpr uint16_t kFlagBinaryPayload = 1u << 2;
@@ -73,6 +80,10 @@ inline bool ParseFrame(const uint8_t* buf, size_t n, Frame& f,
     uint32_t headerLen  = readLE32(buf, n, 4, ok);
     uint32_t payloadLen = readLE32(buf, n, 8, ok);
     if (!ok) { err = "header length read failed"; return false; }
+
+    // v2.4 release-hardening: reject pathological lengths up front (DoS / OOM guard).
+    if (headerLen > kMaxHeaderLen)   { err = "header too large"; return false; }
+    if (payloadLen > kMaxPayloadLen) { err = "payload too large"; return false; }
 
     size_t total = kHeaderFixedBytes + headerLen + payloadLen;
     if (n < total) { bytesNeeded = total; err = "incomplete frame"; return false; }

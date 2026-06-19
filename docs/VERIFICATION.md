@@ -37,6 +37,20 @@ at F40, S4 started at F42; F60: numbering jump between F59 — `S9c`'s consisten
 check — and F61 — v3 warped quads — when the v3 surface line was bundled in) — both are
 numbering gaps, not missing tests.
 
+**v2.4 supplementary — manual 6th leg (v2 transport line)**. The Rhino bridge v2 dispatcher
+(`frame_capi_v2.dll`, B2 stub) has its own smoke-test harness `Tools/v2_roundtrip.py`
+(**13 PASS / 1 SKIP**; SKIP = `solve.linear bit-exact vs v1`, deferred to B3 when the dispatcher
+gets engine-wired). It is **NOT** wired into `run_gate.ps1` for v2.4 because (i) it depends on
+the build step `build_capi_v2.bat` which is itself outside the 5-leg gate's scope, (ii) the v2
+dispatcher does not link the FrameCore engine yet (B2 stub level) so it cannot regress engine
+physics. Run manually:
+```bat
+Plugins\FrameSolver\Standalone\build_capi_v2.bat
+python Tools\v2_roundtrip.py
+```
+Once B3 wires the engine and the SKIP becomes a PASS (bit-exact vs v1 text bridge), this leg
+will be evaluated for inclusion in `run_gate.ps1`.
+
 ## 2. Oracle taxonomy
 
 Every fixture is anchored to at least one oracle that is *independent of the code under test*:

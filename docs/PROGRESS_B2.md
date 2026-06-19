@@ -6,7 +6,8 @@
 
 ## 基準
 - 起點 `6be1dac`(v2.3),五腿全綠(F1-F64 / UE 57 expected / OpenSees PASS / audit 104 / CLI ALL PASS)
-- 本輪 **無 commit**(現場驗證後待使用者授權)。
+- 本輪 commit:`10b767c` "feat: add Rhino bridge v2 and benchmark docs" — release tag `v2.4`(2026-06-19)。
+- 註:gate output 樣本(下方)是 stub level 寫作時的快照,`v2.4` release-hardening 把 `engine_version` 從 `2.3.0` 升到 `2.4.0`(`Dispatcher.h::kEngineVer`);重跑後 `engine_version non-empty -- v=2.4.0`,其餘 12 PASS / 1 SKIP 不變。
 
 ## 範圍決策(誠實)
 B 線三步走 **B2 dispatcher 骨架 → B3 接引擎 → B4 streaming / cancel / binary**。本輪 = B2:
@@ -20,7 +21,7 @@ B 線三步走 **B2 dispatcher 骨架 → B3 接引擎 → B4 streaming / cancel
 - `Plugins/FrameSolver/Standalone/v2/MiniJson.h` — header-only JSON parser/writer(零依賴,~250 LOC,UTF-8 + \uXXXX BMP + 嚴格無 trailing comma)
 - `Plugins/FrameSolver/Standalone/v2/FrameWire.h` — header-only frame parse/serialize(magic `FC` + flags u16 + 兩個 u32 length LE + JSON header + optional binary payload)
 - `Plugins/FrameSolver/Standalone/v2/Dispatcher.h` — method registry + Context + EngineSession + 25 capability 字串 + MakeResponse/MakeEvent/MakeError 統一構造器
-- `Plugins/FrameSolver/Standalone/v2/Dispatcher.cpp` — 22 個 method handler(5 connection-mgmt **[WIRED]** + model.set/solve.linear/inspect.* **[shape correct,引擎 TODO B3]** + 11 個 **[NOT_IMPLEMENTED stub]**)
+- `Plugins/FrameSolver/Standalone/v2/Dispatcher.cpp` — 21 個 method handler 註冊(hello + 4 session-mgmt **[WIRED]** + model.set/solve.linear/inspect.* **[shape correct,引擎 TODO B3]** + 其餘 **[NOT_IMPLEMENTED stub]**);**v2.4 release hardening 校正後 hello.capabilities 只暴露 6 個真實可用**:`{cancel, profile.advanced, profile.simple, session, model.set, solve.linear}`(P1.2 + P2.1 修補,client 經 capabilities 而非 spec 範本判斷可用 method)
 - `Plugins/FrameSolver/Standalone/frame_capi_v2.cpp` — C ABI impl,委派 Dispatcher;`frame_v2_open/close/send/recv/cancel_recv/cancel_request/last_error/pending_count/abi_version/build_sha/engine_version` 全 8 個導出
 - `Plugins/FrameSolver/Standalone/build_capi_v2.bat` — 獨立 build,鏡像 build_capi.bat 結構但只 link v2 TU(Dispatcher.cpp + frame_capi_v2.cpp),不需任何 FrameCore 引擎 .cpp / Eigen
 - `Plugins/FrameSolver/Standalone/frame_capi_v2.dll` — 真實 build 產物(109 KB)

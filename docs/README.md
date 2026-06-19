@@ -53,4 +53,31 @@ S 系列之前的線性套件(8 段)與崩塌 C 線(6 階段)沒有獨立 PROGRE
 
 | 子系統 | 入口 | 說明 |
 |--------|------|------|
-| LevelSim — 水準儀模擬器 | [`Plugins/LevelSim/README.md`](../Plugins/LevelSim/README.md) | 純 C++17 測量核心 + UE5 可玩 MVP;**與 FrameCore 完全零耦合**(無共享 header / 無共享 Build.cs 相依),可獨立 build/test/release。本 docs/ 目錄維持 FrameCore 專屬;LevelSim 自有 README、gate、smoke pipeline 與 release notes 段。bundled release `v2.2+1` = FrameCore v2.2 + LevelSim v1。 |
+| LevelSim — 水準儀模擬器 | [`Plugins/LevelSim/README.md`](../Plugins/LevelSim/README.md) | 純 C++17 測量核心 + UE5 可玩 MVP;**與 FrameCore 完全零耦合**(無共享 header / 無共享 Build.cs 相依),可獨立 build/test/release。本 docs/ 目錄維持 FrameCore 專屬;LevelSim 自有 README、gate、smoke pipeline 與 release notes 段。bundled release `v2.4` = FrameCore v2.4 + LevelSim v1.0.0(v2.4 內容見 [`RELEASE_v2.4.md`](RELEASE_v2.4.md))。 |
+
+## 外部橋接 / Rhino bridge v2(B 線,v2.4 加入)
+
+> v2.4 引入第二條 client-side bridge,並行於既有的 v1 `frame_cli` / `frame_capi.dll`(永久保留)。
+> v2 是 **framed JSON 線協議 + opt-in C# SDK**,設計階段名稱:B1 (規格) → B2 (DLL + dispatcher 骨架)。
+> B3-B7 仍是待辦(見 [`HANDOFF_v2.4.md`](HANDOFF_v2.4.md))。
+
+| 文件 | 性質 |
+|---|---|
+| [`specs/S6b_rhino_bridge_v2.md`](specs/S6b_rhino_bridge_v2.md) | 權威協議規格:framed JSON、雙 profile(simple/advanced)、19 method 目錄、forward-compat 規則 |
+| [`specs/S6c_rhino_ux_commercial.md`](specs/S6c_rhino_ux_commercial.md) | 商業級 UX 規格:80 GH 元件目錄、Display 範式、預設庫、Bake |
+| [`HANDOFF_rhino_bridge_v2.md`](HANDOFF_rhino_bridge_v2.md) | B1 階段交接(設計 + 骨架完成,被下一輪 superseded — 史料) |
+| [`HANDOFF_rhino_bridge_v2_final.md`](HANDOFF_rhino_bridge_v2_final.md) | **B2 階段最終交接**(三輪 P0/P1/P2 修補後,真實 109 KB DLL + 第 6 gate leg 13/13 + 53 檔 C# 骨架) |
+| [`PROGRESS_B2.md`](PROGRESS_B2.md) | B2 階段進度紀錄(dispatcher 骨架交付明細) |
+| [`HANDOFF_v2.4.md`](HANDOFF_v2.4.md) | v2.4 cycle 交接概要 + B3 第一行動指引 |
+
+## 課程素材 / Learning(v2.4 加入)
+
+> 26 課白板教材 + 39 k 行深入課程,涵蓋從 FEM 基礎到 FrameCore S1-S10 內部機制。
+> 這是隨 v2.4 一起 bundled 的教學素材,**非引擎本身的一部分**,可不影響 build/gate 獨立讀。
+
+| 文件 | 性質 |
+|---|---|
+| [`learning/framecore_v2_course_lesson1.md`](learning/framecore_v2_course_lesson1.md) | 白板課第 1 課獨立檔(完整 998 行) |
+| [`learning/deep_course/`](learning/deep_course/) | 25 課白板課(`lesson_02..lesson_26.md`)+ deep_course combined 39645 行 + 生成腳本(`generate_deep_course.py`, `generate_freeform_pdf.py`)+ `FREEFORM_IMPORT_GUIDE.md`、`README.md` |
+| [`scripts/generate_framecore_whiteboard_course.py`](scripts/generate_framecore_whiteboard_course.py) | 白板課 PDF 生成器(reportlab,本機字型;非 CI 必跑) |
+| [`AGENT_PROMPT_OPENSEES_MEGA_BENCHMARK.md`](AGENT_PROMPT_OPENSEES_MEGA_BENCHMARK.md) | v2.3 cycle 寫的 mega benchmark 任務提示詞(史料,結果見 [`benchmarks/opensees_mega/`](../benchmarks/opensees_mega/)) |

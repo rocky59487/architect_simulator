@@ -57,7 +57,7 @@ namespace frame_v2 {
 #endif
 
 inline constexpr uint32_t kAbiVersion   = 2;
-inline constexpr const char* kEngineVer = "2.3.0";
+inline constexpr const char* kEngineVer = "2.4.0";
 inline constexpr const char* kSchemaVer = "2026.06";
 
 enum class Profile { Simple, Advanced };

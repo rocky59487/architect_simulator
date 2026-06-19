@@ -1,5 +1,9 @@
 # Codex 任務:FrameCore × OpenSees 全方位對標基準
 
+> **[HISTORY — 寫於 v2.1.0 cycle,留作史料]** — 此提示詞用於 v2.1.0 之後啟動 OpenSees mega benchmark
+> harness 的 Codex session;benchmark 隨 v2.3(2026-06-19)整入 repo,結果在 `benchmarks/opensees_mega/results/`
+> (見 [`docs/VERIFICATION.md`](VERIFICATION.md) §3.7a)。提示詞中 `當前正式版 v2.1.0` 等版本標記是寫作當下的狀態,**現況以根 [`README.md`](../README.md) 為準**。
+
 > **任務性質**:大規模、多場景 benchmark — 對 FrameCore 引擎(我們自寫的 C++17/Eigen 結構引擎)做**全面 OpenSees 對標**,涵蓋各式建築、曲面、不同厚度、多載重場景,**記錄所有可比較的數值**,找出 FrameCore 的精度損失、邊界、與未公開的缺點。
 >
 > 你(Codex)看不到本專案的對話歷史、memory、或 CLAUDE.md 全文,**本提示詞自包含**你需要的一切。

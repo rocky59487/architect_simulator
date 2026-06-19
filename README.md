@@ -16,14 +16,18 @@ C++17-compatible; the UE module target is compiled as C++20 because of the curre
 > **This repository ships two independent engines:** FrameCore (this document, `Plugins/FrameSolver/`)
 > and **LevelSim** — a surveying-level simulator — at [`Plugins/LevelSim/`](Plugins/LevelSim/README.md).
 > They share no code and can be built, tested, and released independently; the bundled
-> `v2.3` release packages them together (FrameCore v2.3 + LevelSim v1.0.0).
+> `v2.4` release packages them together (FrameCore v2.4 + LevelSim v1.0.0).
 
-> **Status (2026-06, v2.3 — adds the OpenSees mega benchmark (128 cases vs `ShellMITC4`/`elasticBeamColumn`, 0 CRITICAL / 0 MAJOR) plus the warped-shell CLI bridge fix (`WARP` token) and A-06 `mat.rho<0` guard; engine still S1–S10 + supernodal direct lane (incl. PERF-01 supernodal-primary + R2 Neumaier IR) + shell K_σ + shell CR + warped quads + shell-buckling knockdown + curved-mesh guard):** the five-leg verification gate is green —
+> **Status (2026-06, v2.4 — adds the Rhino bridge v2 external transport line: a B2 dispatcher (`frame_capi_v2.dll`) over a framed JSON wire protocol, a 53-file C# SDK skeleton (Layer 3 `FrameCore.Bridge` + Layer 4 Rhino 8 GHA), dual simple/advanced profile design, and a 6th *manual-only* gate leg (`Tools/v2_roundtrip.py`, 13 PASS / 1 SKIP) — plus a bundled 26-lesson whiteboard course under `docs/learning/`; the FrameCore engine code is unchanged from v2.3 (still S1–S10 + supernodal direct lane (incl. PERF-01 supernodal-primary + R2 Neumaier IR) + shell K_σ + shell CR + warped quads + shell-buckling knockdown + curved-mesh guard + WARP CLI token + A-06 `mat.rho<0` guard + OpenSees mega benchmark 128/0 CRITICAL):** the five-leg verification gate is green —
 > standalone `ALL PASS` (fixtures **F1–F64**) · **57** UE automation tests ·
 > **OpenSees** strict cross-validation PASS · deep audit **104** independent checks ·
 > CLI round-trip ALL PASS. One repo-relative command reproduces it (`-Engine` or `UE_ENGINE_ROOT`
 > can point at a non-sibling Unreal install):
 > `powershell -ExecutionPolicy Bypass -File Scripts\run_gate.ps1 -RequireOpenSees`.
+> The optional 6th gate leg (v2 dispatcher smoke test) is run manually: build the v2 DLL
+> with `Plugins\FrameSolver\Standalone\build_capi_v2.bat`, then `python Tools/v2_roundtrip.py`
+> (expects 13 PASS / 1 SKIP — the SKIP is `solve.linear bit-exact vs v1`, deferred to B3 when
+> the v2 dispatcher gets engine-wired). It is intentionally not in `run_gate.ps1` for v2.4.
 > The capability → oracle → measured-agreement map is **[`docs/VERIFICATION.md`](docs/VERIFICATION.md)**.
 
 ---
@@ -217,7 +221,9 @@ Plugins\FrameSolver\Standalone\build.bat
 ```
 Expected: `[PASS] Fn …` lines, then `ALL PASS (failures=0)`, exit 0. (Needs Visual Studio
 with the C++ toolset, located via `vswhere`; **and** a conda `framecore-direct` env with OpenBLAS +
-METIS — the standalone gate now links the opt-in supernodal lane, and `build.bat` exits 1 without it.)
+METIS — the standalone gate now links the opt-in supernodal lane, and `build.bat` exits 1 without it.
+If conda is installed off `%USERPROFILE%\anaconda3`, set `SUPERNODAL_CONDA=<conda-root>\envs\framecore-direct\Library`
+before running so `build.bat` picks up the right OpenBLAS+METIS install.)
 
 **One-click five-leg gate** (standalone + UE automation + OpenSees + deep audit + CLI):
 

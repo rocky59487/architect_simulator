@@ -257,10 +257,16 @@ namespace FrameCore.Gh.Components.Analyze
                 int h = 17;
                 h = h * 31 + mats.Count;
                 h = h * 31 + secs.Count;
+                // v2.4 release-hardening fix (D-15): `+` binds tighter than `^`, so the
+                // unparenthesised form `h * 31 + X ^ Y ^ Z` was `(h * 31 + X) ^ Y ^ Z`,
+                // which silently lost the `h` accumulation when only Y or Z changed —
+                // GH slider drags on Y/Z node coordinates would hit a stale cached engine
+                // session. Parenthesise the XOR group so it folds into one int per node /
+                // edge before accumulating.
                 foreach (var n in nodes)
-                    h = h * 31 + n.X.GetHashCode() ^ n.Y.GetHashCode() ^ n.Z.GetHashCode();
+                    h = h * 31 + (n.X.GetHashCode() ^ n.Y.GetHashCode() ^ n.Z.GetHashCode());
                 foreach (var c in members)
-                    h = h * 31 + c.PointAtStart.GetHashCode() ^ c.PointAtEnd.GetHashCode();
+                    h = h * 31 + (c.PointAtStart.GetHashCode() ^ c.PointAtEnd.GetHashCode());
                 return h;
             }
         }

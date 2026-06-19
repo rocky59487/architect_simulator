@@ -124,10 +124,13 @@
 }}
 
 // server → client
+// NOTE: this 16-capability list is the *full* v2 roadmap. B2 (v2.4) ships a tighter
+//       subset (see Dispatcher.h::Capabilities() = 6 actually wired); B3-B5 unlock the
+//       rest. Clients MUST use the engine's actual response, not this template.
 { "v":2, "kind":"hello", "id":"hs", "body": {
     "engine": "FrameCore",
-    "buildSha": "33cbd57",
-    "version":  "2.3.0",
+    "buildSha": "10b767c",
+    "version":  "2.4.0",
     "schemaVer": "2026.06",
     "capabilities": [
         "session", "session.factor_reuse",
