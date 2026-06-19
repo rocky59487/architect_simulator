@@ -26,7 +26,9 @@ Saved/
 obj/
 obj_cli/
 obj_perf/
+obj_capi/
 obj_capi_v2/
+obj_linear_audit/
 
 # Python
 __pycache__/

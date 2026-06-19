@@ -9,10 +9,10 @@
 ---
 
 ## 你是誰 / 任務
-你是 FrameCore 結構引擎開發 agent。S1 已完成且**四腿 gate 全綠**。任務:照 `E:\project\ArchSim\docs\IMPLEMENTATION_PLAN.md` 主線,**依序實作 S2 → S3 → S4**,每階段每步驗證、**每次 commit 前跑完整四腿大型 gate 並確認全綠**,逐階段 commit/push;**S2–S4 全部完成後**,進入 **S5–S8 研究**(產出交接級 spec,不直接實作)。
+你是 FrameCore 結構引擎開發 agent。S1 已完成且**四腿 gate 全綠**。任務:照 `<repo-root>/docs/IMPLEMENTATION_PLAN.md` 主線,**依序實作 S2 → S3 → S4**,每階段每步驗證、**每次 commit 前跑完整四腿大型 gate 並確認全綠**,逐階段 commit/push;**S2–S4 全部完成後**,進入 **S5–S8 研究**(產出交接級 spec,不直接實作)。
 
 ## 現況錨點(起點)
-- repo 根 `E:\project\ArchSim`,branch `main`,gh 登入 rocky59487。S1 完成於 commit `ca04fee`(9 commits 從 `81639c1`)。
+- repo 根 `<repo-root>`(本機 `E:\project\ArchSim`),branch `main`,gh 登入 rocky59487。S1 完成於 commit `ca04fee`(9 commits 從 `81639c1`)。
 - **S1 四腿全綠**:standalone `build.bat` **F1–F36 ALL PASS**;UE automation **37 tests**(`run_gate.ps1` `$ExpectedUeTests=37`);`build_linear_audit` **67 checks**;OpenSees `opensees_compare.py` **PASS**。
 - S1 交付:R8 修 `build_perf.bat`;稀疏屈曲(F34,`BucklingOptions`+三參 `solveBuckling`,稀疏 `subspaceSmallest` 復用 LDLT、稠密 bit-identical+fallback);**ReSolveSession 三層**(`Public/FrameCore/Reanalysis.h`+`Private/Reanalysis.cpp`:Tier-1 Woodbury / Tier-2 stale-LDLT PCG / Tier-3 rebaseline;F35/F36;機構=capacitance 奇異);`PERFORMANCE_BASELINE.md` 正式化。
 - **F 編號下一個 = F37**;audit 從 **67** 起增;UE 從 **37** 起增。
@@ -25,7 +25,7 @@
 4. FrameCore 純 C++17/Eigen,公開 API 只用 POD/std,**零 UE、零 Eigen 洩漏**(Eigen 只在 `Private/FrameEigen.h`+`PreparedSystemImpl.h`;**任何新 Eigen 模組 include 一律加進 `FrameEigen.h` 的雙分支,絕不在 .cpp 直接 `#include <Eigen/...>`**,否則破 UE dual-build)。建模用 **index 不用裸指標**(`matIdx`/`secIdx`)。
 5. **build/gate 同步義務**(漏一個=gate 假綠):每加一個 `Private/*.cpp` → 補進 `build.bat` + `build_linear_audit.bat`(+`build_cli`/`build_perf` 視需要)的顯式源檔清單;每加一個 UE 測試(`Private/Tests/*.cpp`,UE 自動發現免改 build) → bump `run_gate.ps1` `$ExpectedUeTests`;新旗標與 `modelFingerprint` **同 commit**。
 6. **commit 衛生**:只 commit FrameCore/docs 相關;**絕不** commit `Plugins/LevelSim/`(獨立水準儀專案)、`.gitignore`、`ArchSim.uproject`(這些是你以外的既有改動)。
-7. 每階段結束:commit + push;更新 memory(`C:\Users\wmc02\.claude\projects\E--project\memory\frame-engine-next-plan.md` + `MEMORY.md`)+ `docs/PROGRESS_S1.md`(或開 `PROGRESS_S2.md`…)+ PLAN §7 狀態欄。
+7. 每階段結束:commit + push;更新 memory(`~/.claude/projects/<project>/memory/frame-engine-next-plan.md` + `MEMORY.md`)+ `docs/PROGRESS_S1.md`(或開 `PROGRESS_S2.md`…)+ PLAN §7 狀態欄。
 
 ## 實作順序(照 PLAN §4 + 各 spec 十節)
 ### S2 — N4 動量繼承連續動力倒塌(spec `docs/specs/S2_dynamic_collapse.md`)
@@ -45,7 +45,7 @@ S5–S8 是 🔶 骨架(`docs/specs/S5_S11_skeletons.md`)。PLAN 定:**動工前
 - **S8 殼 QM6 opt-in 膜 → DKQ 薄板快路**:**最大風險=OpenSees `ShellMITC4` 是原始雙線性膜,改進膜必須 opt-in、預設 Q4 才不破壞 OpenSees 閘門**。依據 `WS_E_shell.md` + 既有 P5 膜鎖定探索(膜鎖定是 MITC4 曲面慢收斂主因)。
 
 ## 一鍵指令
-- **完整四腿 gate(commit 前必跑、必須全綠)**:`powershell -ExecutionPolicy Bypass -File E:\project\ArchSim\Scripts\run_gate.ps1 -RequireOpenSees`
+- **完整四腿 gate(commit 前必跑、必須全綠)**:`powershell -ExecutionPolicy Bypass -File <repo-root>\Scripts\run_gate.ps1 -RequireOpenSees`
 - 快速 standalone(開發中迭代):`Plugins\FrameSolver\Standalone\build.bat`(期望 `ALL PASS (failures=0)`)
-- UE 模組 build(改 FrameCore 後驗 UE 端):`E:\project\UE_5.7\Engine\Build\BatchFiles\Build.bat ArchSimEditor Win64 Development -project="E:\project\ArchSim\ArchSim.uproject" -waitmutex`
-- 完整脈絡:`docs/KARAMBA3D_ROADMAP.md`、`docs/PROGRESS_S1.md`、各 `docs/specs/S*.md`、`docs/research/WS_*.md`、`E:\project\CLAUDE.md`
+- UE 模組 build(改 FrameCore 後驗 UE 端):`%UE_ENGINE_ROOT%\Engine\Build\BatchFiles\Build.bat ArchSimEditor Win64 Development -project="<repo-root>\ArchSim.uproject" -waitmutex`(本機 `UE_ENGINE_ROOT=E:\project\UE_5.7`)
+- 完整脈絡:`docs/KARAMBA3D_ROADMAP.md`、`docs/PROGRESS_S1.md`、各 `docs/specs/S*.md`、`docs/research/WS_*.md`、`<repo-parent>\CLAUDE.md`

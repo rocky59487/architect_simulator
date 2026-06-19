@@ -12,7 +12,7 @@
 
 ## 1. 專案速覽
 
-**FrameCore** 是 `E:\project\ArchSim` 倉庫的核心結構引擎,純 C++17 + Eigen 3D 線彈性 + MITC4 平板殼,涵蓋:
+**FrameCore** 是 `<repo-root>`(本機 `E:\project\ArchSim`)倉庫的核心結構引擎,純 C++17 + Eigen 3D 線彈性 + MITC4 平板殼,涵蓋:
 
 - 線性套件 8 段(組合/包絡/影響線/沉陷/模態/屈曲/反應譜/即時動態)
 - 崩塌 C 線(LSP 驅動器 + 連續動力 + 碎塊連通)
@@ -40,7 +40,7 @@
 
 | 項目 | 路徑 / 命令 |
 |---|---|
-| Repo 根 | `E:\project\ArchSim`(已 `cd` 進去) |
+| Repo 根 | `<repo-root>`(本機 `E:\project\ArchSim`,已 `cd` 進去) |
 | 引擎 CLI | `Plugins\FrameSolver\Standalone\frame_cli.exe` |
 | Build CLI | `Plugins\FrameSolver\Standalone\build_cli.bat` |
 | Build 閘門 | `Plugins\FrameSolver\Standalone\build.bat`(F1-F64,**改動後務必跑**) |

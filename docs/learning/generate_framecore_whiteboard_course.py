@@ -26,8 +26,10 @@ FONT_CODE = "Courier"
 
 
 def register_fonts() -> None:
-    pdfmetrics.registerFont(TTFont(FONT_TC, r"C:\Windows\Fonts\NotoSansTC-VF.ttf"))
-    pdfmetrics.registerFont(TTFont(FONT_HAND, r"C:\Windows\Fonts\Inkfree.ttf"))
+    notosans_tc = os.environ.get("NOTOSANS_TC_PATH", r"C:\Windows\Fonts\NotoSansTC-VF.ttf")
+    inkfree = os.environ.get("INKFREE_PATH", r"C:\Windows\Fonts\Inkfree.ttf")
+    pdfmetrics.registerFont(TTFont(FONT_TC, notosans_tc))
+    pdfmetrics.registerFont(TTFont(FONT_HAND, inkfree))
 
 
 PALETTE = {
