@@ -29,11 +29,19 @@
 # Resolution assumption (R-AUDIT C-11): smoke shots are taken at 1280×720 by
 # `run_smoke.bat` (`-ResX=1280 -ResY=720`); px_per_cm and the cluster-gap heuristic
 # (gap > 12 px starts a new digit band) both assume this size. analyze() asserts it.
+import os
 import sys
+from pathlib import Path
 from PIL import Image
 import math
 
-SHOT_DIR = r"E:\project\ArchSim\Saved\Screenshots\WindowsEditor"
+# G-02 fix (v2.5): SHOT_DIR defaults to <repo-root>/Saved/Screenshots/WindowsEditor
+# computed from this script's own location (Plugins/LevelSim/Tools/) so a fresh clone
+# works without editing. LEVELSIM_SHOT_DIR env var overrides for non-default layouts.
+_DEFAULT_SHOT_DIR = (
+    Path(__file__).resolve().parents[3] / "Saved" / "Screenshots" / "WindowsEditor"
+)
+SHOT_DIR = os.environ.get("LEVELSIM_SHOT_DIR", str(_DEFAULT_SHOT_DIR))
 HFOV = 2.3
 W, H = 1280, 720
 

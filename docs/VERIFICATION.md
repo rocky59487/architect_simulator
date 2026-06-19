@@ -37,19 +37,23 @@ at F40, S4 started at F42; F60: numbering jump between F59 — `S9c`'s consisten
 check — and F61 — v3 warped quads — when the v3 surface line was bundled in) — both are
 numbering gaps, not missing tests.
 
-**v2.4 supplementary — manual 6th leg (v2 transport line)**. The Rhino bridge v2 dispatcher
-(`frame_capi_v2.dll`, B2 stub) has its own smoke-test harness `Tools/v2_roundtrip.py`
-(**13 PASS / 1 SKIP**; SKIP = `solve.linear bit-exact vs v1`, deferred to B3 when the dispatcher
-gets engine-wired). It is **NOT** wired into `run_gate.ps1` for v2.4 because (i) it depends on
-the build step `build_capi_v2.bat` which is itself outside the 5-leg gate's scope, (ii) the v2
-dispatcher does not link the FrameCore engine yet (B2 stub level) so it cannot regress engine
-physics. Run manually:
+**v2.5 supplementary — manual 6th leg (v2 transport line)**. The Rhino bridge v2 dispatcher
+(`frame_capi_v2.dll`, B3 engine-wired in v2.5) has its own smoke-test harness
+`Tools/v2_roundtrip.py` (**ALL PASS, 0 SKIP / 0 FAIL** in v2.5; the v2.4 SKIP
+`solve.linear bit-exact vs v1` became a PASS in commit `180c9e8`, rel<1e-11 vs
+`frame_capi.dll` v1 on the cantilever fixture; additional checks cover B3-wired
+analyses and the `transport.sync` capability advertised in v2.4 review-round commit
+`b3cea8b`). It is **NOT** wired into `run_gate.ps1` for v2.5 because (i) it depends on
+the build step `build_capi_v2.bat` which is itself outside the 5-leg gate's scope,
+(ii) the v2 wire protocol is a separate transport line and rebuilding it on every
+five-leg run gates the FrameCore engine on a downstream artefact that does not gate it
+back. Run manually:
 ```bat
 Plugins\FrameSolver\Standalone\build_capi_v2.bat
 python Tools\v2_roundtrip.py
 ```
-Once B3 wires the engine and the SKIP becomes a PASS (bit-exact vs v1 text bridge), this leg
-will be evaluated for inclusion in `run_gate.ps1`.
+Inclusion in `run_gate.ps1` is re-evaluated when B4 (streaming dispatcher) lands; the
+v2.5 contract is "if you touched the dispatcher, you ran this manually before push".
 
 ## 2. Oracle taxonomy
 

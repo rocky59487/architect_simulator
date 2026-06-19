@@ -138,10 +138,10 @@ PreparedSystem ps = assembleAndFactor(model, opt); // 超粗網格 -> singular +
 
 ## 10. 哪裡的審核遺產
 
-- **v2.0 commercial audit**(76 findings):`E:\project\v2-audit\_audit\REPORT.md / AUDIT_FINDINGS.md / findings_summary.txt / audit_probe.cpp / perf_sn.cpp`
-  - **退役建議**:`git worktree remove E:/project/v2-audit`(留 .git 檔案在 ArchSim/.git/worktrees 內,日後想重 checkout 可 `git worktree add ... v2.0.0` 重建)
-- **v2.1 audit team 全 transcript**:`C:\Users\wmc02\.claude\projects\E--project\3fc40a95-c28f-4e92-83e5-fe00fffae301\` 對應 workflow ID `wk42aymcy`(initial)/ `w99hh0l34`(final re-check)
-- **v3 memory recon**:`docs/specs/v3_memory_recon.md`(331 行)+ workflow ID `wl887wwwp`(`Research/V3_RESEARCH_HANDOFF.md` 是預 R2 落地版本)
+- **v2.0 commercial audit**(76 findings):`<repo-root>/../v2-audit/_audit/REPORT.md / AUDIT_FINDINGS.md / findings_summary.txt / audit_probe.cpp / perf_sn.cpp`
+  - **退役建議**:`git worktree remove <repo-root>/../v2-audit`(留 .git 檔案在 ArchSim/.git/worktrees 內,日後想重 checkout 可 `git worktree add ... v2.0.0` 重建)
+- **v2.1 audit team 全 transcript**:`~/.claude/projects/<project>/sessions/<uuid>/` 對應 workflow IDs(initial / final re-check;真正的 session UUID 與 workflow ID 保留在原作業者 local memory,公開 repo 不寫入身份識別資訊)
+- **v3 memory recon**:`docs/specs/v3_memory_recon.md`(331 行)+ 一條 workflow ID(`Research/V3_RESEARCH_HANDOFF.md` 是預 R2 落地版本)
 
 ## 11. 一句話總結
 

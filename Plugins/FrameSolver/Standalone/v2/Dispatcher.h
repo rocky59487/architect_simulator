@@ -23,16 +23,23 @@
 //   profile=advanced: every silent path is converted to an `error` frame; results carry an
 //   `advancedDiagnostics` object built from the engine's per-stage trace.
 //
-// SCOPE OF B2 (stub level)
-//   * hello handshake — implemented
-//   * session.open / session.close / session.status — implemented (no-op session)
-//   * model.set — accepts and validates the JSON shape; engine call is a TODO marker
-//   * solve.linear — TODO marker; returns a stub response that the gate skip-paths past
-//   * every other method — registered but returns NOT_IMPLEMENTED
-//   * cancel — implemented (sets a per-id atomic flag)
+// SCOPE OF B3 (v2.5: dispatcher engine-wired)
+//   * hello handshake — wired
+//   * session.open / session.close / session.status — wired (real EngineSession + factor cache)
+//   * model.set — accepts JSON, builds frame::FrameModel via ModelBuilder, runs validate(),
+//                 invalidates any cached factor; optionally eager-factors supernodal SnSession
+//   * solve.linear — wired; assembleAndFactor + solveLoad (or SnSession::solveFrame in
+//                    supernodal mode); bit-exact vs v1 frame_capi.dll on cantilever (rel<1e-11)
+//   * inspect.{disp,reactions,member_forces,shell_forces} — wired; read cached SolveResult
+//   * solve.pdelta / solve.tension_only / solve.size_opt / solve.corotational /
+//     solve.arclength / analysis.modal / analysis.buckling — wired; each calls the engine,
+//     returns structured response, caches finalState for inspect.* re-reads
+//   * cancel — wired (per-id atomic tombstone, consumed on first match)
 //
-// All TODO markers are explicit `dispatchTODO(...)` calls so a search for `dispatchTODO`
-// returns the complete list of "B3+ wire this".
+// Still B4+ deferred (return NOT_IMPLEMENTED):
+//   * solve.dyn_collapse — needs streaming + binary payload (B4)
+//   * analysis.reanalysis_solve — needs ReSolveSession wire (B5.2)
+//   * model.patch — schema TBD
 
 #pragma once
 
@@ -66,7 +73,7 @@ namespace frame_v2 {
 #endif
 
 inline constexpr uint32_t kAbiVersion   = 2;
-inline constexpr const char* kEngineVer = "2.4.0";
+inline constexpr const char* kEngineVer = "2.5.0";
 inline constexpr const char* kSchemaVer = "2026.06";
 
 enum class Profile { Simple, Advanced };
@@ -109,33 +116,15 @@ struct Context {
 
 /// Capability strings advertised in the hello reply.
 ///
-/// P1.2 (second round) + P2.1 (third round) fix: a capability promise the engine cannot
-/// actually fulfil is worse than no capability at all -- a client that checks HasCapability
-/// would proceed and then receive a stub answer or NOT_IMPLEMENTED. We advertise ONLY methods
-/// whose handler returns USEFUL data today:
+/// P1.2 (second round) + P2.1 (third round) rule: advertise ONLY methods whose handler
+/// returns USEFUL data today. v2.5 (B3 wire) substantially widens the advertised set —
+/// the seven analyses below + the four inspect verbs all run real FrameCore code and
+/// return spec-shape responses (or a structured engine error frame on failure).
 ///
-///   * Connection-mgmt: session.open/close/status, cancel, profile selection — all WIRED.
-///   * model.set: validates JSON shape end-to-end and emits defaultsApplied (simple) or
-///     VALIDATION_FAILED (advanced). The engine-side FrameModel call is B3, but the
-///     pre-engine semantics the client depends on (strict validation, defaults tracking)
-///     are LIVE.
-///   * solve.linear: shape-correct stub. Listed because the SDK needs SOMETHING to assert
-///     "the solve verb exists"; the bit-exact-vs-v1 promise lands in B3 with no schema
-///     change. The roundtrip gate's `[SKIP] solve.linear bit-exact vs v1` keeps this honest.
-///
-/// Removed from the advertised set in P2.1:
-///   inspect.disp, inspect.member_forces, inspect.reactions, inspect.shell_forces — these
-///   currently return empty payloads because there is no cached SolveResult yet (solve.linear
-///   is a stub). Re-advertise in B3 once solve.linear is wired and the session caches a real
-///   SolveResult.
-///
-/// Reserved for B3-B5 (NOT currently advertised):
-///   inspect.* (B3, once solve.linear is wired) /
-///   solve.pdelta / solve.tension_only / solve.size_opt / solve.dyn_collapse /
-///   solve.corotational / solve.arclength / analysis.modal / analysis.buckling /
-///   analysis.reanalysis_solve / model.patch / binary.modes / streaming / supernodal /
-///   session.factor_reuse / dyn_collapse.full_frames / dyn_collapse.fragment_detail /
-///   diagnostic.stream
+/// Still NOT advertised in v2.5 (return NOT_IMPLEMENTED — B4/B5.2/schema-pending):
+///   solve.dyn_collapse (B4 streaming) / analysis.reanalysis_solve (B5.2 ReSolveSession) /
+///   model.patch (schema TBD) / binary.modes / streaming.* / dyn_collapse.fragment_detail /
+///   diagnostic.stream.
 inline std::vector<std::string> Capabilities() {
     return {
         // Connection-mgmt (WIRED).
@@ -143,10 +132,25 @@ inline std::vector<std::string> Capabilities() {
         "profile.advanced",
         "profile.simple",
         "session",
-        // Model (validation WIRED; engine call WIRED in B3 -- see follow-up commits).
+        // Model (validation + engine FrameModel build both WIRED in v2.5).
         "model.set",
-        // Solve verb wired post-v2.4 (B3 follow-up; bit-exact vs v1 frame_capi.dll).
+        // Linear solve verb — bit-exact vs v1 frame_capi.dll (rel<1e-11 on cantilever).
         "solve.linear",
+        // B3 wired analyses (v2.5). Each returns a structured response with finalState +
+        // convergence flags; client may follow up with inspect.* on the cached SolveResult.
+        "solve.pdelta",
+        "solve.tension_only",
+        "solve.size_opt",
+        "solve.corotational",
+        "solve.arclength",
+        "analysis.modal",
+        "analysis.buckling",
+        // Inspect family — reads the session's cached SolveResult (set by the most recent
+        // solve.*); returns spec-shape payloads with NaN/Inf guard via finiteOrFail.
+        "inspect.disp",
+        "inspect.reactions",
+        "inspect.member_forces",
+        "inspect.shell_forces",
         // P1 review-round signal: the current dispatcher runs handlers INLINE on the caller
         // thread (see frame_capi_v2.h `frame_v2_send` doc). A client that needs a non-blocking
         // dispatch must (a) drive frame_v2_send from a worker thread of its own OR (b) wait

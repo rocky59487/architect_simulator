@@ -1,21 +1,25 @@
 // Dispatcher.cpp -- handler implementations.
 //
-// CURRENT STATE (B2 stub level)
-//   Methods marked [WIRED] are end-to-end functional against the engine: hello, session.open,
-//   session.close, session.status, cancel are connection-mgmt and pure-C++ (no engine call) so
-//   they ship complete in B2.
+// CURRENT STATE (v2.5: B3 dispatcher engine-wired)
+//   Connection-mgmt methods (hello, session.open/close/status, cancel) and model.set were
+//   wired since B2 / v2.4. v2.5 (B3) wires the analysis verbs to FrameCore:
 //
-//   Methods marked [TODO B3] dispatch the JSON correctly, validate inputs, and return a
-//   structured error (NOT_IMPLEMENTED). Wiring each one to the engine is a per-method exercise:
-//     1. construct frame::FrameModel from body
-//     2. call the matching engine function (solve / runPDelta / runTensionOnly / ...)
-//     3. emit the result fields the spec § ④ defines
-//     4. for advanced profile, also fill `advancedDiagnostics` from the engine traces
-//     5. add a roundtrip-py check that the value matches v1's stdout output
+//   [WIRED B3] solve.linear -- assembleAndFactor + solveLoad (or SnSession::solveFrame when
+//              session.open mode=supernodal). Bit-exact vs v1 frame_capi.dll on cantilever
+//              fixture (rel<1e-11). All numeric outputs are finite-checked.
+//   [WIRED B3] inspect.{disp,reactions,member_forces,shell_forces} -- pure read from
+//              session.lastSolve; no engine recall.
+//   [WIRED B3] solve.pdelta / solve.tension_only / solve.size_opt / solve.corotational /
+//              solve.arclength / analysis.modal / analysis.buckling -- each calls the
+//              matching engine entry point, traps exceptions into structured INTERNAL frames,
+//              and caches finalState into session.lastSolve for inspect.* re-reads.
 //
-//   No engine #include yet -- B2 deliberately keeps Dispatcher.cpp self-contained so building
-//   it does not require the entire FrameCore source tree. B3 will add the includes and link
-//   line in build_capi_v2.bat.
+//   [B4 deferred] solve.dyn_collapse -- needs streaming + binary payload.
+//   [B5.2 deferred] analysis.reanalysis_solve -- needs ReSolveSession wire.
+//   [schema TBD] model.patch -- diff-format unsettled.
+//
+//   Engine link: build_capi_v2.bat now links FrameCore + SnSolver/SnSession objects
+//   (~600 KB DLL up from B2's ~105 KB stub).
 
 #include "Dispatcher.h"
 #include "ModelBuilder.h"
@@ -378,8 +382,9 @@ Frame Dispatcher::HandleModelSet(Dispatcher&, Context& ctx, const Frame& in) {
 }
 
 // ====================================================================================
-// [TODO B3] solve.linear -- skeleton that the roundtrip gate's plumbing tests rely on.
-// The real implementation: assembleAndFactor + solveLoad, emit disp/reactions/MF/SF dicts.
+// [WIRED B3] solve.linear -- assembleAndFactor + solveLoad (LDLT) or sn->solveFrame
+// (Supernodal). Bit-exact vs v1 frame_capi.dll on cantilever (rel<1e-11). All numeric
+// outputs are finite-checked via finiteOrFail / packDisp / packMemberForces / packShellForces.
 // ====================================================================================
 
 namespace {
@@ -526,9 +531,19 @@ Frame Dispatcher::HandleSolveLinear(Dispatcher&, Context& ctx, const Frame& in) 
     }
 
     if (sess->profile == Profile::Advanced) {
+        // A-02 / C-06 / F-03 honest-diagnostics fix (v2.5): the dispatcher must report
+        // which factor backend actually ran, not a hard-coded "LDLT" label. When the
+        // session was opened with mode=supernodal AND SnSession build succeeded, solve.linear
+        // routes through sn->solveFrame (self-built BLAS3 supernodal); otherwise the
+        // PreparedSystem's LDLT path runs. factorTimeMs/solveTimeMs remain 0.0 — real
+        // timing requires steady_clock hooks across assembleAndFactor and solveLoad, which
+        // is a separate work item (B4 worker-thread cycle). The CLAUDE.md honesty rule
+        // forbids reporting numbers we have not measured.
+        const bool usingSupernodal = static_cast<bool>(sess->sn);
         JsonObject diag;
-        diag.emplace("factorMethod",  Json(std::string("LDLT")));
-        diag.emplace("factorBackend", Json(std::string("SimplicialLDLT")));
+        diag.emplace("factorMethod",  Json(std::string(usingSupernodal ? "Supernodal" : "LDLT")));
+        diag.emplace("factorBackend", Json(std::string(usingSupernodal ? "SnChol_selfbuilt"
+                                                                       : "SimplicialLDLT")));
         diag.emplace("factorTimeMs",  Json(0.0));
         diag.emplace("solveTimeMs",   Json(0.0));
         out.emplace("advancedDiagnostics", Json(std::move(diag)));
@@ -539,7 +554,9 @@ Frame Dispatcher::HandleSolveLinear(Dispatcher&, Context& ctx, const Frame& in) 
 namespace {
 inline Frame notImpl(const std::string& method, const Frame& in) {
     const std::string id = in.header.getString("id", "?");
-    return MakeError(id, "NOT_IMPLEMENTED", method + " is registered but not wired to the engine yet (B2 stub)");
+    return MakeError(id, "NOT_IMPLEMENTED",
+                     method + " is registered but deferred to a later cycle "
+                              "(B4 streaming / B5.2 reanalysis / schema-pending)");
 }
 
 // Shared resolve+lastSolve check for the inspect.* family. Returns nullptr (and fills `errOut`)
@@ -797,7 +814,24 @@ Frame Dispatcher::HandleArcLength(Dispatcher&, Context& ctx, const Frame& in) {
         return MakeError(id, "VALIDATION_FAILED", "session has no model; call model.set first");
     frame::CorotationalOptions opts;
     opts.useArcLength      = true;                                         // method-implied
-    opts.arcLength         = static_cast<frame::real>(body->getDouble("arcLength", 0.0));
+    // A-03 / C-01 honest-default fix (v2.5): arcLength=0 makes the engine fall back to its
+    // auto-estimate from the first tangent. That is fine for casual exploration but can
+    // silently jump over a snap-through region in one step (PROGRESS_S9c.md durable lesson 1).
+    // - advanced profile: REJECT the missing/zero value with VALIDATION_FAILED so the client
+    //   has to make the load-stepping intent explicit.
+    // - simple profile:   silently accept the auto-estimate (matches v1 bridge behaviour)
+    //   but record the choice in defaultsApplied so the client sees what was filled in.
+    const bool arcLengthProvided = (body->get("arcLength") != nullptr);
+    const double arcLengthRaw    = body->getDouble("arcLength", 0.0);
+    if (!arcLengthProvided || arcLengthRaw == 0.0) {
+        if (sess->profile == Profile::Advanced) {
+            return MakeError(id, "VALIDATION_FAILED",
+                             "solve.arclength: arcLength is required (advanced profile rejects "
+                             "auto-estimate because it can step over a snap-through limit point)");
+        }
+        sess->defaultsApplied.push_back("arcLength=auto (engine first-tangent estimate)");
+    }
+    opts.arcLength         = static_cast<frame::real>(arcLengthRaw);
     opts.arcSteps          = static_cast<int>(body->getInt("arcSteps", opts.arcSteps));
     opts.maxIter           = static_cast<int>(body->getInt("maxIter",   opts.maxIter));
     opts.tolR              = static_cast<frame::real>(body->getDouble("tolR", opts.tolR));

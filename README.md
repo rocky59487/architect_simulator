@@ -16,19 +16,20 @@ C++17-compatible; the UE module target is compiled as C++20 because of the curre
 > **This repository ships two independent engines:** FrameCore (this document, `Plugins/FrameSolver/`)
 > and **LevelSim** — a surveying-level simulator — at [`Plugins/LevelSim/`](Plugins/LevelSim/README.md).
 > They share no code and can be built, tested, and released independently; the bundled
-> `v2.4` release packages them together (FrameCore v2.4 + LevelSim v1.0.0).
+> `v2.5` release packages them together (FrameCore v2.5 + LevelSim v1.0.0).
 
-> **Status (2026-06, v2.4 — adds the Rhino bridge v2 external transport line: a B2 dispatcher (`frame_capi_v2.dll`) over a framed JSON wire protocol, a 53-file C# SDK skeleton (Layer 3 `FrameCore.Bridge` + Layer 4 Rhino 8 GHA), dual simple/advanced profile design, and a 6th *manual-only* gate leg (`Tools/v2_roundtrip.py`, 13 PASS / 1 SKIP) — plus a bundled 26-lesson whiteboard course under `docs/learning/`; the FrameCore engine code is unchanged from v2.3 (still S1–S10 + supernodal direct lane (incl. PERF-01 supernodal-primary + R2 Neumaier IR) + shell K_σ + shell CR + warped quads + shell-buckling knockdown + curved-mesh guard + WARP CLI token + A-06 `mat.rho<0` guard + OpenSees mega benchmark 128/0 CRITICAL):** the five-leg verification gate is green —
+> **Status (2026-06, v2.5 — B3 dispatcher engine-wire: `frame_capi_v2.dll` now routes `solve.linear` + `solve.{pdelta,tension_only,size_opt,corotational,arclength}` + `analysis.{modal,buckling}` + `inspect.{disp,reactions,member_forces,shell_forces}` to FrameCore (12 wired handlers, bit-exact vs v1 `frame_capi.dll` on the cantilever fixture at rel<1e-11); A-01 `frame_v2_close` UAF closed via shared_ptr ownership registry; B5 supernodal factor-reuse wired through `session.open mode=supernodal` → `SnSession`; D-03 GH OpenFrameCore generation race closed via `_openGate` lock; D-09 P/Invoke 7-Cdecl-delegate line-by-line audit; v2 dispatcher capability set widens to 16 (was 6); the FrameCore engine code is unchanged from v2.3 (still S1–S10 + supernodal direct lane (incl. PERF-01 supernodal-primary + R2 Neumaier IR) + shell K_σ + shell CR + warped quads + shell-buckling knockdown + curved-mesh guard + WARP CLI token + A-06 `mat.rho<0` guard + OpenSees mega benchmark 128/0 CRITICAL):** the five-leg verification gate is green —
 > standalone `ALL PASS` (fixtures **F1–F64**) · **57** UE automation tests ·
 > **OpenSees** strict cross-validation PASS · deep audit **104** independent checks ·
 > CLI round-trip ALL PASS. One repo-relative command reproduces it (`-Engine` or `UE_ENGINE_ROOT`
 > can point at a non-sibling Unreal install):
 > `powershell -ExecutionPolicy Bypass -File Scripts\run_gate.ps1 -RequireOpenSees`.
-> The optional 6th gate leg (v2 dispatcher smoke test) is run manually: build the v2 DLL
+> The optional 6th gate leg (v2 dispatcher round-trip) is run manually: build the v2 DLL
 > with `Plugins\FrameSolver\Standalone\build_capi_v2.bat`, then `python Tools/v2_roundtrip.py`
-> (expects 13 PASS / 1 SKIP — the SKIP is `solve.linear bit-exact vs v1`, deferred to B3 when
-> the v2 dispatcher gets engine-wired). It is intentionally not in `run_gate.ps1` for v2.4.
-> The capability → oracle → measured-agreement map is **[`docs/VERIFICATION.md`](docs/VERIFICATION.md)**.
+> (v2.5 expects **all PASS, 0 SKIP, 0 FAIL** — the v2.4 SKIP `solve.linear bit-exact vs v1`
+> became a PASS once B3 wired the engine). It is intentionally not in `run_gate.ps1` for v2.5
+> (depends on `build_capi_v2.bat` and the v2 wire protocol is a separate transport line from
+> the v1 bridge). The capability → oracle → measured-agreement map is **[`docs/VERIFICATION.md`](docs/VERIFICATION.md)**.
 
 ---
 

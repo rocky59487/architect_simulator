@@ -21,7 +21,7 @@
 > **每個階段動工前都要先向使用者確認授權**(專案慣例:完成即停、檢視後才授權下一階段)。
 
 ## 現況錨點(起點)
-- repo 根 `E:\project\ArchSim`,branch `main`,gh 登入 rocky59487。**S4 完成**(見 `git log`;`docs/PROGRESS_S4.md`)。
+- repo 根 `<repo-root>`,branch `main`,gh 登入 rocky59487。**S4 完成**(見 `git log`;`docs/PROGRESS_S4.md`)。
 - **四腿全綠**:standalone `build.bat` **F1–F43 ALL PASS**;UE automation **42 tests**(`run_gate.ps1` `$ExpectedUeTests=42`);`build_linear_audit` **76 checks**;OpenSees `opensees_compare.py` **PASS**。
 - **F 編號下一個 = F44**;audit 從 **76** 起增;UE 從 **42** 起增。
 - S1–S4 交付與設計詳見 `docs/PROGRESS_S1.md`…`PROGRESS_S4.md` + `docs/specs/S1`…`S4`。引擎能力總覽見 `README.md` / `docs/ARCHITECTURE.md`。
@@ -34,7 +34,7 @@
 4. FrameCore 純 C++17/Eigen,公開 API 只 POD/std,**零 UE/零 Eigen 洩漏**(Eigen 只走 `Private/FrameEigen.h` 雙分支 choke point + `PreparedSystemImpl.h`;**新 Eigen 模組 include 一律加進 `FrameEigen.h`,絕不在 `.cpp` 直接 `#include <Eigen/...>`**)。建模用 **index 不用裸指標**。
 5. **build/gate 同步義務**:每加 `Private/*.cpp` → 補 `build.bat`+`build_linear_audit.bat`(cli 用到再加 `build_cli.bat`)源檔清單;每加 UE 測試 → bump `run_gate.ps1 $ExpectedUeTests`;新旗標與 `modelFingerprint` **同 commit**。⚠️ **UE build 用 PowerShell 前景 `Build.bat`**(Bash 背景 `cmd /c …>log` 不可靠、增量 build 會漏編新測試檔致 gate 假綠);**背景跑 gate 要在命令內 `cd /e/project/ArchSim`**(背景任務 cwd 會漂移、相對重定向會失敗)。
 6. **commit 衛生**:只 commit FrameCore/docs;**絕不** commit `Plugins/LevelSim/`、`.gitignore`、`ArchSim.uproject`(非本人既有改動)。
-7. 每階段結束:commit + push;更新 memory(`…\memory\frame-engine-next-plan.md` + `MEMORY.md`)+ 開 `docs/PROGRESS_S{n}.md` + `E:\project\CLAUDE.md` 現況段。
+7. 每階段結束:commit + push;更新 memory(`…\memory\frame-engine-next-plan.md` + `MEMORY.md`)+ 開 `docs/PROGRESS_S{n}.md` + `<repo-parent>/CLAUDE.md` 現況段。
 
 ---
 
@@ -90,7 +90,7 @@
 - AMG/SA-AMG、matrix-free EBE Krylov、全系統隱式暫態、Lanczos shift-invert(屈曲 -Kg indefinite):**R13 觸發**(>50 萬 DOF 互動需求成真才立項;研究輪實測 Eigen IC-PCG 在框架上**反而劣於 Jacobi**,通用預條件路線成本不可低估)。
 
 ## 一鍵指令
-- **完整四腿 gate(commit 前必跑、必須全綠)**:`powershell -ExecutionPolicy Bypass -File E:\project\ArchSim\Scripts\run_gate.ps1 -RequireOpenSees`
+- **完整四腿 gate(commit 前必跑、必須全綠)**:`powershell -ExecutionPolicy Bypass -File <repo-root>\Scripts\run_gate.ps1 -RequireOpenSees`
 - 快速 standalone:`Plugins\FrameSolver\Standalone\build.bat`(期望 `ALL PASS (failures=0)`)
-- UE 模組 build(**PowerShell 前景**):`cmd /c "E:\project\UE_5.7\Engine\Build\BatchFiles\Build.bat ArchSimEditor Win64 Development -project=""E:\project\ArchSim\ArchSim.uproject"" -waitmutex"`
-- 完整脈絡:`docs/KARAMBA3D_ROADMAP.md`、`docs/PROGRESS_S1`…`S4.md`、`docs/specs/S*.md`、`docs/research/WS_*.md`、`E:\project\CLAUDE.md`
+- UE 模組 build(**PowerShell 前景**):`cmd /c "%UE_ENGINE_ROOT%\Engine\Build\BatchFiles\Build.bat ArchSimEditor Win64 Development -project=""<repo-root>\ArchSim.uproject"" -waitmutex"`
+- 完整脈絡:`docs/KARAMBA3D_ROADMAP.md`、`docs/PROGRESS_S1`…`S4.md`、`docs/specs/S*.md`、`docs/research/WS_*.md`、`<repo-parent>/CLAUDE.md`

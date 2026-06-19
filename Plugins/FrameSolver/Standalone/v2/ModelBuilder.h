@@ -108,7 +108,7 @@ inline bool readInts(const Json* arr, std::size_t expectedLen, std::vector<int>&
 /// returns false and writes a one-line reason into `err`. Does NOT call FrameModel::validate()
 /// -- the caller drives that so the error path can distinguish a malformed JSON shape from a
 /// structurally invalid (but well-formed) model.
-inline bool buildModelFromJson(const Json& body, frame::FrameModel& out, std::string& err) {
+[[nodiscard]] inline bool buildModelFromJson(const Json& body, frame::FrameModel& out, std::string& err) {
     using namespace frame;
 
     // ---- materials ----
@@ -233,11 +233,20 @@ inline bool buildModelFromJson(const Json& body, frame::FrameModel& out, std::st
     // ---- nodalLoads ----
     if (const Json* nl = body.get("nodalLoads")) {
         if (!nl->isArray()) { err = "nodalLoads must be an array"; return false; }
+        out.nodalLoads.reserve(nl->asArray().size());
         for (std::size_t k = 0; k < nl->asArray().size(); ++k) {
             const Json& l = nl->asArray()[k];
             if (!l.isObject()) { err = "nodalLoads[" + std::to_string(k) + "] must be an object"; return false; }
             NodalLoad load;
             load.node = static_cast<NodeId>(l.getInt("node", 0));
+            // A-07 fix (v2.5): nodalLoads.comp is mandatory; readReals returns true on
+            // arr==nullptr (optional semantics), which silently emitted zero loads when the
+            // client forgot to include comp. Force the explicit-presence check here so the
+            // caller gets a clear VALIDATION_FAILED instead of a load that does nothing.
+            if (l.get("comp") == nullptr) {
+                err = "nodalLoads[" + std::to_string(k) + "].comp is required (6 reals)";
+                return false;
+            }
             std::vector<double> comp;
             if (!detail::readReals(l.get("comp"), 6, comp, err, "nodalLoads[].comp")) return false;
             for (std::size_t d = 0; d < comp.size(); ++d) load.comp[d] = static_cast<real>(comp[d]);
@@ -248,6 +257,7 @@ inline bool buildModelFromJson(const Json& body, frame::FrameModel& out, std::st
     // ---- memberUDLs ----
     if (const Json* udls = body.get("memberUDLs")) {
         if (!udls->isArray()) { err = "memberUDLs must be an array"; return false; }
+        out.memberUDLs.reserve(udls->asArray().size());
         for (std::size_t k = 0; k < udls->asArray().size(); ++k) {
             const Json& u = udls->asArray()[k];
             if (!u.isObject()) { err = "memberUDLs[" + std::to_string(k) + "] must be an object"; return false; }
@@ -266,6 +276,7 @@ inline bool buildModelFromJson(const Json& body, frame::FrameModel& out, std::st
     // ---- shellPressures ----
     if (const Json* sps = body.get("shellPressures")) {
         if (!sps->isArray()) { err = "shellPressures must be an array"; return false; }
+        out.shellPressures.reserve(sps->asArray().size());
         for (std::size_t k = 0; k < sps->asArray().size(); ++k) {
             const Json& s = sps->asArray()[k];
             if (!s.isObject()) { err = "shellPressures[" + std::to_string(k) + "] must be an object"; return false; }
@@ -279,12 +290,23 @@ inline bool buildModelFromJson(const Json& body, frame::FrameModel& out, std::st
     // ---- hinges ----
     if (const Json* hgs = body.get("hinges")) {
         if (!hgs->isArray()) { err = "hinges must be an array"; return false; }
+        out.hinges.reserve(hgs->asArray().size());
         for (std::size_t k = 0; k < hgs->asArray().size(); ++k) {
             const Json& h = hgs->asArray()[k];
             if (!h.isObject()) { err = "hinges[" + std::to_string(k) + "] must be an object"; return false; }
+            // C-04 fix (v2.5): PlasticHinge.dof must be one of {4, 5, 10, 11} -- those are the
+            // local rotational DOFs (Ry/Rz at end I/J) where the hinge releases moment. Default
+            // 0 was silently accepted and then mis-mapped to a translational DOF deep in the
+            // element-level update. Reject up front with a clear field-context error.
+            const int dof = static_cast<int>(h.getInt("dof", -1));
+            if (dof != 4 && dof != 5 && dof != 10 && dof != 11) {
+                err = "hinges[" + std::to_string(k) + "].dof must be 4, 5, 10, or 11 "
+                      "(local Ry/Rz at end i/j); got " + std::to_string(dof);
+                return false;
+            }
             PlasticHinge ph{
                 static_cast<MemberId>(h.getInt("member", 0)),
-                static_cast<int>(h.getInt("dof", 0)),
+                dof,
                 static_cast<real>(h.getDouble("Mp", 0.0))
             };
             out.hinges.push_back(ph);
