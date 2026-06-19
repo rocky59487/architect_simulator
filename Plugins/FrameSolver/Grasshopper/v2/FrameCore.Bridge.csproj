@@ -1,0 +1,51 @@
+<!--
+  FrameCore.Bridge — C# SDK for the v2 Rhino bridge.
+
+  Pure .NET 8 standard target. Zero Rhino / Grasshopper dependency on purpose: this csproj
+  builds cleanly in the engine CI (where Rhino is NOT installed), so the bridge contract
+  itself is gated. The downstream Grasshopper .gha references this assembly and adds the
+  Rhino-only wrapper components on top — that wrapper is built in a Rhino environment and
+  is NOT gated here (same boundary as the v1 FrameCoreClient.cs).
+
+  This project DOES NOT build by the engine 5-leg gate today. It is the target of the future
+  6th leg (CLI v2 round-trip + C# bridge contract compile check). Adding the contract here
+  keeps Layer 3 from drifting from the spec while the dispatcher (Layer 1/2) is in flight.
+-->
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <!--
+      P0.2 fix: was net8.0. The Rhino 8 .gha assembly that references this project ships as
+      net7.0 (the modern-host runtime Rhino 8 GA bundles); a net48 .gha cannot reference a
+      net8.0/net7.0 assembly, and a NativeLibrary-using SDK cannot target net48 at all.
+      Standardising on net7.0 across BOTH csprojs is the only combination that simultaneously:
+        - hosts on Rhino 8 GA without an extra .NET install,
+        - keeps NativeLibrary / IAsyncEnumerable / required usable,
+        - lets the GHA ProjectReference this SDK.
+      We deliberately drop Rhino 7 compatibility: this SDK is a Rhino 8 product.
+    -->
+    <TargetFramework>net7.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <LangVersion>11</LangVersion>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <RootNamespace>FrameCore.Bridge</RootNamespace>
+    <AssemblyName>FrameCore.Bridge</AssemblyName>
+    <Version>2.0.0-alpha.1</Version>
+    <Description>FrameCore v2 bridge SDK — strongly typed model/result, framed protocol, async with cancel.</Description>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <!--
+      P0.1 fix (third audit round): CApiV2Transport uses `unsafe` blocks and `unsafe`
+      delegates for P/Invoke into frame_capi_v2.dll. Without this property the C# compiler
+      refuses the build with CS0227 "Unsafe code may only appear if compiling with /unsafe".
+      The unsafe usage is confined to the P/Invoke boundary; no managed pointer arithmetic
+      escapes Bridge/CApiV2Transport.cs.
+    -->
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <NoWarn>$(NoWarn);CA1416</NoWarn> <!-- Windows-only DllImports are intentional -->
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- System.Text.Json is in the BCL on net8.0; no PackageReference needed. -->
+  </ItemGroup>
+
+</Project>

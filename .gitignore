@@ -20,9 +20,13 @@ Saved/
 # Standalone C++ console-gate build artifacts (FrameCore frame_cli/frametest/frame_perf)
 *.exe
 *.obj
+*.dll
+*.lib
+*.exp
 obj/
 obj_cli/
 obj_perf/
+obj_capi_v2/
 
 # Python
 __pycache__/

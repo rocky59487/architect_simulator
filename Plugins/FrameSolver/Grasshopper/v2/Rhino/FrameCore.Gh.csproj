@@ -1,0 +1,67 @@
+<!--
+  FrameCore.Gh — Rhino 8 / Grasshopper component assembly.
+
+  STATUS: [NOT GATED]. Requires the Rhino 8 .NET SDK (RhinoCommon + Grasshopper packages from
+  yak feed) which is NOT installed in the engine CI. The engine 5-leg gate does not build this
+  csproj. The contract this assembly relies on (Layer 3 FrameCore.Bridge) IS gated by its own
+  csproj. This csproj is the Layer 4 UX surface — designed in S6c, hand-tested in a Rhino
+  environment by the publisher of the Yak package.
+
+  Build outside the gate:
+    dotnet restore Plugins\FrameSolver\Grasshopper\v2\Rhino\FrameCore.Gh.csproj
+    dotnet build  Plugins\FrameSolver\Grasshopper\v2\Rhino\FrameCore.Gh.csproj -c Release
+
+  Output `bin\Release\net48\FrameCore.Gh.gha` is the Grasshopper plug-in binary; `manifest.yml`
+  next to this file is the Yak manifest. `yak build .` packages both.
+
+  Rationale for net7.0 (P0.2 fix; was net48):
+    Original choice of net48 maximised "drop into %APPDATA%\Grasshopper\Libraries\ and it
+    works on Rhino 7 too" but caused two unsolvable build errors with the rest of v2:
+      1. The Bridge SDK uses NativeLibrary (.NET Core 3.0+) and C# 11 required keyword;
+         neither exists on net48.
+      2. A net48 GHA cannot ProjectReference a net7.0/net8.0 assembly.
+    net7.0 is the modern host Rhino 8 GA bundles, so a net7.0 GHA loads natively without an
+    extra .NET install. We accept the loss of Rhino 7 compatibility: this is a Rhino 8 product
+    and Rhino 7 users keep using the v1 frame_cli.exe bridge.
+-->
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net7.0</TargetFramework>
+    <LangVersion>11</LangVersion>
+    <Nullable>enable</Nullable>
+    <RootNamespace>FrameCore.Gh</RootNamespace>
+    <AssemblyName>FrameCore.Gh</AssemblyName>
+    <Version>2.0.0-alpha.1</Version>
+    <Description>FrameCore — Rhino/Grasshopper components for the FEA bridge (S6c).</Description>
+    <TargetExt>.gha</TargetExt>
+    <CopyLocalLockFileAssemblies>true</CopyLocalLockFileAssemblies>
+    <!-- P0.1 parity with FrameCore.Bridge.csproj: viewport DrawArrow / pinned buffers in
+         preview components occasionally want raw spans; keep the option open for parity. -->
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <NoWarn>$(NoWarn);NU1701;CS0436</NoWarn>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!--
+      Rhino 8 SDK packages (yak feed). Versions pinned to the Rhino 8 GA so the GHA loads in
+      shipped Rhino without an update. Both packages are PrivateAssets="all" so the GHA does
+      NOT ship them — Rhino provides them at load time.
+    -->
+    <PackageReference Include="RhinoCommon"      Version="8.0.23304.15001" PrivateAssets="all" />
+    <PackageReference Include="Grasshopper"      Version="8.0.23304.15001" PrivateAssets="all" />
+    <PackageReference Include="Rhino.Inside"     Version="8.0.23304.15001" PrivateAssets="all" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- Layer 3 SDK — strongly typed model/result + framed protocol. GATED separately. -->
+    <ProjectReference Include="..\FrameCore.Bridge.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- SVG icons are embedded so the GHA is single-file deployable. -->
+    <EmbeddedResource Include="Resources\Icons\*.svg" />
+    <EmbeddedResource Include="Resources\Icons\*.png" />
+  </ItemGroup>
+
+</Project>
