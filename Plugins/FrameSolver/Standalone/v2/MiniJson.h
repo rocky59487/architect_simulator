@@ -25,6 +25,7 @@
 
 #pragma once
 
+#include <cerrno>
 #include <cmath>
 #include <cstdint>
 #include <cstdlib>
@@ -292,6 +293,14 @@ private:
                         default: err = "bad escape char"; return false;
                     }
                 } else {
+                    // P3 fix (review pass): raw control characters (< 0x20) are illegal in JSON
+                    // strings per RFC 8259 §7. System.Text.Json on the C# side already rejects
+                    // them; without this guard the native parser silently accepts them and the
+                    // two parsers disagree on what a valid frame looks like (parity break).
+                    if (static_cast<unsigned char>(c) < 0x20) {
+                        err = "raw control char in string (must be \\uXXXX escaped)";
+                        return false;
+                    }
                     r += c;
                 }
             }
@@ -343,7 +352,17 @@ private:
                 if (!std::isfinite(d)) { err = "non-finite number (overflow or denormal)"; return false; }
                 out = d;
             } else {
-                out = static_cast<int64_t>(std::strtoll(num.c_str(), nullptr, 10));
+                // P3 fix (review pass): strtoll silently clamps to LLONG_MAX/MIN on overflow
+                // and sets errno=ERANGE. Without the check, a JSON integer like 1e19 would
+                // round-trip to 9223372036854775807 and downstream consumers would treat it
+                // as a valid value. Clear errno (older glibc versions can leave it set from
+                // a prior call) and reject any value that hit the range clamp.
+                errno = 0;
+                char* endPtr = nullptr;
+                long long ll = std::strtoll(num.c_str(), &endPtr, 10);
+                if (errno == ERANGE) { err = "integer literal out of range for int64_t"; return false; }
+                if (endPtr != num.c_str() + num.size()) { err = "integer literal has trailing chars"; return false; }
+                out = static_cast<int64_t>(ll);
             }
             return true;
         }

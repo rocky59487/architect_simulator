@@ -216,6 +216,12 @@ public:
     /// `error { code: "CANCELLED" }` early.
     void CancelRequest(const std::string& reqId);
     bool IsCancelled(const std::string& reqId) const;
+    /// Erase a tombstone after it has been observed (Submit calls this once the CANCELLED
+    /// response is queued, and again after every completed request). Keeps the cancelled set
+    /// bounded to the in-flight working set instead of accumulating one entry per cancel ever
+    /// issued -- important for long-running Rhino sessions that see thousands of slider-drag
+    /// cancellations.
+    void ClearCancelled(const std::string& reqId);
 
     /// Snapshot of the connection state — useful for the C ABI's frame_v2_pending_count and
     /// frame_v2_last_error introspection.

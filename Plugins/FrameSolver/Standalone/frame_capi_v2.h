@@ -149,8 +149,18 @@ enum {
 // JSON header, FRAME_V2_INVALID_CTX on a closed/null ctx, FRAME_V2_OUT_OF_MEMORY if the
 // impl could not queue the frame.
 //
-// This call is asynchronous: the dispatcher may schedule the work on its own worker thread.
-// Use frame_v2_recv to collect response/event frames addressed to the request id.
+// CURRENT IMPLEMENTATION (v2.4 + B3 follow-up, SYNCHRONOUS)
+//   The dispatcher executes the handler on the caller's thread before frame_v2_send returns.
+//   For short-running handlers (solve.linear / inspect.* / analysis.modal/buckling) the wait
+//   is sub-millisecond. For long-running handlers (size_opt with many iterations, dyn_collapse
+//   with many frames) the call blocks for the full handler runtime; clients that need a
+//   responsive UI should drive frame_v2_send from a worker thread of their own.
+//
+// FUTURE (B4, planned -- see HANDOFF_v2.4.md § 4 C-06 / C-07)
+//   A per-session worker thread will own the inbound queue, frame_v2_send will return as soon
+//   as the frame is queued, and long-running handlers will stream `event` frames out via
+//   frame_v2_recv. Until that lands, treat this entry point as a synchronous RPC -- the return
+//   code reflects the handler's outcome too, not just the framing parse.
 FCAPI int frame_v2_send(frame_v2_ctx* ctx, const uint8_t* inFrame, size_t inLen);
 
 // Receive one frame from the engine into outBuf (capacity outCap).
@@ -182,10 +192,18 @@ FCAPI int frame_v2_recv(frame_v2_ctx* ctx,
 // protocol-level "cancel" method to abort a long-running solve.
 FCAPI int frame_v2_cancel_recv(frame_v2_ctx* ctx);
 
-// Convenience: send a protocol-level "cancel" request frame addressed to targetId. Equivalent
-// to building and frame_v2_send'ing a JSON header
+// Set an in-process tombstone for targetId. The next frame_v2_send carrying that id is
+// rejected at dispatch with `error { code: "CANCELLED", message: "client cancelled before
+// dispatch" }`. The tombstone is consumed on first match -- a subsequent send re-using the
+// id is treated as a fresh request.
+//
+// NOTE on protocol semantics: this is a LOCAL shortcut, NOT the wire-level cancel. It does
+// NOT enqueue a `cancel` REQUEST frame and does NOT produce a `cancel` RESPONSE frame on the
+// outbound side. If the client wants the protocol-level cancel ack (so a peer logging the
+// wire sees the cancellation), it should build and frame_v2_send a real request frame:
 //     { v:2, kind:"request", id:<auto>, method:"cancel", body:{ targetId:"<targetId>" } }
-// inside the impl. Returns the same codes as frame_v2_send.
+// which goes through the dispatcher's HandleCancel and returns a normal response. Both paths
+// set the same tombstone, so the cancellation effect on the targeted id is identical.
 FCAPI int frame_v2_cancel_request(frame_v2_ctx* ctx, const char* targetId);
 
 // ----- Diagnostics --------------------------------------------------------------------------

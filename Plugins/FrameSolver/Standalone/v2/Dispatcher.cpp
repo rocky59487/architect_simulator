@@ -110,6 +110,13 @@ void Dispatcher::Submit(Frame inbound) {
         return;
     }
     if (IsCancelled(id)) {
+        // P2 fix (review pass): tombstone CONSUMED here -- the cancelled set used to keep id
+        // forever, so a long-running Rhino session that sees a slider drag fire thousands of
+        // cancellable requests would leak one entry per request. Erasing on consume keeps the
+        // set bounded to the in-flight working set. The CancelRequest -> Submit ordering is
+        // serialised through submitMtx_, so a cancel that arrives AFTER this erase is a fresh
+        // tombstone targeting a future id.
+        ClearCancelled(id);
         EnqueueOutbound(MakeError(id, "CANCELLED", "client cancelled before dispatch"));
         return;
     }
@@ -122,6 +129,10 @@ void Dispatcher::Submit(Frame inbound) {
     } catch (...) {
         out = MakeError(id, "INTERNAL", "dispatcher exception: unknown");
     }
+    // P2 fix: a request that COMPLETED also clears any pre-emptive tombstone, so a cancel
+    // that arrives after the handler returned (race against the response frame) does not
+    // leave a permanent entry behind. The id is now "settled" -- the response is queued.
+    ClearCancelled(id);
     EnqueueOutbound(std::move(out));
 }
 
@@ -150,6 +161,11 @@ void Dispatcher::CancelRequest(const std::string& reqId) {
 bool Dispatcher::IsCancelled(const std::string& reqId) const {
     std::lock_guard<std::mutex> lk(cancelMtx_);
     return ctx_.cancelled.count(reqId) > 0;
+}
+
+void Dispatcher::ClearCancelled(const std::string& reqId) {
+    std::lock_guard<std::mutex> lk(cancelMtx_);
+    ctx_.cancelled.erase(reqId);
 }
 
 size_t Dispatcher::PendingOutbound() const {

@@ -257,6 +257,45 @@ namespace FrameCore.Gh.Components.Analyze
                 int h = 17;
                 h = h * 31 + mats.Count;
                 h = h * 31 + secs.Count;
+                // P1 fix (review pass after B5): the previous fingerprint hashed only the
+                // material / section LIST LENGTHS, so an upstream sweep that changed
+                // E / G / Rho / Nu / Cap (or A / Iy / Iz / J / Cy / Cz / Asy / Asz) without
+                // changing the count silently hit the cache. The cached engineSessionId then
+                // pointed at a model built from STALE values, so B3-wired solve.linear would
+                // return forces from the wrong stiffness. Fold every numeric field into the
+                // hash; Cap=null contributes a distinct bucket so "had a cap" -> "no cap"
+                // also bumps the fingerprint.
+                foreach (var gm in mats)
+                {
+                    var m = gm.Value;
+                    h = h * 31 + m.E.GetHashCode();
+                    h = h * 31 + m.G.GetHashCode();
+                    h = h * 31 + m.Rho.GetHashCode();
+                    h = h * 31 + m.Nu.GetHashCode();
+                    if (m.Cap is { } cap)
+                    {
+                        h = h * 31 + cap.Comp.GetHashCode();
+                        h = h * 31 + cap.Tens.GetHashCode();
+                        h = h * 31 + cap.Shear.GetHashCode();
+                    }
+                    else
+                    {
+                        h = h * 31 + 0;   // distinguish "no cap" from "cap = (0,0,0)"
+                        h = h * 31 - 1;
+                    }
+                }
+                foreach (var gs in secs)
+                {
+                    var s = gs.Value;
+                    h = h * 31 + s.A.GetHashCode();
+                    h = h * 31 + s.Iy.GetHashCode();
+                    h = h * 31 + s.Iz.GetHashCode();
+                    h = h * 31 + s.J.GetHashCode();
+                    h = h * 31 + s.Cy.GetHashCode();
+                    h = h * 31 + s.Cz.GetHashCode();
+                    h = h * 31 + s.Asy.GetHashCode();
+                    h = h * 31 + s.Asz.GetHashCode();
+                }
                 // v2.4 release-hardening fix (D-15): `+` binds tighter than `^`, so the
                 // unparenthesised form `h * 31 + X ^ Y ^ Z` was `(h * 31 + X) ^ Y ^ Z`,
                 // which silently lost the `h` accumulation when only Y or Z changed —
