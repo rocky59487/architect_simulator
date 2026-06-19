@@ -137,6 +137,48 @@ README "scope boundaries" section is unchanged in v2.4 (engine code untouched).
   `analysis.buckling`, `inspect.*`) are registered handlers that return
   `NOT_IMPLEMENTED`. The 6th gate leg verifies this contract — the SKIP it carries
   is intentional and named (`solve.linear bit-exact vs v1`).
+
+> **ERRATA (post-v2.4 follow-up, 2026-06-19).** Several items called out as B2
+> stub or B3+ deferred below have shipped on `main` between the v2.4 tag
+> (`6de233b`) and HEAD (`5c526c0`). Pre-tag readers should re-check `git log
+> 6de233b..` before treating any of the items below as still-open. The
+> follow-up commits in order:
+> - `a859810` chore: v2.4 deferred quick wins — B-12 / H-09 / H-10 /
+>   H-02-03-04 / build.bat conditional supernodal land.
+> - `180c9e8` feat: **B3 dispatcher wire** — 12 method handlers reach
+>   FrameCore. `solve.linear` returns real disp / reactions / member forces /
+>   shell forces, bit-exact vs `frame_capi.dll` v1 on the cantilever fixture
+>   (rel < 1e-11). `inspect.*` reads the session's cached `SolveResult`.
+>   `solve.pdelta` / `solve.tension_only` / `solve.size_opt` /
+>   `solve.corotational` / `solve.arclength` / `analysis.modal` /
+>   `analysis.buckling` all call the engine and return structured responses
+>   that v2_roundtrip spec-shape checks pass.
+> - `3814f58` fix: **A-01 close UAF race** closed via a shared_ptr ownership
+>   registry (every entry point acquires a ref before doing work).
+> - `214e99f` feat: **B5 supernodal factor-reuse** wired through
+>   `session.open mode=supernodal` → SnSession. **D-03 GH race** closed via
+>   `_openGate` lock. **D-09 P/Invoke audit** completed — 7 Cdecl delegates
+>   line-checked against `frame_capi_v2.h`. **E-10 S6b method table**
+>   gained `[B3]/[B4]/[B5]` status icons.
+> - `a139a12` docs: HANDOFF_v2.4 § 4 marked done / deferred-with-reason for
+>   every entry below.
+> - `5c526c0` fix: review-round hardening. **P1 AssembleModel fingerprint**
+>   now hashes material + section numeric fields (was Count only). **P2
+>   cancel tombstone leak** closed via `ClearCancelled` on both the CANCEL
+>   path and after every completed handler. **P2 ABI doc** explicitly
+>   marks `frame_v2_send` synchronous + flags `transport.sync` capability
+>   for client detection. **P3 MiniJson** rejects raw control chars in
+>   strings and adds errno/ERANGE checks on integer overflow.
+>
+> Still deferred after the follow-up:
+> - **C-06 / C-07 / B4 streaming** — per-session worker thread + binary
+>   payload + cancel-mid-stream. The dispatcher remains `transport.sync`
+>   until B4 lands; clients detect via `hello.capabilities` (the
+>   `transport.sync` token was added in `5c526c0`).
+> - **B7 GHA dotnet build** — host has no Rhino 8 / .NET 8 SDK; the source
+>   has not changed since v2.4 release.
+> - **F65 / F66 warped-shell fixtures** — need a numerically robust template
+>   so they do not flake; F61 already covers the membrane-warp convergence.
 - B2's `engineVersion = "2.4.0"`, `schemaVer = "2026.06"`, `abi_version = 2`,
   `build_sha = "10b767c"` (build-time `git rev-parse --short HEAD`).
 - C# Layer 3 + Layer 4 are **not `dotnet build`-verified on the integrator's

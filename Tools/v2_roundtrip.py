@@ -134,6 +134,8 @@ class V2Dll:
         self.lib.frame_v2_recv.restype         = ctypes.c_int
         self.lib.frame_v2_pending_count.argtypes = [ctypes.c_void_p]
         self.lib.frame_v2_pending_count.restype  = ctypes.c_int
+        self.lib.frame_v2_cancel_request.argtypes = [ctypes.c_void_p, ctypes.c_char_p]
+        self.lib.frame_v2_cancel_request.restype  = ctypes.c_int
 
     def open(self) -> int:
         ctx = self.lib.frame_v2_open()
@@ -145,6 +147,9 @@ class V2Dll:
 
     def send(self, ctx: int, frame: bytes) -> int:
         return self.lib.frame_v2_send(ctx, frame, len(frame))
+
+    def cancel_request(self, ctx: int, target_id: str) -> int:
+        return self.lib.frame_v2_cancel_request(ctx, target_id.encode("utf-8"))
 
     def recv(self, ctx: int, timeout_ms: int = 1000) -> tuple[int, bytes]:
         # Two-call dance.
@@ -520,6 +525,57 @@ def main() -> int:
                               f"kind={hdr.get('kind')} code={err_code}"): failures += 1
     finally:
         dll.close(ctx2)
+
+    # --- P2 review-round: cancel tombstone gets CONSUMED, not left to leak ---
+    # (a) pre-emptive cancel for id "rc1"; (b) send rc1 -> expect CANCELLED;
+    # (c) re-send rc1 -> expect normal response (tombstone consumed in (b)).
+    ctx3 = dll.open()
+    try:
+        dll.send(ctx3, build_frame({
+            "v": 2, "kind": "hello", "id": "hs",
+            "body": {"client": "v2_roundtrip.py/0.1", "profile": "simple"}
+        }))
+        hello_caps = set()
+        rc, raw = dll.recv(ctx3)
+        if rc == OK:
+            _, hh, _ = parse_frame(raw)
+            hello_caps = set(hh.get("body", {}).get("capabilities", []))
+        if not check("P1 review-round: hello.capabilities advertises 'transport.sync'",
+                      "transport.sync" in hello_caps,
+                      f"caps={sorted(hello_caps)}"): failures += 1
+
+        # (a) pre-emptive cancel
+        rc_c = dll.cancel_request(ctx3, "rc1")
+        if not check("cancel_request(pre-emptive) returns OK", rc_c == OK, f"rc={rc_c}"):
+            failures += 1
+        # (b) send rc1 -> CANCELLED
+        dll.send(ctx3, build_frame({
+            "v": 2, "kind": "request", "id": "rc1", "method": "session.open",
+            "body": {"mode": "default"}
+        }))
+        rc, raw = dll.recv(ctx3)
+        is_cancelled = False
+        if rc == OK:
+            _, hdr, _ = parse_frame(raw)
+            is_cancelled = (hdr.get("body", {}).get("code") == "CANCELLED")
+        if not check("send id=rc1 after cancel -> CANCELLED",
+                      is_cancelled, f"rc={rc} hdr={raw[:64] if rc==OK else None}"): failures += 1
+        # (c) re-send rc1 -> expect normal response (tombstone consumed)
+        dll.send(ctx3, build_frame({
+            "v": 2, "kind": "request", "id": "rc1", "method": "session.open",
+            "body": {"mode": "default"}
+        }))
+        rc, raw = dll.recv(ctx3)
+        re_ok = False
+        if rc == OK:
+            _, hdr, _ = parse_frame(raw)
+            re_ok = (hdr.get("kind") == "response"
+                      and isinstance(hdr.get("body", {}).get("session"), str))
+        if not check("re-send same id rc1 -> OK (tombstone consumed, no permanent leak)",
+                      re_ok, f"rc={rc} hdr_body={(parse_frame(raw)[1].get('body') if rc==OK else None)}"):
+            failures += 1
+    finally:
+        dll.close(ctx3)
 
     print(f"=== summary: {('ALL PASS' if failures == 0 else f'{failures} FAIL')} ===")
     return 0 if failures == 0 else 1

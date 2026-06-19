@@ -152,6 +152,10 @@
 - 引擎廢能力 → 加入 `deprecated`,**保留 method 數 N 個版本**(承諾至少 2 minor);
 - 客戶端遇到伺服器沒宣告的能力 → 自己 fallback 或讓使用者知道(`ERR/UNSUPPORTED_METHOD`)。
 
+**Transport-mode capability(P1 review-round signal)**
+
+dispatcher 跑 handler 的方式是 client 可見的:同步 (`transport.sync`,handler 在 caller thread 跑完才 return)或非同步 (`transport.async`,handler 跑在 server-owned worker thread,client 透過 frame_v2_recv 收 response/event)。v2.4 + B3 follow-up 是 **`transport.sync`**(`Dispatcher::Submit` inline 執行 handler)。B4 worker-thread redesign 上線後改 `transport.async`,client 用同一個 hello.capabilities 字串 detect 不需 sniff C header。Long-running solve(`solve.size_opt` / `solve.dyn_collapse`)在 `transport.sync` 下會 block frame_v2_send 直到 handler 返回 — client 必須自己 worker thread off-load,或等 `transport.async`。
+
 ---
 
 ## ③ Method 目錄(method catalogue, schema 版本 `2026.06`)

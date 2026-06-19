@@ -143,10 +143,16 @@ inline std::vector<std::string> Capabilities() {
         "profile.advanced",
         "profile.simple",
         "session",
-        // Model (validation WIRED; engine call B3).
+        // Model (validation WIRED; engine call WIRED in B3 -- see follow-up commits).
         "model.set",
-        // Solve verb exists; bit-exact-vs-v1 in B3.
+        // Solve verb wired post-v2.4 (B3 follow-up; bit-exact vs v1 frame_capi.dll).
         "solve.linear",
+        // P1 review-round signal: the current dispatcher runs handlers INLINE on the caller
+        // thread (see frame_capi_v2.h `frame_v2_send` doc). A client that needs a non-blocking
+        // dispatch must (a) drive frame_v2_send from a worker thread of its own OR (b) wait
+        // for B4 to ship "transport.async". Tagging the mode in capabilities lets the C# /
+        // Python SDK negotiate behaviour without reading the C header.
+        "transport.sync",
     };
 }
 

@@ -5,6 +5,18 @@
 // itself is single-DLL-per-transport: each CApiV2Transport instance allocates its own ctx,
 // so multiple FrameSessions in the same process do not interfere.
 //
+// CONCURRENCY MODE (v2.4 + B3 follow-up: SYNCHRONOUS dispatch)
+//   The native dispatcher runs the handler on the caller's thread, so SendAsync below blocks
+//   until the handler returns. For short calls (solve.linear / inspect.* / analysis.*) that is
+//   sub-millisecond and the GH UI thread is fine. For long calls (solve.size_opt with many
+//   iterations, solve.dyn_collapse with many frames) the caller MUST drive SendAsync from a
+//   worker thread (this is what the AsyncFrameComponent pattern already does in our GH
+//   components -- see AssembleModelComponent's `_assembling = AssembleAsync(...)`).
+//
+//   The server advertises this contract via the `transport.sync` capability in hello. When
+//   the B4 redesign (HANDOFF_v2.4.md § 4 C-06 / C-07) lands, the capability flips to
+//   `transport.async` and clients can stop their own worker-thread off-loading.
+//
 // LIFETIME -- the ctx is freed in DisposeAsync. If the host process forgets to dispose, the
 // DLL leaks the ctx; the finalizer pattern is intentionally NOT used because P/Invoke into a
 // possibly-unloaded module from the GC thread is asking for crashes.
