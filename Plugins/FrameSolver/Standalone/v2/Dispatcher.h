@@ -50,6 +50,14 @@
 #include "FrameWire.h"
 #include "MiniJson.h"
 
+// Forward declarations so this header stays Eigen-free; the full FrameCore types only need to
+// be complete in Dispatcher.cpp (where the engine handlers live).
+namespace frame {
+    struct FrameModel;
+    struct PreparedSystem;
+    struct SolveResult;
+}
+
 namespace frame_v2 {
 
 #ifndef FRAMECORE_BUILD_SHA
@@ -65,14 +73,20 @@ enum class Profile { Simple, Advanced };
 /// Per-engine-session state: factor handle, options snapshot, model fingerprint, defaults
 /// fill tracker (simple profile populates this so client sees what was silently default-ed).
 struct EngineSession {
+    EngineSession();
+    ~EngineSession();                              // out-of-line so unique_ptr<incomplete> works
+    EngineSession(const EngineSession&) = delete;
+    EngineSession& operator=(const EngineSession&) = delete;
+
     std::string  id;
     Profile      profile = Profile::Simple;
     bool         hasModel = false;
     uint64_t     modelFingerprint = 0;
-    // Engine integration goes here in B3+; for B2 we just hold the metadata.
-    // std::unique_ptr<frame::PreparedSystem>  prepared;
-    // std::unique_ptr<frame::SnSession>       sn;
-    // std::unique_ptr<frame::ReSolveSession>  resolve;
+    // B3 wire: real engine state. unique_ptr keeps these forward-declared in this header so the
+    // dispatcher transport stays Eigen-free; the .cpp side completes the types.
+    std::unique_ptr<frame::FrameModel>     model;
+    std::unique_ptr<frame::PreparedSystem> prepared;
+    std::unique_ptr<frame::SolveResult>    lastSolve;        // last successful solve.linear cache
     std::vector<std::string> defaultsApplied;     // populated by model.set in simple profile
 };
 

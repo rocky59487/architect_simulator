@@ -18,8 +18,30 @@
 //   line in build_capi_v2.bat.
 
 #include "Dispatcher.h"
+#include "ModelBuilder.h"
+
+#include "FrameCore/FrameModel.h"
+#include "FrameCore/FrameSolver.h"
+#include "FrameCore/SolveResult.h"
+#include "FrameCore/SolveOptions.h"
+#include "FrameCore/PDeltaAnalysis.h"
+#include "FrameCore/TensionOnly.h"
+#include "FrameCore/SizeOpt.h"
+#include "FrameCore/CorotationalAnalysis.h"
+#include "FrameCore/ModalAnalysis.h"
+#include "FrameCore/ModalResult.h"
+#include "FrameCore/BucklingAnalysis.h"
+#include "FrameCore/BucklingResult.h"
+
+#include <cmath>
 
 namespace frame_v2 {
+
+// EngineSession ctor / dtor live here (out-of-line) so the unique_ptr<frame::...> members in
+// the header can stay forward-declared. With these completed types in scope the defaulted
+// special members are well-formed.
+EngineSession::EngineSession()  = default;
+EngineSession::~EngineSession() = default;
 
 Dispatcher::Dispatcher() {
     // Connection-mgmt (all [WIRED]).
@@ -286,27 +308,27 @@ Frame Dispatcher::HandleModelSet(Dispatcher&, Context& ctx, const Frame& in) {
                     sess->defaultsApplied.push_back("materials[" + std::to_string(k) + "].cap");
     }
 
-    // [TODO B3] Construct frame::FrameModel from body and call engine's validate(); the schema
-    // -> FrameModel conversion mirrors frame_cli_core.cpp::buildModel but reads from MiniJson
-    // instead of istringstream. Real call site:
-    //
-    //   frame::FrameModel model = buildModelFromJson(*body);
-    //   std::string why;
-    //   if (!model.validate(why)) return MakeError(id, "VALIDATION_FAILED", why);
-    //   sess->hasModel = true;
-    //   sess->modelFingerprint = ...;
-    //
-    // For B2 we accept the JSON shape and return a placeholder dofCount so the dispatch path
-    // and the v2_roundtrip gate's plumbing tests can run end-to-end.
+    // ---- B3 wire: build the frame::FrameModel from JSON and run validate() --------------
+    auto fresh = std::make_unique<frame::FrameModel>();
+    std::string buildErr;
+    if (!buildModelFromJson(*body, *fresh, buildErr))
+        return MakeError(id, "VALIDATION_FAILED", "model schema: " + buildErr);
 
-    sess->hasModel = true;
-    int64_t nNodes = 0;
-    if (const Json* nodes = body->get("nodes"); nodes && nodes->isArray())
-        nNodes = static_cast<int64_t>(nodes->asArray().size());
+    std::string why;
+    if (!fresh->validate(why))
+        return MakeError(id, "VALIDATION_FAILED", "model validate: " + why);
+
+    // Replace the session's model; invalidate any cached prepared factor / solve result -- a
+    // new model means a new K_ff, so prior caches must not be reused.
+    sess->model     = std::move(fresh);
+    sess->prepared.reset();
+    sess->lastSolve.reset();
+    sess->hasModel  = true;
+    sess->modelFingerprint = 0;  // populated by B5 (factor-reuse) when it lands
 
     JsonObject out;
     out.emplace("ok",       Json(true));
-    out.emplace("dofCount", Json(nNodes * 6));
+    out.emplace("dofCount", Json(static_cast<int64_t>(sess->model->dofCount())));
     if (!sess->defaultsApplied.empty()) {
         JsonArray d;
         for (const auto& s : sess->defaultsApplied) d.push_back(Json(s));
@@ -320,28 +342,144 @@ Frame Dispatcher::HandleModelSet(Dispatcher&, Context& ctx, const Frame& in) {
 // The real implementation: assembleAndFactor + solveLoad, emit disp/reactions/MF/SF dicts.
 // ====================================================================================
 
+namespace {
+
+// A-04 (B3 tier): every double we emit must be finite. Returns false + sets `where` to the
+// first offender so HandleSolveLinear can convert it to a structured NON_FINITE_RESULT frame.
+inline bool finiteOrFail(double v, const char* tag, std::size_t idx, std::string& where) {
+    if (std::isfinite(v)) return true;
+    where = std::string(tag) + "[" + std::to_string(idx) + "]=" + std::to_string(v);
+    return false;
+}
+
+// Pack a 6-DOF tuple (Ux,Uy,Uz,Rx,Ry,Rz) under a node id, JSON object keyed by stringified id.
+inline JsonObject packDisp(const frame::FrameModel& model, const frame::SolveResult& R,
+                            const char* tag, bool useReactions,
+                            std::string& nfWhere) {
+    JsonObject out;
+    for (std::size_t k = 0; k < model.nodes.size(); ++k) {
+        const int kI = static_cast<int>(k);
+        double v[6];
+        for (int d = 0; d < 6; ++d)
+            v[d] = static_cast<double>(useReactions ? R.reaction(kI, d) : R.disp(kI, d));
+        for (int d = 0; d < 6; ++d) {
+            if (!finiteOrFail(v[d], tag, k * 6 + d, nfWhere)) return JsonObject{};
+        }
+        JsonArray a;
+        for (int d = 0; d < 6; ++d) a.push_back(Json(v[d]));
+        out.emplace(std::to_string(model.nodes[k].id), Json(std::move(a)));
+    }
+    return out;
+}
+
+inline JsonObject packMemberForces(const frame::SolveResult& R, std::string& nfWhere) {
+    JsonObject out;
+    for (std::size_t e = 0; e < R.memberForces.size(); ++e) {
+        const auto& mf = R.memberForces[e];
+        const double iN  = static_cast<double>(mf.endI.N),  iVy = static_cast<double>(mf.endI.Vy),
+                     iVz = static_cast<double>(mf.endI.Vz), iT  = static_cast<double>(mf.endI.T),
+                     iMy = static_cast<double>(mf.endI.My), iMz = static_cast<double>(mf.endI.Mz);
+        const double jN  = static_cast<double>(mf.endJ.N),  jVy = static_cast<double>(mf.endJ.Vy),
+                     jVz = static_cast<double>(mf.endJ.Vz), jT  = static_cast<double>(mf.endJ.T),
+                     jMy = static_cast<double>(mf.endJ.My), jMz = static_cast<double>(mf.endJ.Mz);
+        const double vals[12] = { iN, iVy, iVz, iT, iMy, iMz, jN, jVy, jVz, jT, jMy, jMz };
+        for (int d = 0; d < 12; ++d)
+            if (!finiteOrFail(vals[d], "memberForces", e * 12 + d, nfWhere)) return JsonObject{};
+        JsonArray endI; for (int d = 0; d < 6; ++d) endI.push_back(Json(vals[d]));
+        JsonArray endJ; for (int d = 6; d < 12; ++d) endJ.push_back(Json(vals[d]));
+        JsonObject mfo;
+        mfo.emplace("endI", Json(std::move(endI)));
+        mfo.emplace("endJ", Json(std::move(endJ)));
+        out.emplace(std::to_string(mf.member), Json(std::move(mfo)));
+    }
+    return out;
+}
+
+inline JsonObject packShellForces(const frame::SolveResult& R, std::string& nfWhere) {
+    JsonObject out;
+    for (std::size_t e = 0; e < R.shellForces.size(); ++e) {
+        const auto& sf = R.shellForces[e];
+        const double v[8] = {
+            static_cast<double>(sf.Mxx), static_cast<double>(sf.Myy), static_cast<double>(sf.Mxy),
+            static_cast<double>(sf.Qx),  static_cast<double>(sf.Qy),
+            static_cast<double>(sf.Nxx), static_cast<double>(sf.Nyy), static_cast<double>(sf.Nxy)
+        };
+        for (int d = 0; d < 8; ++d)
+            if (!finiteOrFail(v[d], "shellForces", e * 8 + d, nfWhere)) return JsonObject{};
+        JsonObject sfo;
+        sfo.emplace("Mxx", Json(v[0])); sfo.emplace("Myy", Json(v[1])); sfo.emplace("Mxy", Json(v[2]));
+        sfo.emplace("Qx",  Json(v[3])); sfo.emplace("Qy",  Json(v[4]));
+        sfo.emplace("Nxx", Json(v[5])); sfo.emplace("Nyy", Json(v[6])); sfo.emplace("Nxy", Json(v[7]));
+        out.emplace(std::to_string(sf.shell), Json(std::move(sfo)));
+    }
+    return out;
+}
+
+}  // namespace
+
 Frame Dispatcher::HandleSolveLinear(Dispatcher&, Context& ctx, const Frame& in) {
     const std::string id = in.header.getString("id", "?");
     const Json* body = in.header.get("body");
     std::string err;
     auto sess = resolveSession(ctx, body, err);
     if (!sess) return MakeError(id, "VALIDATION_FAILED", err);
-    if (!sess->hasModel) return MakeError(id, "VALIDATION_FAILED", "session has no model; call model.set first");
+    if (!sess->hasModel || !sess->model)
+        return MakeError(id, "VALIDATION_FAILED", "session has no model; call model.set first");
 
-    // [TODO B3] real engine call here. Returns SolveResult; map to body fields.
-    // For B2 stub: emit the response SHAPE so a roundtrip test can verify the wire layout
-    // without needing the engine. Treat as "engine returned 0 displacements"; the gate
-    // marks solve.linear as SKIP until B3 replaces the placeholder.
+    const bool wantReactions = body->getBool("wantReactions", true);
 
-    JsonObject empty;
+    // assembleAndFactor + solveLoad. If the prepared factor is missing or stale we rebuild;
+    // B5 (factor-reuse) makes this conditional on modelFingerprint. For B3 we factor every
+    // call -- the v2_roundtrip gate only cares about correctness, not factor reuse.
+    try {
+        if (!sess->prepared) {
+            sess->prepared = std::make_unique<frame::PreparedSystem>(
+                frame::assembleAndFactor(*sess->model, frame::SolveOptions{}));
+        }
+        sess->lastSolve = std::make_unique<frame::SolveResult>(
+            frame::solveLoad(*sess->prepared, *sess->model));
+    } catch (const std::exception& e) {
+        return MakeError(id, "INTERNAL", std::string("engine: ") + e.what());
+    }
+
+    const frame::SolveResult& R = *sess->lastSolve;
+
     JsonObject out;
-    out.emplace("singular",     Json(false));
-    out.emplace("pivotMargin",  Json(0.0));
-    out.emplace("disp",         Json(std::move(empty)));
-    out.emplace("reactions",    Json(JsonObject{}));
-    out.emplace("memberForces", Json(JsonObject{}));
-    out.emplace("shellForces",  Json(JsonObject{}));
-    out.emplace("_stub",        Json(true));  // explicit marker the gate looks for
+    out.emplace("singular",    Json(R.singular));
+    if (!std::isfinite(static_cast<double>(R.pivotMargin)))
+        return MakeError(id, "NON_FINITE_RESULT", "pivotMargin is non-finite");
+    out.emplace("pivotMargin", Json(static_cast<double>(R.pivotMargin)));
+    if (!R.diagnostic.empty()) out.emplace("diagnostic", Json(R.diagnostic));
+
+    if (R.singular) {
+        // Singular -> empty payload but keep the spec shape so the client can read uniformly.
+        out.emplace("disp",         Json(JsonObject{}));
+        out.emplace("reactions",    Json(JsonObject{}));
+        out.emplace("memberForces", Json(JsonObject{}));
+        out.emplace("shellForces",  Json(JsonObject{}));
+    } else {
+        std::string nfWhere;
+        JsonObject disp = packDisp(*sess->model, R, "disp", false, nfWhere);
+        if (!nfWhere.empty()) return MakeError(id, "NON_FINITE_RESULT", nfWhere);
+        out.emplace("disp", Json(std::move(disp)));
+
+        if (wantReactions) {
+            JsonObject rxn = packDisp(*sess->model, R, "reactions", true, nfWhere);
+            if (!nfWhere.empty()) return MakeError(id, "NON_FINITE_RESULT", nfWhere);
+            out.emplace("reactions", Json(std::move(rxn)));
+        } else {
+            out.emplace("reactions", Json(JsonObject{}));
+        }
+
+        JsonObject mfs = packMemberForces(R, nfWhere);
+        if (!nfWhere.empty()) return MakeError(id, "NON_FINITE_RESULT", nfWhere);
+        out.emplace("memberForces", Json(std::move(mfs)));
+
+        JsonObject sfs = packShellForces(R, nfWhere);
+        if (!nfWhere.empty()) return MakeError(id, "NON_FINITE_RESULT", nfWhere);
+        out.emplace("shellForces", Json(std::move(sfs)));
+    }
+
     if (sess->profile == Profile::Advanced) {
         JsonObject diag;
         diag.emplace("factorMethod",  Json(std::string("LDLT")));
@@ -358,36 +496,385 @@ inline Frame notImpl(const std::string& method, const Frame& in) {
     const std::string id = in.header.getString("id", "?");
     return MakeError(id, "NOT_IMPLEMENTED", method + " is registered but not wired to the engine yet (B2 stub)");
 }
+
+// Shared resolve+lastSolve check for the inspect.* family. Returns nullptr (and fills `errOut`)
+// when the session does not yet hold a cached SolveResult; otherwise returns the session.
+inline std::shared_ptr<EngineSession> inspectSession(Context& ctx, const Json* body,
+                                                      std::string& errOut) {
+    auto sess = resolveSession(ctx, body, errOut);
+    if (!sess) return nullptr;
+    if (!sess->hasModel || !sess->model || !sess->lastSolve) {
+        errOut = "session has no cached SolveResult; call solve.linear first";
+        return nullptr;
+    }
+    return sess;
+}
 }  // namespace
 
 // ====================================================================================
-// inspect.disp / mf / rf / sf -- TODO B3. They are registered so older callers get a
-// structured protocol error, but they are not advertised in hello capabilities until the
-// session owns a real cached SolveResult.
+// inspect.disp / inspect.reactions / inspect.member_forces / inspect.shell_forces
+// B3 wire: read straight from the session's cached SolveResult. No engine re-call.
 // ====================================================================================
 
-Frame Dispatcher::HandleInspectDisp(Dispatcher&, Context&, const Frame& in) {
-    return notImpl("inspect.disp", in);
+Frame Dispatcher::HandleInspectDisp(Dispatcher&, Context& ctx, const Frame& in) {
+    const std::string id = in.header.getString("id", "?");
+    std::string err;
+    auto sess = inspectSession(ctx, in.header.get("body"), err);
+    if (!sess) return MakeError(id, "VALIDATION_FAILED", err);
+    std::string nfWhere;
+    JsonObject disp = packDisp(*sess->model, *sess->lastSolve, "disp", false, nfWhere);
+    if (!nfWhere.empty()) return MakeError(id, "NON_FINITE_RESULT", nfWhere);
+    JsonObject out; out.emplace("disp", Json(std::move(disp)));
+    return MakeResponse(id, std::move(out));
 }
 
-Frame Dispatcher::HandleInspectMF(Dispatcher&, Context&, const Frame& in) { return notImpl("inspect.member_forces", in); }
-Frame Dispatcher::HandleInspectRF(Dispatcher&, Context&, const Frame& in) { return notImpl("inspect.reactions", in); }
-Frame Dispatcher::HandleInspectSF(Dispatcher&, Context&, const Frame& in) { return notImpl("inspect.shell_forces", in); }
+Frame Dispatcher::HandleInspectRF(Dispatcher&, Context& ctx, const Frame& in) {
+    const std::string id = in.header.getString("id", "?");
+    std::string err;
+    auto sess = inspectSession(ctx, in.header.get("body"), err);
+    if (!sess) return MakeError(id, "VALIDATION_FAILED", err);
+    std::string nfWhere;
+    JsonObject rxn = packDisp(*sess->model, *sess->lastSolve, "reactions", true, nfWhere);
+    if (!nfWhere.empty()) return MakeError(id, "NON_FINITE_RESULT", nfWhere);
+    JsonObject out; out.emplace("reactions", Json(std::move(rxn)));
+    return MakeResponse(id, std::move(out));
+}
+
+Frame Dispatcher::HandleInspectMF(Dispatcher&, Context& ctx, const Frame& in) {
+    const std::string id = in.header.getString("id", "?");
+    std::string err;
+    auto sess = inspectSession(ctx, in.header.get("body"), err);
+    if (!sess) return MakeError(id, "VALIDATION_FAILED", err);
+    std::string nfWhere;
+    JsonObject mfs = packMemberForces(*sess->lastSolve, nfWhere);
+    if (!nfWhere.empty()) return MakeError(id, "NON_FINITE_RESULT", nfWhere);
+    JsonObject out; out.emplace("memberForces", Json(std::move(mfs)));
+    return MakeResponse(id, std::move(out));
+}
+
+Frame Dispatcher::HandleInspectSF(Dispatcher&, Context& ctx, const Frame& in) {
+    const std::string id = in.header.getString("id", "?");
+    std::string err;
+    auto sess = inspectSession(ctx, in.header.get("body"), err);
+    if (!sess) return MakeError(id, "VALIDATION_FAILED", err);
+    std::string nfWhere;
+    JsonObject sfs = packShellForces(*sess->lastSolve, nfWhere);
+    if (!nfWhere.empty()) return MakeError(id, "NON_FINITE_RESULT", nfWhere);
+    JsonObject out; out.emplace("shellForces", Json(std::move(sfs)));
+    return MakeResponse(id, std::move(out));
+}
 
 // ====================================================================================
-// Stubs (B3+ wires these). All return NOT_IMPLEMENTED -- the protocol level error code clearly
-// distinguishes them from a real engine failure.
+// B3 wire: 7 engine-backed analyses. Each follows the same shape:
+//   1. validate session + model
+//   2. read JSON options (all optional; defaults match engine defaults)
+//   3. call the engine; trap exceptions
+//   4. emit a structured response (singular flag + convergence + finalState if applicable)
+// All numeric outputs go through finiteOrFail/packDisp/packMemberForces/packShellForces so
+// A-04 (NON_FINITE_RESULT) covers them too.
+// ====================================================================================
+
+namespace {
+// Pack a SolveResult sub-state (used by every analysis whose finalState is a SolveResult).
+inline bool packFinalState(const frame::FrameModel& model, const frame::SolveResult& R,
+                            bool wantReactions, JsonObject& dest, std::string& nfWhere) {
+    dest.emplace("singular",    Json(R.singular));
+    dest.emplace("pivotMargin", Json(static_cast<double>(R.pivotMargin)));
+    if (!R.diagnostic.empty()) dest.emplace("diagnostic", Json(R.diagnostic));
+    if (R.singular) {
+        dest.emplace("disp",         Json(JsonObject{}));
+        dest.emplace("reactions",    Json(JsonObject{}));
+        dest.emplace("memberForces", Json(JsonObject{}));
+        dest.emplace("shellForces",  Json(JsonObject{}));
+        return true;
+    }
+    JsonObject disp = packDisp(model, R, "disp", false, nfWhere);
+    if (!nfWhere.empty()) return false;
+    dest.emplace("disp", Json(std::move(disp)));
+    if (wantReactions) {
+        JsonObject rxn = packDisp(model, R, "reactions", true, nfWhere);
+        if (!nfWhere.empty()) return false;
+        dest.emplace("reactions", Json(std::move(rxn)));
+    } else {
+        dest.emplace("reactions", Json(JsonObject{}));
+    }
+    JsonObject mfs = packMemberForces(R, nfWhere);
+    if (!nfWhere.empty()) return false;
+    dest.emplace("memberForces", Json(std::move(mfs)));
+    JsonObject sfs = packShellForces(R, nfWhere);
+    if (!nfWhere.empty()) return false;
+    dest.emplace("shellForces", Json(std::move(sfs)));
+    return true;
+}
+}  // namespace
+
+Frame Dispatcher::HandlePDelta(Dispatcher&, Context& ctx, const Frame& in) {
+    const std::string id = in.header.getString("id", "?");
+    const Json* body = in.header.get("body");
+    std::string err;
+    auto sess = resolveSession(ctx, body, err);
+    if (!sess) return MakeError(id, "VALIDATION_FAILED", err);
+    if (!sess->hasModel || !sess->model)
+        return MakeError(id, "VALIDATION_FAILED", "session has no model; call model.set first");
+    frame::PDeltaOptions opts;
+    opts.maxIter      = static_cast<int>(body->getInt("maxIter", opts.maxIter));
+    opts.tolU         = static_cast<frame::real>(body->getDouble("tolU", opts.tolU));
+    opts.accelerate   = body->getBool("accelerate", opts.accelerate);
+    opts.refactorPath = body->getBool("refactorPath", opts.refactorPath);
+    frame::PDeltaResult R;
+    try { R = frame::runPDelta(*sess->model, opts); }
+    catch (const std::exception& e) { return MakeError(id, "INTERNAL", std::string("engine: ") + e.what()); }
+
+    JsonObject out;
+    out.emplace("converged",    Json(R.converged));
+    out.emplace("diverged",     Json(R.diverged));
+    out.emplace("iterations",   Json(static_cast<int64_t>(R.iterations)));
+    out.emplace("lastIncrement",Json(static_cast<double>(R.lastIncrement)));
+    JsonObject finalState; std::string nfWhere;
+    if (!packFinalState(*sess->model, R.finalState, true, finalState, nfWhere))
+        return MakeError(id, "NON_FINITE_RESULT", nfWhere);
+    out.emplace("finalState", Json(std::move(finalState)));
+    sess->lastSolve = std::make_unique<frame::SolveResult>(R.finalState);
+    return MakeResponse(id, std::move(out));
+}
+
+Frame Dispatcher::HandleTensionOnly(Dispatcher&, Context& ctx, const Frame& in) {
+    const std::string id = in.header.getString("id", "?");
+    const Json* body = in.header.get("body");
+    std::string err;
+    auto sess = resolveSession(ctx, body, err);
+    if (!sess) return MakeError(id, "VALIDATION_FAILED", err);
+    if (!sess->hasModel || !sess->model)
+        return MakeError(id, "VALIDATION_FAILED", "session has no model; call model.set first");
+    frame::TensionOnlyOptions opts;
+    opts.maxIter           = static_cast<int>(body->getInt("maxIter", opts.maxIter));
+    opts.allowReactivation = body->getBool("allowReactivation", opts.allowReactivation);
+    opts.axialTol          = static_cast<frame::real>(body->getDouble("axialTol", opts.axialTol));
+    frame::TensionOnlyResult R;
+    try { R = frame::runTensionOnly(*sess->model, opts); }
+    catch (const std::exception& e) { return MakeError(id, "INTERNAL", std::string("engine: ") + e.what()); }
+
+    JsonObject out;
+    out.emplace("converged",  Json(R.converged));
+    out.emplace("cycled",     Json(R.cycled));
+    out.emplace("iterations", Json(static_cast<int64_t>(R.iterations)));
+    JsonArray slack; for (auto mid : R.slack) slack.push_back(Json(static_cast<int64_t>(mid)));
+    out.emplace("slack", Json(std::move(slack)));
+    JsonObject finalState; std::string nfWhere;
+    if (!packFinalState(*sess->model, R.finalState, true, finalState, nfWhere))
+        return MakeError(id, "NON_FINITE_RESULT", nfWhere);
+    out.emplace("finalState", Json(std::move(finalState)));
+    sess->lastSolve = std::make_unique<frame::SolveResult>(R.finalState);
+    return MakeResponse(id, std::move(out));
+}
+
+Frame Dispatcher::HandleSizeOpt(Dispatcher&, Context& ctx, const Frame& in) {
+    const std::string id = in.header.getString("id", "?");
+    const Json* body = in.header.get("body");
+    std::string err;
+    auto sess = resolveSession(ctx, body, err);
+    if (!sess) return MakeError(id, "VALIDATION_FAILED", err);
+    if (!sess->hasModel || !sess->model)
+        return MakeError(id, "VALIDATION_FAILED", "session has no model; call model.set first");
+    frame::SizeOptOptions opts;
+    opts.maxIter = static_cast<int>(body->getInt("maxIter", opts.maxIter));
+    opts.dcTol   = static_cast<frame::real>(body->getDouble("dcTol", opts.dcTol));
+    opts.Amin    = static_cast<frame::real>(body->getDouble("Amin",  opts.Amin));
+    std::vector<int> sizable;
+    if (const Json* sb = body->get("sizableMembers"); sb && sb->isArray())
+        for (const auto& e : sb->asArray())
+            if (e.isNumber()) sizable.push_back(static_cast<int>(e.asInt()));
+    frame::SizeOptResult R;
+    try { R = frame::runSizeOptimization(*sess->model, opts, sizable); }
+    catch (const std::exception& e) { return MakeError(id, "INTERNAL", std::string("engine: ") + e.what()); }
+
+    JsonObject out;
+    out.emplace("converged",     Json(R.converged));
+    out.emplace("cycled",        Json(R.cycled));
+    out.emplace("singular",      Json(R.singular));
+    out.emplace("invalidDemand", Json(R.invalidDemand));
+    out.emplace("iterations",    Json(static_cast<int64_t>(R.iterations)));
+    JsonArray areas, dc;
+    for (auto v : R.finalAreas) {
+        if (!std::isfinite(static_cast<double>(v)))
+            return MakeError(id, "NON_FINITE_RESULT", "finalAreas non-finite");
+        areas.push_back(Json(static_cast<double>(v)));
+    }
+    for (auto v : R.finalDC) {
+        if (!std::isfinite(static_cast<double>(v)))
+            return MakeError(id, "NON_FINITE_RESULT", "finalDC non-finite");
+        dc.push_back(Json(static_cast<double>(v)));
+    }
+    out.emplace("finalAreas", Json(std::move(areas)));
+    out.emplace("finalDC",    Json(std::move(dc)));
+    return MakeResponse(id, std::move(out));
+}
+
+Frame Dispatcher::HandleCorotational(Dispatcher&, Context& ctx, const Frame& in) {
+    const std::string id = in.header.getString("id", "?");
+    const Json* body = in.header.get("body");
+    std::string err;
+    auto sess = resolveSession(ctx, body, err);
+    if (!sess) return MakeError(id, "VALIDATION_FAILED", err);
+    if (!sess->hasModel || !sess->model)
+        return MakeError(id, "VALIDATION_FAILED", "session has no model; call model.set first");
+    frame::CorotationalOptions opts;
+    opts.loadSteps = static_cast<int>(body->getInt("loadSteps", opts.loadSteps));
+    opts.maxIter   = static_cast<int>(body->getInt("maxIter",   opts.maxIter));
+    opts.tolR      = static_cast<frame::real>(body->getDouble("tolR", opts.tolR));
+    opts.tolU      = static_cast<frame::real>(body->getDouble("tolU", opts.tolU));
+    opts.shellCorotational = body->getBool("shellCorotational", opts.shellCorotational);
+    frame::CorotationalResult R;
+    try { R = frame::runCorotational(*sess->model, opts); }
+    catch (const std::exception& e) { return MakeError(id, "INTERNAL", std::string("engine: ") + e.what()); }
+
+    JsonObject out;
+    out.emplace("converged", Json(R.converged));
+    out.emplace("diverged",  Json(R.diverged));
+    out.emplace("loadStepsCompleted", Json(static_cast<int64_t>(R.loadStepsCompleted)));
+    out.emplace("totalIterations",    Json(static_cast<int64_t>(R.totalIterations)));
+    out.emplace("lastResidual",       Json(static_cast<double>(R.lastResidual)));
+    JsonObject finalState; std::string nfWhere;
+    if (!packFinalState(*sess->model, R.finalState, true, finalState, nfWhere))
+        return MakeError(id, "NON_FINITE_RESULT", nfWhere);
+    out.emplace("finalState", Json(std::move(finalState)));
+    sess->lastSolve = std::make_unique<frame::SolveResult>(R.finalState);
+    return MakeResponse(id, std::move(out));
+}
+
+Frame Dispatcher::HandleArcLength(Dispatcher&, Context& ctx, const Frame& in) {
+    const std::string id = in.header.getString("id", "?");
+    const Json* body = in.header.get("body");
+    std::string err;
+    auto sess = resolveSession(ctx, body, err);
+    if (!sess) return MakeError(id, "VALIDATION_FAILED", err);
+    if (!sess->hasModel || !sess->model)
+        return MakeError(id, "VALIDATION_FAILED", "session has no model; call model.set first");
+    frame::CorotationalOptions opts;
+    opts.useArcLength      = true;                                         // method-implied
+    opts.arcLength         = static_cast<frame::real>(body->getDouble("arcLength", 0.0));
+    opts.arcSteps          = static_cast<int>(body->getInt("arcSteps", opts.arcSteps));
+    opts.maxIter           = static_cast<int>(body->getInt("maxIter",   opts.maxIter));
+    opts.tolR              = static_cast<frame::real>(body->getDouble("tolR", opts.tolR));
+    opts.monitorDof        = static_cast<int>(body->getInt("monitorDof", opts.monitorDof));
+    opts.consistentTangent = body->getBool("consistentTangent", opts.consistentTangent);
+    frame::CorotationalResult R;
+    try { R = frame::runCorotational(*sess->model, opts); }
+    catch (const std::exception& e) { return MakeError(id, "INTERNAL", std::string("engine: ") + e.what()); }
+
+    JsonObject out;
+    out.emplace("converged", Json(R.converged));
+    out.emplace("diverged",  Json(R.diverged));
+    out.emplace("totalIterations", Json(static_cast<int64_t>(R.totalIterations)));
+    JsonArray pl, pd;
+    for (auto v : R.pathLambda) {
+        if (!std::isfinite(static_cast<double>(v))) return MakeError(id, "NON_FINITE_RESULT", "pathLambda");
+        pl.push_back(Json(static_cast<double>(v)));
+    }
+    for (auto v : R.pathDisp) {
+        if (!std::isfinite(static_cast<double>(v))) return MakeError(id, "NON_FINITE_RESULT", "pathDisp");
+        pd.push_back(Json(static_cast<double>(v)));
+    }
+    out.emplace("pathLambda", Json(std::move(pl)));
+    out.emplace("pathDisp",   Json(std::move(pd)));
+    JsonObject finalState; std::string nfWhere;
+    if (!packFinalState(*sess->model, R.finalState, true, finalState, nfWhere))
+        return MakeError(id, "NON_FINITE_RESULT", nfWhere);
+    out.emplace("finalState", Json(std::move(finalState)));
+    sess->lastSolve = std::make_unique<frame::SolveResult>(R.finalState);
+    return MakeResponse(id, std::move(out));
+}
+
+Frame Dispatcher::HandleModal(Dispatcher&, Context& ctx, const Frame& in) {
+    const std::string id = in.header.getString("id", "?");
+    const Json* body = in.header.get("body");
+    std::string err;
+    auto sess = resolveSession(ctx, body, err);
+    if (!sess) return MakeError(id, "VALIDATION_FAILED", err);
+    if (!sess->hasModel || !sess->model)
+        return MakeError(id, "VALIDATION_FAILED", "session has no model; call model.set first");
+    if (!sess->prepared) {
+        try { sess->prepared = std::make_unique<frame::PreparedSystem>(frame::assembleAndFactor(*sess->model)); }
+        catch (const std::exception& e) { return MakeError(id, "INTERNAL", std::string("engine: ") + e.what()); }
+    }
+    frame::ModalOptions opts;
+    opts.numModes        = static_cast<int>(body->getInt("numModes", opts.numModes));
+    opts.useSparseSolver = body->getBool("useSparseSolver", opts.useSparseSolver);
+    frame::ModalResult R;
+    try { R = frame::solveModal(*sess->prepared, opts); }
+    catch (const std::exception& e) { return MakeError(id, "INTERNAL", std::string("engine: ") + e.what()); }
+
+    JsonObject out;
+    out.emplace("singular", Json(R.singular));
+    if (!R.diagnostic.empty()) out.emplace("diagnostic", Json(R.diagnostic));
+    JsonArray modes;
+    for (const auto& m : R.modes) {
+        if (!std::isfinite(static_cast<double>(m.omega)) || !std::isfinite(static_cast<double>(m.freqHz)))
+            return MakeError(id, "NON_FINITE_RESULT", "mode omega/freqHz");
+        JsonObject mo;
+        mo.emplace("omega",  Json(static_cast<double>(m.omega)));
+        mo.emplace("freqHz", Json(static_cast<double>(m.freqHz)));
+        JsonArray shape;
+        for (auto v : m.shape) {
+            if (!std::isfinite(static_cast<double>(v))) return MakeError(id, "NON_FINITE_RESULT", "mode shape");
+            shape.push_back(Json(static_cast<double>(v)));
+        }
+        mo.emplace("shape", Json(std::move(shape)));
+        modes.push_back(Json(std::move(mo)));
+    }
+    out.emplace("modes", Json(std::move(modes)));
+    return MakeResponse(id, std::move(out));
+}
+
+Frame Dispatcher::HandleBuckling(Dispatcher&, Context& ctx, const Frame& in) {
+    const std::string id = in.header.getString("id", "?");
+    const Json* body = in.header.get("body");
+    std::string err;
+    auto sess = resolveSession(ctx, body, err);
+    if (!sess) return MakeError(id, "VALIDATION_FAILED", err);
+    if (!sess->hasModel || !sess->model)
+        return MakeError(id, "VALIDATION_FAILED", "session has no model; call model.set first");
+    if (!sess->prepared) {
+        try { sess->prepared = std::make_unique<frame::PreparedSystem>(frame::assembleAndFactor(*sess->model)); }
+        catch (const std::exception& e) { return MakeError(id, "INTERNAL", std::string("engine: ") + e.what()); }
+    }
+    frame::BucklingOptions opts;
+    opts.denseThreshold          = static_cast<int>(body->getInt("denseThreshold", opts.denseThreshold));
+    opts.nev                     = static_cast<int>(body->getInt("nev", opts.nev));
+    opts.maxIter                 = static_cast<int>(body->getInt("maxIter", opts.maxIter));
+    opts.tol                     = static_cast<frame::real>(body->getDouble("tol", opts.tol));
+    opts.shellBucklingKnockdown  = static_cast<frame::real>(body->getDouble("shellBucklingKnockdown",
+                                                                              opts.shellBucklingKnockdown));
+    frame::BucklingResult R;
+    try { R = frame::solveBuckling(*sess->prepared, *sess->model, opts); }
+    catch (const std::exception& e) { return MakeError(id, "INTERNAL", std::string("engine: ") + e.what()); }
+
+    JsonObject out;
+    out.emplace("singular", Json(R.singular));
+    if (!R.diagnostic.empty()) out.emplace("diagnostic", Json(R.diagnostic));
+    if (!std::isfinite(static_cast<double>(R.criticalFactor))
+        || !std::isfinite(static_cast<double>(R.reportedCriticalFactor))
+        || !std::isfinite(static_cast<double>(R.knockdownFactor)))
+        return MakeError(id, "NON_FINITE_RESULT", "buckling factor non-finite");
+    out.emplace("criticalFactor",         Json(static_cast<double>(R.criticalFactor)));
+    out.emplace("reportedCriticalFactor", Json(static_cast<double>(R.reportedCriticalFactor)));
+    out.emplace("knockdownFactor",        Json(static_cast<double>(R.knockdownFactor)));
+    JsonArray mode;
+    for (auto v : R.mode) {
+        if (!std::isfinite(static_cast<double>(v))) return MakeError(id, "NON_FINITE_RESULT", "buckling mode");
+        mode.push_back(Json(static_cast<double>(v)));
+    }
+    out.emplace("mode", Json(std::move(mode)));
+    return MakeResponse(id, std::move(out));
+}
+
+// ====================================================================================
+// Remaining stubs: dyn_collapse waits for B4 (streaming + binary payload); reanalysis_solve
+// waits for B5 (factor-reuse session); model.patch waits for a schema decision.
 // ====================================================================================
 
 Frame Dispatcher::HandleModelPatch  (Dispatcher&, Context&, const Frame& in) { return notImpl("model.patch",        in); }
-Frame Dispatcher::HandlePDelta      (Dispatcher&, Context&, const Frame& in) { return notImpl("solve.pdelta",       in); }
-Frame Dispatcher::HandleTensionOnly (Dispatcher&, Context&, const Frame& in) { return notImpl("solve.tension_only", in); }
-Frame Dispatcher::HandleSizeOpt     (Dispatcher&, Context&, const Frame& in) { return notImpl("solve.size_opt",     in); }
 Frame Dispatcher::HandleDynCollapse (Dispatcher&, Context&, const Frame& in) { return notImpl("solve.dyn_collapse", in); }
-Frame Dispatcher::HandleCorotational(Dispatcher&, Context&, const Frame& in) { return notImpl("solve.corotational", in); }
-Frame Dispatcher::HandleArcLength   (Dispatcher&, Context&, const Frame& in) { return notImpl("solve.arclength",    in); }
-Frame Dispatcher::HandleModal       (Dispatcher&, Context&, const Frame& in) { return notImpl("analysis.modal",     in); }
-Frame Dispatcher::HandleBuckling    (Dispatcher&, Context&, const Frame& in) { return notImpl("analysis.buckling",  in); }
 Frame Dispatcher::HandleReanalysis  (Dispatcher&, Context&, const Frame& in) { return notImpl("analysis.reanalysis_solve", in); }
 
 }  // namespace frame_v2
