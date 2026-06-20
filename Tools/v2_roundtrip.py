@@ -280,7 +280,7 @@ def main() -> int:
             caps = set(body.get("capabilities", []))
             wanted = {"session", "model.set", "solve.linear", "solve.dyn_collapse",
                        "analysis.reanalysis_solve", "profile.simple", "profile.advanced",
-                       "cancel", "transport.async"}
+                       "cancel", "transport.async", "dyn_collapse.live"}
             missing = wanted - caps
             if not check("hello.capabilities includes core set", not missing,
                           f"missing={sorted(missing)}"): failures += 1
@@ -487,6 +487,67 @@ def main() -> int:
             if not check("solve.dyn_collapse returns final summary shape", dyn_ok,
                           f"final={final} rc={rc if final is None else OK}"):
                 failures += 1
+
+            # P1-3 (v2.7) live streaming: re-open a session with non-zero density and run a
+            # short dyn_collapse with streamFrames=True. The dispatcher pushes each
+            # dyn_collapse.frame event WHILE the integrator runs (via the engine's
+            # onFrameEmitted callback), then a single final response. Verify that:
+            #   (a) at least one frame event arrived before the response,
+            #   (b) the live event count matches the final summary's nFrames,
+            #   (c) frame events arrive interleaved BEFORE the response kind (not after).
+            dll.send(ctx, build_frame({
+                "v": 2, "kind": "request", "id": "rdc_l1", "method": "session.open",
+                "body": {"mode": "default"}
+            }))
+            rc_l1, raw_l1 = dll.recv(ctx)
+            if rc_l1 == OK:
+                _, hdr_l1, _ = parse_frame(raw_l1)
+                sid_l = hdr_l1["body"].get("session")
+                mass_model = dict(CANTILEVER_V2_JSON)
+                mass_model["materials"] = [{"E": 210000, "G": 80769, "rho": 7.85e-9}]
+                if sid_l:
+                    dll.send(ctx, build_frame({
+                        "v": 2, "kind": "request", "id": "rdc_lm", "method": "model.set",
+                        "body": {"session": sid_l, **mass_model}
+                    }))
+                    dll.recv(ctx)
+                    dll.send(ctx, build_frame({
+                        "v": 2, "kind": "request", "id": "rdc_lv", "method": "solve.dyn_collapse",
+                        "body": {"session": sid_l, "dt": 0.001, "maxTime": 0.005,
+                                 "frameStride": 1, "streamFrames": True, "streamEvents": False,
+                                 "binaryFrames": False, "initialRemovals": []}
+                    }))
+                    live_frames = 0
+                    final_l = None
+                    for _ in range(64):
+                        rc_x, raw_x = dll.recv(ctx)
+                        if rc_x != OK: break
+                        _, hdr_x, _ = parse_frame(raw_x)
+                        kind = hdr_x.get("kind")
+                        body_x = hdr_x.get("body", {})
+                        if kind == "event" and body_x.get("channel") == "dyn_collapse.frame":
+                            live_frames += 1
+                        elif kind in ("response", "error"):
+                            final_l = hdr_x
+                            break
+                    n_frames_final = (final_l.get("body", {}).get("nFrames", -1)
+                                      if final_l is not None else -1)
+                    ok_live = (final_l is not None
+                               and final_l.get("kind") == "response"
+                               and live_frames >= 1
+                               and live_frames == n_frames_final)
+                    if not check(
+                        "P1-3: solve.dyn_collapse live emits frames during run "
+                        "(live count matches final nFrames)",
+                        ok_live,
+                        f"live_frames={live_frames} nFrames={n_frames_final} "
+                        f"final={None if final_l is None else final_l.get('kind')}"):
+                        failures += 1
+                    dll.send(ctx, build_frame({
+                        "v": 2, "kind": "request", "id": "rdc_lc",
+                        "method": "session.close", "body": {"session": sid_l}
+                    }))
+                    dll.recv(ctx)
 
         # --- session.close ---
         if sid:

@@ -1236,48 +1236,60 @@ Frame Dispatcher::HandleDynCollapse(Dispatcher& d, Context& ctx, const Frame& in
     const bool binaryFrames = body->getBool("binaryFrames", true);
     const bool streamEvents = body->getBool("streamEvents", true);
 
+    // P1-3 (v2.7 live streaming): wire the engine's onFrameEmitted callback to push each
+    // dyn_collapse.frame event onto the outbound queue THE MOMENT runDynamicCollapse stores it,
+    // not after the integrator returns. The dispatcher's recv-side worker drains the queue
+    // independently, so the client sees frames during the run instead of a burst at the end.
+    // NON_FINITE_RESULT check moves into the callback (per-frame) so a NaN aborts the run
+    // before the engine wastes more steps. The abort signal is shared with isCancelled so the
+    // integrator early-exits at the next frameStride boundary.
+    auto abortReason = std::make_shared<std::string>();
+    const std::string capturedId = id;
+    opts.onFrameEmitted = [&d, capturedId, binaryFrames, streamFrames, abortReason]
+                         (const frame::DynCollapseFrame& fr) {
+        if (!abortReason->empty()) return;
+        if (!std::isfinite(static_cast<double>(fr.t))) { *abortReason = "frame time NaN"; return; }
+        for (frame::real x : fr.u)
+            if (!std::isfinite(static_cast<double>(x))) { *abortReason = "frame.u NaN"; return; }
+        for (frame::real x : fr.v)
+            if (!std::isfinite(static_cast<double>(x))) { *abortReason = "frame.v NaN"; return; }
+        if (!streamFrames) return;
+        JsonObject details;
+        details.emplace("t",             Json(static_cast<double>(fr.t)));
+        details.emplace("dof",           Json(static_cast<int64_t>(fr.u.size())));
+        details.emplace("uCount",        Json(static_cast<int64_t>(fr.u.size())));
+        details.emplace("vCount",        Json(static_cast<int64_t>(fr.v.size())));
+        details.emplace("maxAbsU",       Json(maxAbs(fr.u)));
+        details.emplace("maxAbsV",       Json(maxAbs(fr.v)));
+        details.emplace("payloadLayout", Json(std::string(binaryFrames ? "u_then_v_f64_le" : "none")));
+        Frame ev = MakeEvent(capturedId, "dyn_collapse.frame", std::move(details));
+        if (binaryFrames) {
+            ev.flags |= kFlagBinaryPayload;
+            ev.payload.reserve((fr.u.size() + fr.v.size()) * sizeof(double));
+            for (frame::real x : fr.u) appendF64LE(ev.payload, static_cast<double>(x));
+            for (frame::real x : fr.v) appendF64LE(ev.payload, static_cast<double>(x));
+        }
+        d.Emit(std::move(ev));
+    };
+    opts.isCancelled = [&d, capturedId, abortReason]() {
+        return !abortReason->empty() || d.IsCancelled(capturedId);
+    };
+
     frame::DynCollapseHistory H;
     try { H = frame::runDynamicCollapse(*sess->model, opts); }
     catch (const std::exception& e) { return MakeError(id, "INTERNAL", std::string("engine: ") + e.what()); }
 
-    for (std::size_t i = 0; i < H.frames.size(); ++i) {
-        const auto& fr = H.frames[i];
-        if (!std::isfinite(static_cast<double>(fr.t)))
-            return MakeError(id, "NON_FINITE_RESULT", "dyn_collapse frame time");
-        for (std::size_t k = 0; k < fr.u.size(); ++k)
-            if (!std::isfinite(static_cast<double>(fr.u[k])))
-                return MakeError(id, "NON_FINITE_RESULT", "dyn_collapse frame.u");
-        for (std::size_t k = 0; k < fr.v.size(); ++k)
-            if (!std::isfinite(static_cast<double>(fr.v[k])))
-                return MakeError(id, "NON_FINITE_RESULT", "dyn_collapse frame.v");
-    }
+    if (!abortReason->empty())
+        return MakeError(id, "NON_FINITE_RESULT", "dyn_collapse: " + *abortReason);
+    if (d.IsCancelled(id))
+        return MakeError(id, "CANCELLED", "dyn_collapse cancelled by client mid-run");
 
+    // Events stay post-run (engine accumulates into H.events; live event emission would need a
+    // second engine callback for that channel — out of v2.7 scope, deferred).
     if (streamEvents) {
         for (std::size_t i = 0; i < H.events.size(); ++i) {
             JsonObject details = packDynEvent(H.events[i], static_cast<int>(i));
             d.EnqueueOutbound(MakeEvent(id, "dyn_collapse.event", std::move(details)));
-        }
-    }
-    if (streamFrames) {
-        for (std::size_t i = 0; i < H.frames.size(); ++i) {
-            const auto& fr = H.frames[i];
-            JsonObject details;
-            details.emplace("frameIndex",    Json(static_cast<int64_t>(i)));
-            details.emplace("t",             Json(static_cast<double>(fr.t)));
-            details.emplace("dof",           Json(static_cast<int64_t>(fr.u.size())));
-            details.emplace("uCount",        Json(static_cast<int64_t>(fr.u.size())));
-            details.emplace("vCount",        Json(static_cast<int64_t>(fr.v.size())));
-            details.emplace("maxAbsU",       Json(maxAbs(fr.u)));
-            details.emplace("maxAbsV",       Json(maxAbs(fr.v)));
-            details.emplace("payloadLayout", Json(std::string(binaryFrames ? "u_then_v_f64_le" : "none")));
-            Frame ev = MakeEvent(id, "dyn_collapse.frame", std::move(details));
-            if (binaryFrames) {
-                ev.flags |= kFlagBinaryPayload;
-                ev.payload.reserve((fr.u.size() + fr.v.size()) * sizeof(double));
-                for (frame::real v : fr.u) appendF64LE(ev.payload, static_cast<double>(v));
-                for (frame::real v : fr.v) appendF64LE(ev.payload, static_cast<double>(v));
-            }
-            d.EnqueueOutbound(std::move(ev));
         }
     }
 

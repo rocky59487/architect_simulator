@@ -365,6 +365,11 @@ DynCollapseHistory runDynamicCollapse(const FrameModel& model, const DynCollapse
         fr.u.assign(uN.data(), uN.data() + uN.size());
         fr.v.assign(vN.data(), vN.data() + vN.size());
         H.frames.push_back(std::move(fr));
+        // P1-3 (v2.7): emit the just-stored frame to any live consumer (v2 dispatcher pushes
+        // each event/frame down the wire here). The callback runs synchronously on the
+        // integrator thread; the dispatcher takes its own outbound mutex internally, so this
+        // does not need to be guarded here.
+        if (opts.onFrameEmitted) opts.onFrameEmitted(H.frames.back());
     };
     storeFrame(0, scatterToGlobal(cfg.Phi * q, work, cfg.fmap, cfg.N, true), VecX::Zero(cfg.N));
 
@@ -377,9 +382,20 @@ DynCollapseHistory runDynamicCollapse(const FrameModel& model, const DynCollapse
         const real ke = real(0.5) * qd.squaredNorm();
         maxKE = std::max(maxKE, ke);
 
-        if (step % opts.frameStride == 0)
+        if (step % opts.frameStride == 0) {
             storeFrame(t, scatterToGlobal(cfg.Phi * q, work, cfg.fmap, cfg.N, true),
                           scatterToGlobal(cfg.Phi * qd, work, cfg.fmap, cfg.N, false));
+            // P1-3 (v2.7): cooperative live-cancel hook. Polled on the same cadence as the
+            // frame emit, so a client that drops the connection / cancels the reqId mid-run
+            // wakes up the integrator within at most one frameStride step. Outcome stays
+            // Invalid (no new enum) and diagnostic flags the reason — callers distinguish
+            // cancel from solver failure via H.diagnostic.
+            if (opts.isCancelled && opts.isCancelled()) {
+                H.outcome    = CollapseOutcome::Invalid;
+                H.diagnostic = "cancelled by caller";
+                return H;
+            }
+        }
 
         if (step % opts.screenEvery != 0) continue;
 

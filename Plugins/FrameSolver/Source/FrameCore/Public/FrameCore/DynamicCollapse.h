@@ -3,6 +3,7 @@
 #include "FrameCore/SolveOptions.h"
 #include "FrameCore/Collapse.h"        // CollapseOutcome, CollapseHingeEvent, FailMode (via ISectionStrength)
 #include "FrameCore/Connectivity.h"    // FragmentCluster (now carries vel/angVel)
+#include <functional>
 #include <string>
 #include <vector>
 
@@ -24,6 +25,18 @@ struct DynCollapseOptions {
     std::vector<int>      initialShellRemovals;
     int  frameStride     = 10;     // store a (u,v) frame every N steps (UE replay)
     SolveOptions solve;            // pivotTol / enableReleases / useTimoshenko passthrough
+
+    // P1-3 (v2.7 live streaming): if set, called inside storeFrame() with the just-stored
+    // frame, so a transport (e.g. the v2 dispatcher) can push each frame to the client BEFORE
+    // runDynamicCollapse() returns. Default empty = old behaviour: frames still accumulate into
+    // H.frames and the caller walks them after return; existing standalone fixtures and the v1
+    // CLI are unaffected because they do not set the callback.
+    std::function<void(const struct DynCollapseFrame&)> onFrameEmitted;
+    // P1-3 (v2.7 live cancel): polled every frameStride steps. Returning true terminates the
+    // integrator immediately; H.outcome stays Invalid, H.diagnostic is set to "cancelled by
+    // caller", and H.frames keeps whatever was captured before cancel. Default empty = never
+    // cancelled.
+    std::function<bool()> isCancelled;
 };
 
 // One topology-changing event during the run. The lists are what was APPLIED at this event;

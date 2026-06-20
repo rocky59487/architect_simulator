@@ -152,6 +152,11 @@ inline std::vector<std::string> Capabilities() {
         // B4 transport signal: frame_v2_send queues parsed frames and returns; a per-context
         // worker thread drives handlers and frame_v2_recv drains responses/events.
         "transport.async",
+        // P1-3 (v2.7): solve.dyn_collapse pushes each frame event WHILE runDynamicCollapse is
+        // running, and honours a mid-run cancel request via the engine's isCancelled poll.
+        // Without this capability the client should expect frames in a burst after the final
+        // response (v2.6 behaviour).
+        "dyn_collapse.live",
     };
 }
 
@@ -232,6 +237,13 @@ public:
     /// frame_v2_last_error introspection.
     size_t PendingOutbound() const;
     std::string LastError() const;
+
+    /// P1-3 (v2.7): handlers running a long analysis call this to push an event frame onto
+    /// the outbound queue WHILE the engine is still running, so the client sees live progress
+    /// instead of a wall of frames after the engine returns. The internal queue has its own
+    /// mutex; Submit() does not need to be held here. Used by HandleDynCollapse to forward
+    /// each (u,v) snapshot the moment runDynamicCollapse emits it.
+    void Emit(Frame f) { EnqueueOutbound(std::move(f)); }
 
 private:
     using Handler = std::function<Frame(Dispatcher&, Context&, const Frame&)>;
