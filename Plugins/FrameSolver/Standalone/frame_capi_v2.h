@@ -72,9 +72,8 @@
 //   caveat above (mode=supernodal sessions share OpenBLAS thread count process-globally).
 //
 // BUILD
-//   - Built by build_capi_v2.bat as frame_capi_v2.dll (mirror of build_capi.bat) -- planned
-//     in B1; not yet shipped. This header is the contract; the .cpp comes in B2 alongside
-//     the dispatcher.
+//   - Built by build_capi_v2.bat as frame_capi_v2.dll (mirror of build_capi.bat). The DLL is
+//     the v2 in-process transport and shares the same frame protocol as stdio/pipe transports.
 
 #ifndef FRAME_CAPI_V2_H
 #define FRAME_CAPI_V2_H
@@ -117,9 +116,9 @@ typedef struct frame_v2_ctx frame_v2_ctx;
 // frame parser state, hello/capability cache, and session registry -- two contexts in the
 // same process do not see each other's sessions.
 //
-// Implementation detail (informative): the impl uses a per-ctx mpsc queue between the inbound
-// frame parser and the dispatcher worker, so frame_v2_send returns as soon as the frame is
-// queued; frame_v2_recv pulls completed response/event frames out of the same queue.
+// Implementation detail (informative): the impl uses a per-ctx inbound queue and dispatcher
+// worker, so frame_v2_send returns after the frame is parsed and queued; frame_v2_recv pulls
+// completed response/event frames from the outbound queue.
 FCAPI frame_v2_ctx* frame_v2_open(void);
 
 // Release a context. After close() the pointer is dangling; callers must not reuse it.
@@ -149,18 +148,14 @@ enum {
 // JSON header, FRAME_V2_INVALID_CTX on a closed/null ctx, FRAME_V2_OUT_OF_MEMORY if the
 // impl could not queue the frame.
 //
-// CURRENT IMPLEMENTATION (v2.4 + B3 follow-up, SYNCHRONOUS)
-//   The dispatcher executes the handler on the caller's thread before frame_v2_send returns.
-//   For short-running handlers (solve.linear / inspect.* / analysis.modal/buckling) the wait
-//   is sub-millisecond. For long-running handlers (size_opt with many iterations, dyn_collapse
-//   with many frames) the call blocks for the full handler runtime; clients that need a
-//   responsive UI should drive frame_v2_send from a worker thread of their own.
+// CURRENT IMPLEMENTATION (B4, ASYNCHRONOUS)
+//   frame_v2_send parses the raw frame and appends it to the ctx inbound queue, then returns.
+//   A per-context worker thread executes Dispatcher::Submit and frame_v2_recv drains response
+//   / event frames. The return code therefore describes framing/queueing success, not handler
+//   success; handler failures arrive as normal protocol `error` frames.
 //
-// FUTURE (B4, planned -- see HANDOFF_v2.4.md § 4 C-06 / C-07)
-//   A per-session worker thread will own the inbound queue, frame_v2_send will return as soon
-//   as the frame is queued, and long-running handlers will stream `event` frames out via
-//   frame_v2_recv. Until that lands, treat this entry point as a synchronous RPC -- the return
-//   code reflects the handler's outcome too, not just the framing parse.
+// NOTE
+//   (The old synchronous v2.4/B3 dispatch path is no longer used.)
 FCAPI int frame_v2_send(frame_v2_ctx* ctx, const uint8_t* inFrame, size_t inLen);
 
 // Receive one frame from the engine into outBuf (capacity outCap).

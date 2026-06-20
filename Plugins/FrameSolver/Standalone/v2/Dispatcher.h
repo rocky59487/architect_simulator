@@ -12,9 +12,9 @@
 //   in and pull framed bytes out.
 //
 // THREADING
-//   One Dispatcher per logical client connection. send() is the only thread-safe entry; it
-//   enqueues the inbound frame and either runs the handler synchronously on a worker pool or
-//   inline (B2 ships inline; B4 switches DYNC / Modal to a worker).
+//   One Dispatcher per logical client connection. The C ABI owns the inbound worker thread:
+//   frame_v2_send queues parsed frames, a per-context worker calls Submit(), and recv() drains
+//   response/event frames from the outbound queue.
 //
 // PROFILES
 //   profile=simple (default): silent fills, silent fallbacks, singular-as-flag. Matches v1
@@ -31,14 +31,13 @@
 //   * solve.linear — wired; assembleAndFactor + solveLoad (or SnSession::solveFrame in
 //                    supernodal mode); bit-exact vs v1 frame_capi.dll on cantilever (rel<1e-11)
 //   * inspect.{disp,reactions,member_forces,shell_forces} — wired; read cached SolveResult
-//   * solve.pdelta / solve.tension_only / solve.size_opt / solve.corotational /
-//     solve.arclength / analysis.modal / analysis.buckling — wired; each calls the engine,
+//   * solve.pdelta / solve.tension_only / solve.size_opt / solve.dyn_collapse /
+//     solve.corotational / solve.arclength / analysis.modal / analysis.buckling /
+//     analysis.reanalysis_solve are wired; each calls the engine,
 //     returns structured response, caches finalState for inspect.* re-reads
 //   * cancel — wired (per-id atomic tombstone, consumed on first match)
 //
-// Still B4+ deferred (return NOT_IMPLEMENTED):
-//   * solve.dyn_collapse — needs streaming + binary payload (B4)
-//   * analysis.reanalysis_solve — needs ReSolveSession wire (B5.2)
+// Still deferred (return NOT_IMPLEMENTED):
 //   * model.patch — schema TBD
 
 #pragma once
@@ -116,15 +115,12 @@ struct Context {
 
 /// Capability strings advertised in the hello reply.
 ///
-/// P1.2 (second round) + P2.1 (third round) rule: advertise ONLY methods whose handler
-/// returns USEFUL data today. v2.5 (B3 wire) substantially widens the advertised set —
-/// the seven analyses below + the four inspect verbs all run real FrameCore code and
-/// return spec-shape responses (or a structured engine error frame on failure).
+/// Advertise ONLY methods whose handler
+/// returns useful data today. The analysis and inspect verbs below run real FrameCore code
+/// and return spec-shape responses (or a structured engine error frame on failure).
 ///
-/// Still NOT advertised in v2.5 (return NOT_IMPLEMENTED — B4/B5.2/schema-pending):
-///   solve.dyn_collapse (B4 streaming) / analysis.reanalysis_solve (B5.2 ReSolveSession) /
-///   model.patch (schema TBD) / binary.modes / streaming.* / dyn_collapse.fragment_detail /
-///   diagnostic.stream.
+/// Still NOT advertised here: model.patch (schema TBD), binary.modes,
+/// dyn_collapse.fragment_detail, diagnostic.stream.
 inline std::vector<std::string> Capabilities() {
     return {
         // Connection-mgmt (WIRED).
@@ -141,22 +137,21 @@ inline std::vector<std::string> Capabilities() {
         "solve.pdelta",
         "solve.tension_only",
         "solve.size_opt",
+        "solve.dyn_collapse",
         "solve.corotational",
         "solve.arclength",
         "analysis.modal",
         "analysis.buckling",
+        "analysis.reanalysis_solve",
         // Inspect family — reads the session's cached SolveResult (set by the most recent
         // solve.*); returns spec-shape payloads with NaN/Inf guard via finiteOrFail.
         "inspect.disp",
         "inspect.reactions",
         "inspect.member_forces",
         "inspect.shell_forces",
-        // P1 review-round signal: the current dispatcher runs handlers INLINE on the caller
-        // thread (see frame_capi_v2.h `frame_v2_send` doc). A client that needs a non-blocking
-        // dispatch must (a) drive frame_v2_send from a worker thread of its own OR (b) wait
-        // for B4 to ship "transport.async". Tagging the mode in capabilities lets the C# /
-        // Python SDK negotiate behaviour without reading the C header.
-        "transport.sync",
+        // B4 transport signal: frame_v2_send queues parsed frames and returns; a per-context
+        // worker thread drives handlers and frame_v2_recv drains responses/events.
+        "transport.async",
     };
 }
 
@@ -214,7 +209,7 @@ class Dispatcher {
 public:
     Dispatcher();
 
-    /// Push one parsed inbound frame in. Runs the registered handler synchronously (B2);
+    /// Push one parsed inbound frame in. The C ABI calls this from its per-context worker;
     /// queues any output frame(s) onto the outbound queue. NEVER throws — handler errors
     /// produce an `error` frame.
     void Submit(Frame inbound);
@@ -253,7 +248,7 @@ private:
     static Frame HandleInspectDisp (Dispatcher&, Context&, const Frame&);
     static Frame HandleCancel      (Dispatcher&, Context&, const Frame&);
 
-    // ----- stubs (B3+ wires these to the engine) -----
+    // ----- engine-backed analysis handlers -----
     static Frame HandlePDelta       (Dispatcher&, Context&, const Frame&);
     static Frame HandleTensionOnly  (Dispatcher&, Context&, const Frame&);
     static Frame HandleSizeOpt      (Dispatcher&, Context&, const Frame&);

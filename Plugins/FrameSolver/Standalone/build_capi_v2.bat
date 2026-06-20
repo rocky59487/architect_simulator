@@ -43,7 +43,12 @@ pushd "%ROOT%"
 if not exist "Standalone\obj_capi_v2" mkdir "Standalone\obj_capi_v2"
 
 set "GITSHA=unknown"
-for /f "usebackq tokens=*" %%g in (`git -C "%ROOT%" rev-parse --short HEAD 2^>nul`) do set "GITSHA=%%g"
+set "GITROOT=%~dp0..\..\.."
+for /f "usebackq tokens=*" %%g in (`git -C "%GITROOT%" rev-parse --short HEAD 2^>nul`) do set "GITSHA=%%g"
+set "GITDIRTY="
+git -C "%GITROOT%" diff --quiet --ignore-submodules -- 2>nul || set "GITDIRTY=1"
+git -C "%GITROOT%" diff --cached --quiet --ignore-submodules -- 2>nul || set "GITDIRTY=1"
+if "!GITDIRTY!"=="1" set "GITSHA=!GITSHA!-dirty"
 
 if "!SUPERNODAL!"=="1" goto :build_sn_on
 goto :build_sn_off

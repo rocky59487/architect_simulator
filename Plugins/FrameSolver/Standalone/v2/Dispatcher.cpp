@@ -14,8 +14,10 @@
 //              matching engine entry point, traps exceptions into structured INTERNAL frames,
 //              and caches finalState into session.lastSolve for inspect.* re-reads.
 //
-//   [B4 deferred] solve.dyn_collapse -- needs streaming + binary payload.
-//   [B5.2 deferred] analysis.reanalysis_solve -- needs ReSolveSession wire.
+//   [WIRED B4] solve.dyn_collapse -- calls runDynamicCollapse and emits optional binary
+//              u/v replay frames before the final summary response.
+//   [WIRED B5.2] analysis.reanalysis_solve -- calls ReSolveSession for same-topology
+//              element active toggles and returns tier/rank diagnostics.
 //   [schema TBD] model.patch -- diff-format unsettled.
 //
 //   Engine link: build_capi_v2.bat now links FrameCore + SnSolver/SnSession objects
@@ -37,8 +39,14 @@
 #include "FrameCore/BucklingAnalysis.h"
 #include "FrameCore/BucklingResult.h"
 #include "FrameCore/SnSession.h"
+#include "FrameCore/DynamicCollapse.h"
+#include "FrameCore/Reanalysis.h"
+#include "FrameCore/ElasticAllowable.h"
 
+#include <algorithm>
 #include <cmath>
+#include <cstring>
+#include <limits>
 
 namespace frame_v2 {
 
@@ -56,8 +64,7 @@ Dispatcher::Dispatcher() {
     Register("session.status", &Dispatcher::HandleSessionStatus);
     Register("cancel",         &Dispatcher::HandleCancel);
 
-    // Model + the bare solver path -- model.set validates JSON; solve.linear is the [TODO B3]
-    // anchor with the most-detailed scaffold so the others can be cloned from it.
+    // Model + the bare solver path.
     Register("model.set",      &Dispatcher::HandleModelSet);
     Register("model.patch",    &Dispatcher::HandleModelPatch);
     Register("solve.linear",   &Dispatcher::HandleSolveLinear);
@@ -68,7 +75,7 @@ Dispatcher::Dispatcher() {
     Register("inspect.reactions",     &Dispatcher::HandleInspectRF);
     Register("inspect.shell_forces",  &Dispatcher::HandleInspectSF);
 
-    // Analysis family. All [TODO B3].
+    // Analysis family.
     Register("solve.pdelta",         &Dispatcher::HandlePDelta);
     Register("solve.tension_only",   &Dispatcher::HandleTensionOnly);
     Register("solve.size_opt",       &Dispatcher::HandleSizeOpt);
@@ -292,8 +299,8 @@ Frame Dispatcher::HandleCancel(Dispatcher& d, Context&, const Frame& in) {
 }
 
 // ====================================================================================
-// model.set -- VALIDATES the schema today, ACCEPTS in simple, REJECTS missing-cap in advanced.
-// Engine call is the [TODO B3] anchor (commented out below); rest of model.set is real.
+// model.set -- builds and validates the engine FrameModel, accepts defaults in simple profile,
+// rejects missing capacity data in advanced profile.
 // ====================================================================================
 
 namespace {
@@ -460,6 +467,210 @@ inline JsonObject packShellForces(const frame::SolveResult& R, std::string& nfWh
     return out;
 }
 
+inline const char* failModeName(frame::FailMode mode) {
+    switch (mode) {
+        case frame::FailMode::None:           return "None";
+        case frame::FailMode::Crush:          return "Crush";
+        case frame::FailMode::Tension:        return "Tension";
+        case frame::FailMode::Shear:          return "Shear";
+        case frame::FailMode::Bending:        return "Bending";
+        case frame::FailMode::Torsion:        return "Torsion";
+        case frame::FailMode::ShellVonMises:  return "ShellVonMises";
+    }
+    return "Unknown";
+}
+
+inline const char* collapseOutcomeName(frame::CollapseOutcome outcome) {
+    switch (outcome) {
+        case frame::CollapseOutcome::Stable:    return "Stable";
+        case frame::CollapseOutcome::Collapsed: return "Collapsed";
+        case frame::CollapseOutcome::MaxSteps:  return "MaxSteps";
+        case frame::CollapseOutcome::Invalid:   return "Invalid";
+    }
+    return "Unknown";
+}
+
+inline JsonArray packIntArray(const std::vector<int>& values) {
+    JsonArray a;
+    for (int v : values) a.push_back(Json(static_cast<int64_t>(v)));
+    return a;
+}
+
+inline JsonArray packMemberIdArray(const std::vector<frame::MemberId>& values) {
+    JsonArray a;
+    for (frame::MemberId v : values) a.push_back(Json(static_cast<int64_t>(v)));
+    return a;
+}
+
+inline JsonArray packVec3(const frame::Vec3& v) {
+    JsonArray a;
+    a.push_back(Json(static_cast<double>(v.x)));
+    a.push_back(Json(static_cast<double>(v.y)));
+    a.push_back(Json(static_cast<double>(v.z)));
+    return a;
+}
+
+inline JsonObject packDemand(const frame::DemandResult& d) {
+    JsonObject o;
+    o.emplace("dc",    Json(static_cast<double>(d.risk)));
+    o.emplace("mode",  Json(std::string(failModeName(d.mode))));
+    o.emplace("sComp", Json(static_cast<double>(d.sComp)));
+    o.emplace("sTens", Json(static_cast<double>(d.sTens)));
+    o.emplace("tau",   Json(static_cast<double>(d.tau)));
+    o.emplace("sTor",  Json(static_cast<double>(d.sTor)));
+    return o;
+}
+
+inline bool finiteDemand(const frame::DemandResult& d, const char* tag,
+                         std::size_t idx, std::string& nfWhere) {
+    const double vals[5] = {
+        static_cast<double>(d.risk), static_cast<double>(d.sComp),
+        static_cast<double>(d.sTens), static_cast<double>(d.tau),
+        static_cast<double>(d.sTor)
+    };
+    for (int k = 0; k < 5; ++k)
+        if (!finiteOrFail(vals[k], tag, idx * 5 + k, nfWhere)) return false;
+    return true;
+}
+
+inline bool packUtilization(const frame::FrameModel& model, const frame::SolveResult& R,
+                            JsonObject& memberOut, JsonObject& shellOut,
+                            JsonObject& summaryOut, std::string& nfWhere) {
+    frame::ElasticAllowable screen;
+    double maxMember = 0.0;
+    int64_t governingMember = 0;
+    std::string governingMemberMode = "None";
+    bool memberValid = false;
+
+    const std::size_t nM = std::min(model.members.size(), R.memberForces.size());
+    for (std::size_t e = 0; e < nM; ++e) {
+        const auto& m = model.members[e];
+        if (!m.active || m.matIdx < 0 || m.secIdx < 0
+            || m.matIdx >= static_cast<int>(model.materials.size())
+            || m.secIdx >= static_cast<int>(model.sections.size())) {
+            continue;
+        }
+        const auto& mat = model.materials[static_cast<std::size_t>(m.matIdx)];
+        const auto& sec = model.sections[static_cast<std::size_t>(m.secIdx)];
+        const auto& mf = R.memberForces[e];
+        const frame::DemandResult di = screen.checkSection(mf.endI, sec, mat.cap);
+        const frame::DemandResult dj = screen.checkSection(mf.endJ, sec, mat.cap);
+        if (!finiteDemand(di, "memberUtilization.endI", e, nfWhere)) return false;
+        if (!finiteDemand(dj, "memberUtilization.endJ", e, nfWhere)) return false;
+
+        const bool iGov = di.risk >= dj.risk;
+        const frame::DemandResult& dg = iGov ? di : dj;
+        JsonObject mo;
+        mo.emplace("endI",         Json(packDemand(di)));
+        mo.emplace("endJ",         Json(packDemand(dj)));
+        mo.emplace("peak",         Json(static_cast<double>(dg.risk)));
+        mo.emplace("governingEnd", Json(std::string(iGov ? "I" : "J")));
+        mo.emplace("governingMode",Json(std::string(failModeName(dg.mode))));
+        memberOut.emplace(std::to_string(m.id), Json(std::move(mo)));
+
+        if (!memberValid || dg.risk > maxMember) {
+            memberValid = true;
+            maxMember = static_cast<double>(dg.risk);
+            governingMember = static_cast<int64_t>(m.id);
+            governingMemberMode = failModeName(dg.mode);
+        }
+    }
+
+    double maxShell = 0.0;
+    int64_t governingShell = 0;
+    bool shellValid = false;
+    const std::size_t nS = std::min(model.shells.size(), R.shellForces.size());
+    for (std::size_t s = 0; s < nS; ++s) {
+        const auto& sh = model.shells[s];
+        if (!sh.active || sh.matIdx < 0 || sh.matIdx >= static_cast<int>(model.materials.size()))
+            continue;
+        const auto& mat = model.materials[static_cast<std::size_t>(sh.matIdx)];
+        const frame::ShellDemandResult d = frame::checkShellSurface(R.shellForces[s], sh.t, mat.cap);
+        if (!finiteOrFail(static_cast<double>(d.risk), "shellUtilization", s, nfWhere)) return false;
+        JsonObject so;
+        so.emplace("dc",     Json(static_cast<double>(d.risk)));
+        so.emplace("corner", Json(static_cast<int64_t>(d.corner)));
+        so.emplace("top",    Json(d.top));
+        shellOut.emplace(std::to_string(sh.id), Json(std::move(so)));
+        if (!shellValid || d.risk > maxShell) {
+            shellValid = true;
+            maxShell = static_cast<double>(d.risk);
+            governingShell = static_cast<int64_t>(sh.id);
+        }
+    }
+
+    summaryOut.emplace("memberMaxDC",         Json(maxMember));
+    summaryOut.emplace("governingMember",     Json(governingMember));
+    summaryOut.emplace("governingMemberMode", Json(governingMemberMode));
+    summaryOut.emplace("memberValid",         Json(memberValid));
+    summaryOut.emplace("shellMaxDC",          Json(maxShell));
+    summaryOut.emplace("governingShell",      Json(governingShell));
+    summaryOut.emplace("shellValid",          Json(shellValid));
+    const double maxAny = std::max(maxMember, maxShell);
+    summaryOut.emplace("maxDC",        Json(maxAny));
+    summaryOut.emplace("safetyFactor", Json(maxAny > 0.0 ? 1.0 / maxAny : 0.0));
+    return true;
+}
+
+inline void appendF64LE(std::vector<uint8_t>& out, double v) {
+    uint64_t bits = 0;
+    static_assert(sizeof(bits) == sizeof(v), "double must be 64-bit IEEE storage");
+    std::memcpy(&bits, &v, sizeof(bits));
+    for (int b = 0; b < 8; ++b)
+        out.push_back(static_cast<uint8_t>((bits >> (8 * b)) & 0xFFu));
+}
+
+inline double maxAbs(const std::vector<frame::real>& values) {
+    double m = 0.0;
+    for (frame::real v : values) {
+        const double dv = std::abs(static_cast<double>(v));
+        if (dv > m) m = dv;
+    }
+    return m;
+}
+
+inline JsonObject packFragment(const frame::FragmentCluster& f) {
+    JsonObject o;
+    o.emplace("nodes",   Json(packMemberIdArray(f.nodes)));
+    o.emplace("members", Json(packMemberIdArray(f.members)));
+    o.emplace("shells",  Json(packIntArray(f.shells)));
+    o.emplace("mass",    Json(static_cast<double>(f.mass)));
+    o.emplace("com",     Json(packVec3(f.com)));
+    JsonArray inertia;
+    for (double v : f.inertia) inertia.push_back(Json(v));
+    o.emplace("inertia", Json(std::move(inertia)));
+    o.emplace("vel",    Json(packVec3(f.vel)));
+    o.emplace("angVel", Json(packVec3(f.angVel)));
+    return o;
+}
+
+inline JsonObject packDynEvent(const frame::DynCollapseEvent& e, int eventIndex) {
+    JsonObject o;
+    o.emplace("eventIndex",         Json(static_cast<int64_t>(eventIndex)));
+    o.emplace("t",                  Json(static_cast<double>(e.t)));
+    o.emplace("mode",               Json(std::string(failModeName(e.mode))));
+    o.emplace("removedMembers",     Json(packMemberIdArray(e.removedMembers)));
+    o.emplace("removedShells",      Json(packIntArray(e.removedShells)));
+    o.emplace("truncationResidual", Json(static_cast<double>(e.truncationResidual)));
+    o.emplace("energyBefore",       Json(static_cast<double>(e.energyBefore)));
+    o.emplace("energyAfter",        Json(static_cast<double>(e.energyAfter)));
+
+    JsonArray hinges;
+    for (const auto& h : e.formedHinges) {
+        JsonObject ho;
+        ho.emplace("member", Json(static_cast<int64_t>(h.member)));
+        ho.emplace("dof",    Json(static_cast<int64_t>(h.dof)));
+        ho.emplace("Mp",     Json(static_cast<double>(h.Mp)));
+        hinges.push_back(Json(std::move(ho)));
+    }
+    o.emplace("formedHinges", Json(std::move(hinges)));
+
+    JsonArray detached;
+    for (const auto& f : e.detached) detached.push_back(Json(packFragment(f)));
+    o.emplace("detached", Json(std::move(detached)));
+    return o;
+}
+
 }  // namespace
 
 Frame Dispatcher::HandleSolveLinear(Dispatcher&, Context& ctx, const Frame& in) {
@@ -472,6 +683,7 @@ Frame Dispatcher::HandleSolveLinear(Dispatcher&, Context& ctx, const Frame& in) 
         return MakeError(id, "VALIDATION_FAILED", "session has no model; call model.set first");
 
     const bool wantReactions = body->getBool("wantReactions", true);
+    const bool wantDC        = body->getBool("wantDC", false);
 
     // assembleAndFactor + solveLoad on first call; subsequent calls reuse the PreparedSystem.
     // B5 wire: if the session was opened with mode=supernodal AND model.set built the SnSession,
@@ -528,6 +740,15 @@ Frame Dispatcher::HandleSolveLinear(Dispatcher&, Context& ctx, const Frame& in) 
         JsonObject sfs = packShellForces(R, nfWhere);
         if (!nfWhere.empty()) return MakeError(id, "NON_FINITE_RESULT", nfWhere);
         out.emplace("shellForces", Json(std::move(sfs)));
+
+        if (wantDC) {
+            JsonObject memberUtil, shellUtil, utilSummary;
+            if (!packUtilization(*sess->model, R, memberUtil, shellUtil, utilSummary, nfWhere))
+                return MakeError(id, "NON_FINITE_RESULT", nfWhere);
+            out.emplace("memberUtilization", Json(std::move(memberUtil)));
+            out.emplace("shellUtilization",  Json(std::move(shellUtil)));
+            out.emplace("utilization",       Json(std::move(utilSummary)));
+        }
     }
 
     if (sess->profile == Profile::Advanced) {
@@ -555,8 +776,7 @@ namespace {
 inline Frame notImpl(const std::string& method, const Frame& in) {
     const std::string id = in.header.getString("id", "?");
     return MakeError(id, "NOT_IMPLEMENTED",
-                     method + " is registered but deferred to a later cycle "
-                              "(B4 streaming / B5.2 reanalysis / schema-pending)");
+                     method + " is registered but deferred to a later schema cycle");
 }
 
 // Shared resolve+lastSolve check for the inspect.* family. Returns nullptr (and fills `errOut`)
@@ -757,18 +977,37 @@ Frame Dispatcher::HandleSizeOpt(Dispatcher&, Context& ctx, const Frame& in) {
     out.emplace("invalidDemand", Json(R.invalidDemand));
     out.emplace("iterations",    Json(static_cast<int64_t>(R.iterations)));
     JsonArray areas, dc;
-    for (auto v : R.finalAreas) {
+    JsonObject areaByMember;
+    for (std::size_t k = 0; k < R.finalAreas.size(); ++k) {
+        auto v = R.finalAreas[k];
         if (!std::isfinite(static_cast<double>(v)))
             return MakeError(id, "NON_FINITE_RESULT", "finalAreas non-finite");
         areas.push_back(Json(static_cast<double>(v)));
     }
-    for (auto v : R.finalDC) {
+    for (std::size_t k = 0; k < R.finalDC.size(); ++k) {
+        auto v = R.finalDC[k];
         if (!std::isfinite(static_cast<double>(v)))
             return MakeError(id, "NON_FINITE_RESULT", "finalDC non-finite");
         dc.push_back(Json(static_cast<double>(v)));
     }
+    const std::size_t nArea = std::min(sess->model->members.size(),
+                                       std::min(R.finalAreas.size(), R.finalDC.size()));
+    for (std::size_t k = 0; k < nArea; ++k) {
+        JsonArray pair;
+        pair.push_back(Json(static_cast<double>(R.finalAreas[k])));
+        pair.push_back(Json(static_cast<double>(R.finalDC[k])));
+        areaByMember.emplace(std::to_string(sess->model->members[k].id), Json(std::move(pair)));
+    }
     out.emplace("finalAreas", Json(std::move(areas)));
     out.emplace("finalDC",    Json(std::move(dc)));
+    out.emplace("areas",      Json(std::move(areaByMember)));
+    out.emplace("sizeOptSingular", Json(R.singular));
+    const double weightVolume = R.weightHistory.empty()
+        ? 0.0
+        : static_cast<double>(R.weightHistory.back());
+    if (!std::isfinite(weightVolume))
+        return MakeError(id, "NON_FINITE_RESULT", "weightVolume non-finite");
+    out.emplace("weightVolume", Json(weightVolume));
     return MakeResponse(id, std::move(out));
 }
 
@@ -872,6 +1111,16 @@ Frame Dispatcher::HandleModal(Dispatcher&, Context& ctx, const Frame& in) {
     if (!sess) return MakeError(id, "VALIDATION_FAILED", err);
     if (!sess->hasModel || !sess->model)
         return MakeError(id, "VALIDATION_FAILED", "session has no model; call model.set first");
+    // C-09 guard: modal solves on the LDLT PreparedSystem (frame::solveModal needs the LDLᵀ
+    // factor of M-orthogonal subspace iteration). A session opened with mode=supernodal owns a
+    // SnSession factor instead -- silently building a parallel LDLT here would defeat the
+    // supernodal contract (factor-once amortisation) and confuse advancedDiagnostics' backend
+    // tag. Refuse explicitly so the client opens a separate LDLT session.
+    if (sess->useSnSession) {
+        return MakeError(id, "NOT_IMPLEMENTED",
+                         "analysis.modal requires LDLT primary; session opened with mode=supernodal "
+                         "cannot run modal. Open a separate session with default mode.");
+    }
     if (!sess->prepared) {
         try { sess->prepared = std::make_unique<frame::PreparedSystem>(frame::assembleAndFactor(*sess->model)); }
         catch (const std::exception& e) { return MakeError(id, "INTERNAL", std::string("engine: ") + e.what()); }
@@ -913,6 +1162,13 @@ Frame Dispatcher::HandleBuckling(Dispatcher&, Context& ctx, const Frame& in) {
     if (!sess) return MakeError(id, "VALIDATION_FAILED", err);
     if (!sess->hasModel || !sess->model)
         return MakeError(id, "VALIDATION_FAILED", "session has no model; call model.set first");
+    // C-10 guard: same reason as C-09 in HandleModal -- buckling subspace iteration needs the
+    // LDLT PreparedSystem, not the supernodal factor.
+    if (sess->useSnSession) {
+        return MakeError(id, "NOT_IMPLEMENTED",
+                         "analysis.buckling requires LDLT primary; session opened with mode=supernodal "
+                         "cannot run buckling. Open a separate session with default mode.");
+    }
     if (!sess->prepared) {
         try { sess->prepared = std::make_unique<frame::PreparedSystem>(frame::assembleAndFactor(*sess->model)); }
         catch (const std::exception& e) { return MakeError(id, "INTERNAL", std::string("engine: ") + e.what()); }
@@ -947,13 +1203,177 @@ Frame Dispatcher::HandleBuckling(Dispatcher&, Context& ctx, const Frame& in) {
     return MakeResponse(id, std::move(out));
 }
 
+Frame Dispatcher::HandleDynCollapse(Dispatcher& d, Context& ctx, const Frame& in) {
+    const std::string id = in.header.getString("id", "?");
+    const Json* body = in.header.get("body");
+    std::string err;
+    auto sess = resolveSession(ctx, body, err);
+    if (!sess) return MakeError(id, "VALIDATION_FAILED", err);
+    if (!sess->hasModel || !sess->model)
+        return MakeError(id, "VALIDATION_FAILED", "session has no model; call model.set first");
+
+    frame::DynCollapseOptions opts;
+    opts.dt                = static_cast<frame::real>(body->getDouble("dt", opts.dt));
+    opts.maxTime           = static_cast<frame::real>(body->getDouble("maxTime", opts.maxTime));
+    opts.basisSize         = static_cast<int>(body->getInt("basisSize", opts.basisSize));
+    opts.useRitzVectors    = body->getBool("useRitzVectors", opts.useRitzVectors);
+    opts.rayleighAlpha     = static_cast<frame::real>(body->getDouble("rayleighAlpha", opts.rayleighAlpha));
+    opts.rayleighBeta      = static_cast<frame::real>(body->getDouble("rayleighBeta", opts.rayleighBeta));
+    opts.removeThreshold   = static_cast<frame::real>(body->getDouble("removeThreshold", opts.removeThreshold));
+    opts.screenEvery       = static_cast<int>(body->getInt("screenEvery", opts.screenEvery));
+    opts.quietKineticRatio = static_cast<frame::real>(body->getDouble("quietKineticRatio", opts.quietKineticRatio));
+    opts.maxEvents         = static_cast<int>(body->getInt("maxEvents", opts.maxEvents));
+    opts.frameStride       = static_cast<int>(body->getInt("frameStride", opts.frameStride));
+    if (const Json* a = body->get("initialRemovals"); a && a->isArray()) {
+        for (const auto& v : a->asArray())
+            if (v.isNumber()) opts.initialRemovals.push_back(static_cast<frame::MemberId>(v.asInt()));
+    }
+    if (const Json* a = body->get("initialShellRemovals"); a && a->isArray()) {
+        for (const auto& v : a->asArray())
+            if (v.isNumber()) opts.initialShellRemovals.push_back(static_cast<int>(v.asInt()));
+    }
+    const bool streamFrames = body->getBool("streamFrames", true);
+    const bool binaryFrames = body->getBool("binaryFrames", true);
+    const bool streamEvents = body->getBool("streamEvents", true);
+
+    frame::DynCollapseHistory H;
+    try { H = frame::runDynamicCollapse(*sess->model, opts); }
+    catch (const std::exception& e) { return MakeError(id, "INTERNAL", std::string("engine: ") + e.what()); }
+
+    for (std::size_t i = 0; i < H.frames.size(); ++i) {
+        const auto& fr = H.frames[i];
+        if (!std::isfinite(static_cast<double>(fr.t)))
+            return MakeError(id, "NON_FINITE_RESULT", "dyn_collapse frame time");
+        for (std::size_t k = 0; k < fr.u.size(); ++k)
+            if (!std::isfinite(static_cast<double>(fr.u[k])))
+                return MakeError(id, "NON_FINITE_RESULT", "dyn_collapse frame.u");
+        for (std::size_t k = 0; k < fr.v.size(); ++k)
+            if (!std::isfinite(static_cast<double>(fr.v[k])))
+                return MakeError(id, "NON_FINITE_RESULT", "dyn_collapse frame.v");
+    }
+
+    if (streamEvents) {
+        for (std::size_t i = 0; i < H.events.size(); ++i) {
+            JsonObject details = packDynEvent(H.events[i], static_cast<int>(i));
+            d.EnqueueOutbound(MakeEvent(id, "dyn_collapse.event", std::move(details)));
+        }
+    }
+    if (streamFrames) {
+        for (std::size_t i = 0; i < H.frames.size(); ++i) {
+            const auto& fr = H.frames[i];
+            JsonObject details;
+            details.emplace("frameIndex",    Json(static_cast<int64_t>(i)));
+            details.emplace("t",             Json(static_cast<double>(fr.t)));
+            details.emplace("dof",           Json(static_cast<int64_t>(fr.u.size())));
+            details.emplace("uCount",        Json(static_cast<int64_t>(fr.u.size())));
+            details.emplace("vCount",        Json(static_cast<int64_t>(fr.v.size())));
+            details.emplace("maxAbsU",       Json(maxAbs(fr.u)));
+            details.emplace("maxAbsV",       Json(maxAbs(fr.v)));
+            details.emplace("payloadLayout", Json(std::string(binaryFrames ? "u_then_v_f64_le" : "none")));
+            Frame ev = MakeEvent(id, "dyn_collapse.frame", std::move(details));
+            if (binaryFrames) {
+                ev.flags |= kFlagBinaryPayload;
+                ev.payload.reserve((fr.u.size() + fr.v.size()) * sizeof(double));
+                for (frame::real v : fr.u) appendF64LE(ev.payload, static_cast<double>(v));
+                for (frame::real v : fr.v) appendF64LE(ev.payload, static_cast<double>(v));
+            }
+            d.EnqueueOutbound(std::move(ev));
+        }
+    }
+
+    JsonArray events;
+    for (std::size_t i = 0; i < H.events.size(); ++i)
+        events.push_back(Json(packDynEvent(H.events[i], static_cast<int>(i))));
+    const double endTime = !H.frames.empty()
+        ? static_cast<double>(H.frames.back().t)
+        : (!H.events.empty() ? static_cast<double>(H.events.back().t) : 0.0);
+    JsonObject out;
+    out.emplace("outcome",            Json(std::string(collapseOutcomeName(H.outcome))));
+    out.emplace("outcomeCode",        Json(static_cast<int64_t>(H.outcome)));
+    out.emplace("diagnostic",         Json(H.diagnostic));
+    out.emplace("nEvents",            Json(static_cast<int64_t>(H.events.size())));
+    out.emplace("nFrames",            Json(static_cast<int64_t>(H.frames.size())));
+    out.emplace("endTime",            Json(endTime));
+    out.emplace("events",             Json(std::move(events)));
+    out.emplace("streamedFrames",     Json(streamFrames));
+    out.emplace("binaryFrames",       Json(binaryFrames));
+    out.emplace("framePayloadLayout", Json(std::string(binaryFrames ? "u_then_v_f64_le" : "none")));
+    return MakeResponse(id, std::move(out));
+}
+
+Frame Dispatcher::HandleReanalysis(Dispatcher&, Context& ctx, const Frame& in) {
+    const std::string id = in.header.getString("id", "?");
+    const Json* body = in.header.get("body");
+    std::string err;
+    auto sess = resolveSession(ctx, body, err);
+    if (!sess) return MakeError(id, "VALIDATION_FAILED", err);
+    if (!sess->hasModel || !sess->model)
+        return MakeError(id, "VALIDATION_FAILED", "session has no model; call model.set first");
+
+    frame::ReanalysisOptions opts;
+    opts.maxRank      = static_cast<int>(body->getInt("maxRank", opts.maxRank));
+    opts.pcgTol       = static_cast<frame::real>(body->getDouble("pcgTol", opts.pcgTol));
+    opts.pcgMaxIter   = static_cast<int>(body->getInt("pcgMaxIter", opts.pcgMaxIter));
+    opts.allowTier2   = body->getBool("allowTier2", opts.allowTier2);
+    opts.mechPivotTol = static_cast<frame::real>(body->getDouble("mechPivotTol", opts.mechPivotTol));
+
+    frame::ReSolveSession rs(*sess->model, opts);
+    if (const Json* arr = body->get("memberActive"); arr && arr->isArray()) {
+        for (const auto& item : arr->asArray()) {
+            if (!item.isObject())
+                return MakeError(id, "VALIDATION_FAILED", "memberActive entries must be objects");
+            const int mid = item.has("id")
+                ? static_cast<int>(item.getInt("id", 0))
+                : static_cast<int>(item.getInt("member", 0));
+            const bool active = item.getBool("active", true);
+            if (!rs.setMemberActive(static_cast<frame::MemberId>(mid), active))
+                return MakeError(id, "VALIDATION_FAILED", "unknown member id in memberActive: " + std::to_string(mid));
+        }
+    }
+    if (const Json* arr = body->get("shellActive"); arr && arr->isArray()) {
+        for (const auto& item : arr->asArray()) {
+            if (!item.isObject())
+                return MakeError(id, "VALIDATION_FAILED", "shellActive entries must be objects");
+            const int sid = item.has("id")
+                ? static_cast<int>(item.getInt("id", 0))
+                : static_cast<int>(item.getInt("shell", 0));
+            const bool active = item.getBool("active", true);
+            if (!rs.setShellActive(sid, active))
+                return MakeError(id, "VALIDATION_FAILED", "unknown shell id in shellActive: " + std::to_string(sid));
+        }
+    }
+
+    frame::ReanalysisStats stats;
+    frame::SolveResult R;
+    try { R = rs.solve(&stats); }
+    catch (const std::exception& e) { return MakeError(id, "INTERNAL", std::string("engine: ") + e.what()); }
+
+    JsonObject finalState; std::string nfWhere;
+    if (!packFinalState(*sess->model, R, true, finalState, nfWhere))
+        return MakeError(id, "NON_FINITE_RESULT", nfWhere);
+    JsonObject st;
+    st.emplace("tier",        Json(static_cast<int64_t>(stats.tier)));
+    st.emplace("rank",        Json(static_cast<int64_t>(stats.rank)));
+    st.emplace("pcgIters",    Json(static_cast<int64_t>(stats.pcgIters)));
+    st.emplace("relResidual", Json(static_cast<double>(stats.relResidual)));
+    st.emplace("refactored",  Json(stats.refactored));
+    st.emplace("mechanism",   Json(stats.mechanism));
+
+    JsonObject out;
+    out.emplace("valid",      Json(rs.valid()));
+    out.emplace("diagnostic", Json(rs.valid() ? std::string("") : rs.diagnostic()));
+    out.emplace("stats",      Json(std::move(st)));
+    out.emplace("finalState", Json(std::move(finalState)));
+    sess->lastSolve = std::make_unique<frame::SolveResult>(R);
+    return MakeResponse(id, std::move(out));
+}
+
 // ====================================================================================
-// Remaining stubs: dyn_collapse waits for B4 (streaming + binary payload); reanalysis_solve
-// waits for B5 (factor-reuse session); model.patch waits for a schema decision.
+// Remaining stub: model.patch waits for a schema decision.
 // ====================================================================================
 
-Frame Dispatcher::HandleModelPatch  (Dispatcher&, Context&, const Frame& in) { return notImpl("model.patch",        in); }
-Frame Dispatcher::HandleDynCollapse (Dispatcher&, Context&, const Frame& in) { return notImpl("solve.dyn_collapse", in); }
-Frame Dispatcher::HandleReanalysis  (Dispatcher&, Context&, const Frame& in) { return notImpl("analysis.reanalysis_solve", in); }
+Frame Dispatcher::HandleModelPatch(Dispatcher&, Context&, const Frame& in) {
+    return notImpl("model.patch", in);
+}
 
 }  // namespace frame_v2

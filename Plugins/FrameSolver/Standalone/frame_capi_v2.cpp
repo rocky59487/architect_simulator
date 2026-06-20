@@ -1,16 +1,14 @@
 // frame_capi_v2.cpp -- C ABI v2 DLL impl. Thin wrapper that owns one frame_v2::Dispatcher per
 // frame_v2_ctx and shuttles frames between the C boundary and the dispatcher.
 //
-// THREADING -- one ctx is owned by one client; the C ABI documents non-overlapping send/recv
-// per ctx. We use a single mutex per ctx to keep the impl simple; the dispatcher itself has
-// its own internal mutex around the outbound queue.
+// THREADING -- one ctx is owned by one client. frame_v2_send parses and queues inbound frames;
+// a per-context worker thread owns Dispatcher::Submit; frame_v2_recv drains outbound frames.
 //
 // EXCEPTIONS -- never propagate. Every entry point is wrapped; failures come back as either
 // (a) a structured `error` frame in the outbound queue, or (b) a non-zero return code.
 //
-// DEPENDENCIES -- this TU includes ONLY the v2 headers (Dispatcher.h transitively pulls in
-// FrameWire.h + MiniJson.h). NO FrameCore headers yet -- the engine wiring lives behind
-// Dispatcher TODO markers and gets included in B3 when each handler wires up.
+// DEPENDENCIES -- this TU includes only the v2 transport headers. Engine-facing code lives in
+// Dispatcher.cpp; the C ABI stays a thin frame transport.
 //
 // BUILD -- build_capi_v2.bat (sibling, independent of build.bat / build_capi.bat). NOT in
 // the engine 5-leg gate; verified instead by the 6th leg Tools/v2_roundtrip.py once B3 lands.
@@ -21,10 +19,13 @@
 
 #include <chrono>
 #include <condition_variable>
+#include <deque>
 #include <cstring>
 #include <memory>
 #include <mutex>
+#include <new>
 #include <string>
+#include <thread>
 #include <unordered_map>
 
 #ifndef FRAMECORE_BUILD_SHA
@@ -39,6 +40,8 @@ struct frame_v2_ctx {
     bool                         cancelRecv = false;
     bool                         closed     = false;
     std::string                  lastError;
+    std::deque<fv2::Frame>       inbound;
+    std::thread                  worker;
     // recv() does a two-call dance: probe size with cap=0, then refill with cap=needed. The
     // probe MUST NOT consume the dispatcher's outbound frame. We Pop once and cache the
     // serialized bytes here; the probe reads cache.size() into *outNeeded, the refill copies
@@ -63,6 +66,30 @@ inline std::shared_ptr<frame_v2_ctx> acquire(frame_v2_ctx* raw) {
     auto it = g_owner.find(raw);
     return it == g_owner.end() ? nullptr : it->second;
 }
+
+inline void workerLoop(std::shared_ptr<frame_v2_ctx> ctx) {
+    while (true) {
+        fv2::Frame frame;
+        {
+            std::unique_lock<std::mutex> lk(ctx->mtx);
+            ctx->cv.wait(lk, [&] { return ctx->closed || !ctx->inbound.empty(); });
+            if (ctx->closed) break;
+            frame = std::move(ctx->inbound.front());
+            ctx->inbound.pop_front();
+        }
+
+        try {
+            ctx->dispatcher->Submit(std::move(frame));
+        } catch (const std::exception& e) {
+            std::lock_guard<std::mutex> lk(ctx->mtx);
+            ctx->lastError = std::string("dispatcher: ") + e.what();
+        } catch (...) {
+            std::lock_guard<std::mutex> lk(ctx->mtx);
+            ctx->lastError = "dispatcher: unknown exception";
+        }
+        ctx->cv.notify_all();
+    }
+}
 }  // namespace
 
 extern "C" {
@@ -77,6 +104,7 @@ FCAPI frame_v2_ctx* frame_v2_open(void) {
     try {
         auto ctx = std::make_shared<frame_v2_ctx>();
         frame_v2_ctx* raw = ctx.get();
+        ctx->worker = std::thread(workerLoop, ctx);
         std::lock_guard<std::mutex> lk(g_registryMtx);
         g_owner.emplace(raw, std::move(ctx));
         return raw;
@@ -103,8 +131,11 @@ FCAPI void frame_v2_close(frame_v2_ctx* raw) {
         std::lock_guard<std::mutex> lk(ctx->mtx);
         ctx->closed = true;
         ctx->cancelRecv = true;
+        ctx->inbound.clear();
     }
     ctx->cv.notify_all();
+    if (ctx->worker.joinable())
+        ctx->worker.join();
 }
 
 FCAPI int frame_v2_send(frame_v2_ctx* raw, const uint8_t* inFrame, size_t inLen) {
@@ -122,16 +153,15 @@ FCAPI int frame_v2_send(frame_v2_ctx* raw, const uint8_t* inFrame, size_t inLen)
         return FRAME_V2_PROTOCOL_ERROR;
     }
 
-    try {
-        ctx->dispatcher->Submit(std::move(parsed));
-    } catch (const std::exception& e) {
+    {
         std::lock_guard<std::mutex> lk(ctx->mtx);
-        ctx->lastError = std::string("dispatcher: ") + e.what();
-        return FRAME_V2_OUT_OF_MEMORY;
-    } catch (...) {
-        std::lock_guard<std::mutex> lk(ctx->mtx);
-        ctx->lastError = "dispatcher: unknown exception";
-        return FRAME_V2_OUT_OF_MEMORY;
+        if (ctx->closed) return FRAME_V2_INVALID_CTX;
+        try {
+            ctx->inbound.push_back(std::move(parsed));
+        } catch (const std::bad_alloc&) {
+            ctx->lastError = "frame_v2_send: inbound queue allocation failed";
+            return FRAME_V2_OUT_OF_MEMORY;
+        }
     }
     ctx->cv.notify_all();
     return FRAME_V2_OK;
@@ -201,11 +231,9 @@ FCAPI const char* frame_v2_last_error(const frame_v2_ctx* raw) {
     if (!ctx_sp) return nullptr;
     frame_v2_ctx* ctx = ctx_sp.get();
     std::lock_guard<std::mutex> lk(ctx->mtx);
-    // NOTE: returning a c_str() from a member that might mutate is technically unsafe across
-    // threads, but the v1 API and our existing roundtrip clients all read-then-act sequentially.
-    // The caller is documented not to call frame_v2_send concurrently with frame_v2_last_error
-    // on the same ctx; that contract is unchanged here.
-    return ctx->lastError.empty() ? nullptr : ctx->lastError.c_str();
+    thread_local std::string tlsLastError;
+    tlsLastError = ctx->lastError;
+    return tlsLastError.empty() ? nullptr : tlsLastError.c_str();
 }
 
 FCAPI int frame_v2_pending_count(const frame_v2_ctx* raw) {

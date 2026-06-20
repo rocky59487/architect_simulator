@@ -45,6 +45,7 @@
 #include "FrameCore/Hinge.h"
 
 #include <string>
+#include <unordered_set>
 
 namespace frame_v2 {
 
@@ -165,10 +166,15 @@ inline bool readInts(const Json* arr, std::size_t expectedLen, std::vector<int>&
     if (const Json* nodes = body.get("nodes")) {
         if (!nodes->isArray()) { err = "nodes must be an array"; return false; }
         out.nodes.reserve(nodes->asArray().size());
+        std::unordered_set<int> seenNodeIds;
         for (std::size_t k = 0; k < nodes->asArray().size(); ++k) {
             const Json& n = nodes->asArray()[k];
             if (!n.isObject()) { err = "nodes[" + std::to_string(k) + "] must be an object"; return false; }
             const NodeId id = static_cast<NodeId>(n.getInt("id", 0));
+            if (!seenNodeIds.insert(static_cast<int>(id)).second) {
+                err = "nodes[" + std::to_string(k) + "].id duplicates node id " + std::to_string(id);
+                return false;
+            }
             Node fn(id,
                     static_cast<real>(n.getDouble("x", 0.0)),
                     static_cast<real>(n.getDouble("y", 0.0)),
@@ -187,10 +193,16 @@ inline bool readInts(const Json* arr, std::size_t expectedLen, std::vector<int>&
     if (const Json* mems = body.get("members")) {
         if (!mems->isArray()) { err = "members must be an array"; return false; }
         out.members.reserve(mems->asArray().size());
+        std::unordered_set<int> seenMemberIds;
         for (std::size_t k = 0; k < mems->asArray().size(); ++k) {
             const Json& m = mems->asArray()[k];
             if (!m.isObject()) { err = "members[" + std::to_string(k) + "] must be an object"; return false; }
-            Member fm(static_cast<MemberId>(m.getInt("id", 0)),
+            const MemberId mid = static_cast<MemberId>(m.getInt("id", 0));
+            if (!seenMemberIds.insert(static_cast<int>(mid)).second) {
+                err = "members[" + std::to_string(k) + "].id duplicates member id " + std::to_string(mid);
+                return false;
+            }
+            Member fm(mid,
                       static_cast<NodeId>(m.getInt("i", 0)),
                       static_cast<NodeId>(m.getInt("j", 0)),
                       static_cast<int>(m.getInt("mat", -1)),
@@ -214,13 +226,19 @@ inline bool readInts(const Json* arr, std::size_t expectedLen, std::vector<int>&
     if (const Json* shells = body.get("shells")) {
         if (!shells->isArray()) { err = "shells must be an array"; return false; }
         out.shells.reserve(shells->asArray().size());
+        std::unordered_set<int> seenShellIds;
         for (std::size_t k = 0; k < shells->asArray().size(); ++k) {
             const Json& s = shells->asArray()[k];
             if (!s.isObject()) { err = "shells[" + std::to_string(k) + "] must be an object"; return false; }
+            const int sid = static_cast<int>(s.getInt("id", 0));
+            if (!seenShellIds.insert(sid).second) {
+                err = "shells[" + std::to_string(k) + "].id duplicates shell id " + std::to_string(sid);
+                return false;
+            }
             std::vector<int> nids;
             if (!detail::readInts(s.get("nodes"), 4, nids, err, "shells[].nodes")) return false;
             if (nids.size() != 4) { err = "shells[].nodes must have 4 entries"; return false; }
-            ShellQuad sq(static_cast<int>(s.getInt("id", 0)),
+            ShellQuad sq(sid,
                           static_cast<NodeId>(nids[0]), static_cast<NodeId>(nids[1]),
                           static_cast<NodeId>(nids[2]), static_cast<NodeId>(nids[3]),
                           static_cast<int>(s.getInt("mat", -1)),
