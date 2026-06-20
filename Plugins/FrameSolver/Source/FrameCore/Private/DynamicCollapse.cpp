@@ -360,7 +360,20 @@ DynCollapseHistory runDynamicCollapse(const FrameModel& model, const DynCollapse
     VecX qdd = cfg.f - cfg.W2.cwiseProduct(q);
     real T1 = (cfg.W2.size() > 0 && cfg.W2(0) > 0) ? real(2) * kPi / std::sqrt(cfg.W2(0)) : opts.maxTime;
 
+    // v2.8.1 audit (A-02 / A-03): engine-side NaN sentinel. v2.7's NaN check lived only in
+    // the dispatcher's onFrameEmitted callback, so any standalone caller (F-fixtures,
+    // direct C++ users) silently received a history whose frames contained NaN and an
+    // outcome later overwritten to MaxSteps by the loop-end branch (line ~473). Catch it
+    // here, raise the abort flag, and let the main loop bail before the unconditional
+    // MaxSteps assignment runs.
+    bool nanAbort = false;
     auto storeFrame = [&](real t, const VecX& uN, const VecX& vN) {
+        if (!(uN.array().isFinite().all() && vN.array().isFinite().all())) {
+            H.outcome    = CollapseOutcome::Invalid;
+            H.diagnostic = "non-finite state in DynamicCollapse Newmark integrator";
+            nanAbort     = true;
+            return;
+        }
         DynCollapseFrame fr; fr.t = t;
         fr.u.assign(uN.data(), uN.data() + uN.size());
         fr.v.assign(vN.data(), vN.data() + vN.size());
@@ -372,6 +385,7 @@ DynCollapseHistory runDynamicCollapse(const FrameModel& model, const DynCollapse
         if (opts.onFrameEmitted) opts.onFrameEmitted(H.frames.back());
     };
     storeFrame(0, scatterToGlobal(cfg.Phi * q, work, cfg.fmap, cfg.N, true), VecX::Zero(cfg.N));
+    if (nanAbort) return H;
 
     real t = 0; long step = 0; real maxKE = 0; real quietTime = 0; int events = 0;
     const real tinyKE = real(1e-300);
@@ -385,6 +399,7 @@ DynCollapseHistory runDynamicCollapse(const FrameModel& model, const DynCollapse
         if (step % opts.frameStride == 0) {
             storeFrame(t, scatterToGlobal(cfg.Phi * q, work, cfg.fmap, cfg.N, true),
                           scatterToGlobal(cfg.Phi * qd, work, cfg.fmap, cfg.N, false));
+            if (nanAbort) return H;  // v2.8.1 (A-02): bail before MaxSteps overwrites Invalid
             // P1-3 (v2.7): cooperative live-cancel hook. Polled on the same cadence as the
             // frame emit, so a client that drops the connection / cancels the reqId mid-run
             // wakes up the integrator within at most one frameStride step. Outcome stays
@@ -457,6 +472,7 @@ DynCollapseHistory runDynamicCollapse(const FrameModel& model, const DynCollapse
         T1 = (cfg.W2.size() > 0 && cfg.W2(0) > 0) ? real(2) * kPi / std::sqrt(cfg.W2(0)) : opts.maxTime;
         storeFrame(t, scatterToGlobal(cfg.Phi * q, work, cfg.fmap, cfg.N, true),     // post-inheritance snapshot
                       scatterToGlobal(cfg.Phi * qd, work, cfg.fmap, cfg.N, false));   // (new config, inherited q/qd)
+        if (nanAbort) return H;  // v2.8.1 (A-04): post-event snapshot may inherit non-finite state
         ++events; quietTime = 0;
         if (events >= opts.maxEvents) { H.outcome = CollapseOutcome::MaxSteps; H.diagnostic = "event budget exhausted with events still occurring"; return H; }
     }

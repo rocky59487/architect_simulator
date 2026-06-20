@@ -1,0 +1,70 @@
+# FrameCore native solver lane (supernodal + OpenSees compare) environment.
+#
+# v2.8.1 audit G-02 closes the env-doc gap that v2.5 / v2.6 deferred: anyone
+# with a fresh repo clone can now recreate the "framecore-direct" environment
+# the standalone gate (build.bat / build_capi_v2.bat / linear_deep_audit.bat)
+# expects, and the Python tooling (Tools/opensees_compare.py, Tools/v2_roundtrip.py,
+# Tools/cli_roundtrip.py) at a tested version.
+#
+# What this env provides:
+#   * BLAS3 + LAPACK + Sparse Cholesky (SuiteSparse, OpenBLAS) — linked by
+#     the standalone .bat files via the env's Library\bin and Library\lib
+#     subtrees. Required for FRAMECORE_SUPERNODAL=1 path (default).
+#   * METIS partitioner — required by the self-built supernodal lane.
+#   * openseespy — required by Tools/opensees_compare.py (leg 3 of the
+#     five-leg gate). Without it, leg 3 reports `skipped` instead of `PASS`,
+#     and `run_gate.ps1 -RequireOpenSees` converts that to a FAIL.
+#
+# Re-create with:
+#   conda env create -f environment.yml
+#   conda activate framecore-direct
+#
+# Override env location:
+#   set FRAMECORE_LIB_DIR=D:\miniconda3\envs\framecore-direct\Library
+#   set SUPERNODAL_CONDA=%FRAMECORE_LIB_DIR%
+# (build_capi_v2.bat / Tools/v2_roundtrip.py both honour these env vars
+# rather than the hardcoded %USERPROFILE%\anaconda3 fallback path.)
+
+name: framecore-direct
+channels:
+  - conda-forge
+dependencies:
+  # ---- Python runtime (for Tools/*.py) ----
+  - python=3.11
+  - pip
+
+  # ---- Native solver stack (linked by Standalone\*.bat) ----
+  - suitesparse=7.10.1
+  - metis=5.1.0
+  - libblas=3.11.0
+  - libcblas=3.11.0
+  - liblapack=3.11.0
+  - libopenblas=0.3.33
+  - openblas=0.3.33
+  # Transitive / explicit support:
+  - libcholmod=5.3.1
+  - libamd=3.3.3
+  - libcamd=3.3.3
+  - libccolamd=3.3.4
+  - libcolamd=3.3.4
+  - libcxsparse=4.4.1
+  - libklu=2.3.5
+  - libldl=3.3.2
+  - libsuitesparseconfig=7.10.1
+  - libumfpack=6.3.5
+  - libspqr=4.3.4
+  - libparu=1.0.0
+  - libspex=3.2.3
+  - librbio=4.3.4
+  - libbtf=2.3.2
+  - mkl=2026.0.0
+  - tbb=2023.0.0
+  - llvm-openmp=22.1.7
+  - gmp=6.3.0
+  - mpfr=4.2.2
+
+  # ---- Cross-validation: OpenSeesPy (leg 3 of five-leg gate) ----
+  - pip:
+      - "openseespy>=3.5,<3.8"
+      - "numpy>=1.26,<2.4"
+      - "scipy>=1.11,<1.16"

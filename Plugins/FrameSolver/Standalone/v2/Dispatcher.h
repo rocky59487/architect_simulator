@@ -72,7 +72,11 @@ namespace frame_v2 {
 #endif
 
 inline constexpr uint32_t kAbiVersion   = 2;
-inline constexpr const char* kEngineVer = "2.5.0";
+// v2.8.1 audit (A-01 / B-04 / E-03 / F-01): four independent auditors flagged that this
+// constant was never bumped for v2.6 or v2.7 -- hello.response.version reported "2.5.0"
+// for two full releases. Wire ABI is still 2 (unchanged); kEngineVer is the human-facing
+// engine string clients use for capability/version negotiation.
+inline constexpr const char* kEngineVer = "2.8.1";
 inline constexpr const char* kSchemaVer = "2026.06";
 
 enum class Profile { Simple, Advanced };
@@ -233,10 +237,11 @@ public:
     /// cancellations.
     void ClearCancelled(const std::string& reqId);
 
-    /// Snapshot of the connection state — useful for the C ABI's frame_v2_pending_count and
-    /// frame_v2_last_error introspection.
+    /// Snapshot of the connection state — useful for the C ABI's frame_v2_pending_count
+    /// introspection. (v2.8.1 audit C-11: removed dead LastError() / errMtx_ / lastError_
+    /// — frame_v2_last_error reads the per-context error string in frame_capi_v2.cpp
+    /// directly; the Dispatcher-internal error channel was never written.)
     size_t PendingOutbound() const;
-    std::string LastError() const;
 
     /// P1-3 (v2.7): handlers running a long analysis call this to push an event frame onto
     /// the outbound queue WHILE the engine is still running, so the client sees live progress
@@ -289,8 +294,6 @@ private:
     mutable std::mutex                       cancelMtx_;
     mutable std::mutex                       outMtx_;
     std::deque<Frame>                        outbound_;
-    mutable std::mutex                       errMtx_;
-    std::string                              lastError_;
 };
 
 }  // namespace frame_v2

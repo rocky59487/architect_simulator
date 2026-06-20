@@ -142,11 +142,8 @@ does not chase ghosts:
   exactly this configuration. A clean UE rebuild on a machine with adequate
   RAM headroom will regenerate the manifest in-place; no source change
   required.
-- **`E:\project\v2-audit` worktree** (detached HEAD at `4e660de` = v2.1.0) is
-  kept as the audit-checkpoint reference. Do not modify; it is the canonical
-  pre-supernodal-lane snapshot.
-- **`stash@{0}` (`pre-release-hardening: stale uproject+DefaultGame.ini local
-  hookups`)** contains only `ArchSim.uproject` + `Config/DefaultGame.ini`
-  hookups for the LevelSim plugin. LevelSim now auto-enables via its
-  `.uplugin`, so these hookups are redundant. The stash is safe to drop after
-  v2.6 ships.
+- **(v2.8.1 audit E-09 / G-01: machine-local absolute path and ephemeral git
+  state moved to `HANDOFF_v2.8.1.md` §workspace-state where they belong.
+  Originally this bullet leaked an `E:\project\…` absolute path into the
+  published release notes, and named a `stash@{0}` reference that has since
+  been dropped.)**

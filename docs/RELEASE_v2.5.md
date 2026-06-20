@@ -1,8 +1,13 @@
 # FrameCore v2.5 — B3 Dispatcher Engine Wire + Capability Widening + Hardening
 
 > Post-tag note: `main` now contains additional post-v2.5 hardening that is not part of the
-> published `v2.5` tag. See [`POST_V2_5_HARDENING.md`](POST_V2_5_HARDENING.md) for the current
-> async transport / dyn-collapse / reanalysis / native-D/C status.
+> published `v2.5` tag. The hardening shipped in subsequent releases — see
+> [`RELEASE_v2.6.md`](RELEASE_v2.6.md) (async dispatcher + GH bridge), [`RELEASE_v2.7.md`](RELEASE_v2.7.md)
+> (live `dyn_collapse` streaming + mid-run cancel), and [`RELEASE_v2.8.1.md`](RELEASE_v2.8.1.md)
+> (audit pass closing kEngineVer/uplugin version drift, engine NaN guard, dispatcher queue cap,
+> dispatcher dead-field cleanup, CApiV2Transport DisposeAsync UAF, dead-link / handoff debt).
+> [v2.8.1 audit E-07: replaces the dead `POST_V2_5_HARDENING.md` reference that lived here
+> through v2.6 / v2.7.]
 
 **Tag:** `v2.5`
 **Branch:** `main`

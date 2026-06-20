@@ -16,18 +16,20 @@ C++17-compatible; the UE module target is compiled as C++20 because of the curre
 > **This repository ships two independent engines:** FrameCore (this document, `Plugins/FrameSolver/`)
 > and **LevelSim** — a surveying-level simulator — at [`Plugins/LevelSim/`](Plugins/LevelSim/README.md).
 > They share no code and can be built, tested, and released independently; the bundled
-> `v2.5` release packages them together (FrameCore v2.5 + LevelSim v1.0.0).
+> `v2.2+1` release packaged them together (FrameCore v2.2 + LevelSim v1.0.0). Every release
+> from `v2.3` onwards is FrameCore-only — LevelSim has not changed since `v2.2+1`.
 
-> **Status (2026-06, v2.5 — B3 dispatcher engine-wire: `frame_capi_v2.dll` now routes `solve.linear` + `solve.{pdelta,tension_only,size_opt,corotational,arclength}` + `analysis.{modal,buckling}` + `inspect.{disp,reactions,member_forces,shell_forces}` to FrameCore (12 wired handlers, bit-exact vs v1 `frame_capi.dll` on the cantilever fixture at rel<1e-11); A-01 `frame_v2_close` UAF closed via shared_ptr ownership registry; B5 supernodal factor-reuse wired through `session.open mode=supernodal` → `SnSession`; D-03 GH OpenFrameCore generation race closed via `_openGate` lock; D-09 P/Invoke 7-Cdecl-delegate line-by-line audit; v2 dispatcher capability set widens to 16 (was 6); the FrameCore engine code is unchanged from v2.3 (still S1–S10 + supernodal direct lane (incl. PERF-01 supernodal-primary + R2 Neumaier IR) + shell K_σ + shell CR + warped quads + shell-buckling knockdown + curved-mesh guard + WARP CLI token + A-06 `mat.rho<0` guard + OpenSees mega benchmark 128/0 CRITICAL):** the five-leg verification gate is green —
-> standalone `ALL PASS` (fixtures **F1–F64**) · **57** UE automation tests ·
-> **OpenSees** strict cross-validation PASS · deep audit **104** independent checks ·
-> CLI round-trip ALL PASS. One repo-relative command reproduces it (`-Engine` or `UE_ENGINE_ROOT`
-> can point at a non-sibling Unreal install):
+> **Status (2026-06-20, v2.8.1 — audit-hardening release closing 4-agent-confirmed version-string drift, engine-side NaN guard, dispatcher inbound queue cap, C# DisposeAsync UAF, and dead-link / missing-HANDOFF debt accumulated across v2.6 / v2.7):** the v2.5 / v2.6 / v2.7 cycle landed the v2 dispatcher engine-wire (`frame_capi_v2.dll` routes all 16 wired analysis verbs to FrameCore, B4 async transport, C-09/C-10 supernodal session guards, GH C# bridge hardening, P1-3 live `dyn_collapse` streaming + mid-run cancel). v2.8.1 is the audit pass on top: `kEngineVer` bumped 2.5.0→2.8.1 (it had silently stayed at 2.5.0 through v2.6 + v2.7), uplugin `VersionName` bumped, engine `runDynamicCollapse` now refuses non-finite Newmark state, `frame_v2_send` caps inbound queue depth at 256, `Dispatcher::lastError_` dead-field trio removed, `CApiV2Transport.DisposeAsync` cancels pending recv before close+Free, README / CLAUDE.md / docs index resynced to current state, two dead links to `POST_V2_5_HARDENING.md` replaced. **FrameCore engine source delta v2.5..v2.8.1 = 4 files / ~55 lines, all additive guards or version strings.** The five-leg verification gate stays green —
+> standalone `ALL PASS` (62 individual F-fixtures spanning F1..F64 — F41 and F60 are
+> intentionally absent, see [`docs/VERIFICATION.md`](docs/VERIFICATION.md) §F-fixture-numbering) ·
+> **57** UE automation tests · **OpenSees** strict cross-validation PASS · deep audit
+> **104** independent checks · CLI round-trip ALL PASS. One repo-relative command reproduces
+> it (`-Engine` or `UE_ENGINE_ROOT` can point at a non-sibling Unreal install):
 > `powershell -ExecutionPolicy Bypass -File Scripts\run_gate.ps1 -RequireOpenSees`.
 > The optional 6th gate leg (v2 dispatcher round-trip) is run manually: build the v2 DLL
 > with `Plugins\FrameSolver\Standalone\build_capi_v2.bat`, then `python Tools/v2_roundtrip.py`
-> (v2.5 expects **all PASS, 0 SKIP, 0 FAIL** — the v2.4 SKIP `solve.linear bit-exact vs v1`
-> became a PASS once B3 wired the engine). It is intentionally not in `run_gate.ps1` for v2.5
+> (v2.8.1 expects **all PASS, 0 SKIP, 0 FAIL** — covers transport.async, dyn_collapse.live,
+> C-09/C-10 reject, plus every v2.5 wired verb). It is intentionally not in `run_gate.ps1`
 > (depends on `build_capi_v2.bat` and the v2 wire protocol is a separate transport line from
 > the v1 bridge). The capability → oracle → measured-agreement map is **[`docs/VERIFICATION.md`](docs/VERIFICATION.md)**.
 

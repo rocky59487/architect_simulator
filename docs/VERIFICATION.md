@@ -55,11 +55,17 @@ python Tools\v2_roundtrip.py
 Inclusion in `run_gate.ps1` is re-evaluated when B4 (streaming dispatcher) lands; the
 v2.5 contract is "if you touched the dispatcher, you ran this manually before push".
 
-**Post-v2.5 update (2026-06-20).** `Tools/v2_roundtrip.py` now also covers the
-post-tag transport/dispatcher hardening: `transport.async` advertised with `transport.sync`
-absent, native `solve.linear wantDC` utilization output, duplicate-id rejection,
-`analysis.reanalysis_solve` response shape, and `solve.dyn_collapse` final summary shape.
-See `docs/POST_V2_5_HARDENING.md`.
+**Post-v2.5 update (2026-06-20, refreshed in v2.8.1 audit E-07).**
+`Tools/v2_roundtrip.py` now also covers the post-tag transport/dispatcher hardening:
+`transport.async` advertised with `transport.sync` absent, native `solve.linear wantDC`
+utilization output, duplicate-id rejection, `analysis.reanalysis_solve` response shape,
+`solve.dyn_collapse` final summary shape, the C-09 / C-10 supernodal-session modal /
+buckling reject path, and (v2.7) `dyn_collapse.live` mid-run frame streaming. The full
+state-of-the-dispatcher narrative lives in [`RELEASE_v2.6.md`](RELEASE_v2.6.md) (B4 async +
+GH bridge + C-09/C-10), [`RELEASE_v2.7.md`](RELEASE_v2.7.md) (live frames + cancel), and
+[`RELEASE_v2.8.1.md`](RELEASE_v2.8.1.md) (audit-driven hardening). The previously cited
+`docs/POST_V2_5_HARDENING.md` was never authored; the v2.8.1 audit pass replaces both
+dead-link sites with the canonical release trail.
 
 ## 2. Oracle taxonomy
 

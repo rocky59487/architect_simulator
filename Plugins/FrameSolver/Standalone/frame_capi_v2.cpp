@@ -156,6 +156,15 @@ FCAPI int frame_v2_send(frame_v2_ctx* raw, const uint8_t* inFrame, size_t inLen)
     {
         std::lock_guard<std::mutex> lk(ctx->mtx);
         if (ctx->closed) return FRAME_V2_INVALID_CTX;
+        // v2.8.1 audit (C-02): cap the inbound queue. A long-running handler (e.g.
+        // solve.dyn_collapse) blocks the worker for seconds; without a cap, a fast client
+        // can pile up unbounded inbound frames during that window. 256 is comfortably above
+        // any realistic Grasshopper burst (~10 frames during a single slider drag) but
+        // well below per-process thread / heap exhaustion.
+        if (ctx->inbound.size() >= 256) {
+            ctx->lastError = "frame_v2_send: inbound queue depth cap (256) exceeded";
+            return FRAME_V2_OUT_OF_MEMORY;
+        }
         try {
             ctx->inbound.push_back(std::move(parsed));
         } catch (const std::bad_alloc&) {

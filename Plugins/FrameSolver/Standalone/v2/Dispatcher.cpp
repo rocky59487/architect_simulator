@@ -184,10 +184,9 @@ size_t Dispatcher::PendingOutbound() const {
     return outbound_.size();
 }
 
-std::string Dispatcher::LastError() const {
-    std::lock_guard<std::mutex> lk(errMtx_);
-    return lastError_;
-}
+// v2.8.1 audit C-11: removed dead Dispatcher::LastError() / errMtx_ / lastError_ trio.
+// frame_v2_last_error reads the per-context lastError directly in frame_capi_v2.cpp under
+// the ctx mutex; the dispatcher-internal channel was declared but never written.
 
 // ====================================================================================
 // [WIRED] handlers

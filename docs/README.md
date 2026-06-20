@@ -55,20 +55,30 @@ S 系列之前的線性套件(8 段)與崩塌 C 線(6 階段)沒有獨立 PROGRE
 |--------|------|------|
 | LevelSim — 水準儀模擬器 | [`Plugins/LevelSim/README.md`](../Plugins/LevelSim/README.md) | 純 C++17 測量核心 + UE5 可玩 MVP;**與 FrameCore 完全零耦合**(無共享 header / 無共享 Build.cs 相依),可獨立 build/test/release。本 docs/ 目錄維持 FrameCore 專屬;LevelSim 自有 README、gate、smoke pipeline 與 release notes 段。bundled release `v2.4` = FrameCore v2.4 + LevelSim v1.0.0(v2.4 內容見 [`RELEASE_v2.4.md`](RELEASE_v2.4.md))。 |
 
-## 外部橋接 / Rhino bridge v2(B 線,v2.4 加入)
+## 外部橋接 / Rhino bridge v2(B 線,v2.4 加入,v2.5→v2.8.1 已 fully wired)
 
 > v2.4 引入第二條 client-side bridge,並行於既有的 v1 `frame_cli` / `frame_capi.dll`(永久保留)。
-> v2 是 **framed JSON 線協議 + opt-in C# SDK**,設計階段名稱:B1 (規格) → B2 (DLL + dispatcher 骨架)。
-> B3-B7 仍是待辦(見 [`HANDOFF_v2.4.md`](HANDOFF_v2.4.md))。
+> v2 = **framed JSON 線協議 + opt-in C# SDK**。階段史:B1 (規格,v2.4) → B2 (DLL + dispatcher 骨架,v2.4)
+> → **B3 (engine wire,v2.5,12 method handler 接 FrameCore)** → **B4 (async dispatcher,v2.6)** →
+> **B5 / B5.2 (factor reuse + reanalysis_solve,v2.5/v2.6 shape;session-cache routing 仍 deferred 至 v2.9)**
+> → **B6 placeholder (model.patch schema 待定)** → **B7 GHA dotnet build (環境依賴,deferred)**。
+> 當前 v2.8.1 audit 確認:**16 wired capabilities + `transport.async` + `dyn_collapse.live` + C-09/C-10 supernodal guard**。
 
 | 文件 | 性質 |
 |---|---|
 | [`specs/S6b_rhino_bridge_v2.md`](specs/S6b_rhino_bridge_v2.md) | 權威協議規格:framed JSON、雙 profile(simple/advanced)、19 method 目錄、forward-compat 規則 |
 | [`specs/S6c_rhino_ux_commercial.md`](specs/S6c_rhino_ux_commercial.md) | 商業級 UX 規格:80 GH 元件目錄、Display 範式、預設庫、Bake |
 | [`HANDOFF_rhino_bridge_v2.md`](HANDOFF_rhino_bridge_v2.md) | B1 階段交接(設計 + 骨架完成,被下一輪 superseded — 史料) |
-| [`HANDOFF_rhino_bridge_v2_final.md`](HANDOFF_rhino_bridge_v2_final.md) | **B2 階段最終交接**(三輪 P0/P1/P2 修補後,真實 109 KB DLL + 第 6 gate leg 13/13 + 53 檔 C# 骨架) |
+| [`HANDOFF_rhino_bridge_v2_final.md`](HANDOFF_rhino_bridge_v2_final.md) | B2 階段最終交接(B2 是 stub dispatcher;B3/B4 將其 wire 起來) |
 | [`PROGRESS_B2.md`](PROGRESS_B2.md) | B2 階段進度紀錄(dispatcher 骨架交付明細) |
-| [`HANDOFF_v2.4.md`](HANDOFF_v2.4.md) | v2.4 cycle 交接概要 + B3 第一行動指引 |
+| [`HANDOFF_v2.4.md`](HANDOFF_v2.4.md) | v2.4 cycle 交接概要 + B3 第一行動指引(已落實於 v2.5) |
+| [`RELEASE_v2.4.md`](RELEASE_v2.4.md) | v2.4 release notes — Rhino bridge v2 + B2 dispatcher 骨架 |
+| [`RELEASE_v2.5.md`](RELEASE_v2.5.md) | v2.5 release notes — B3 dispatcher engine wire + 7-agent audit |
+| [`HANDOFF_v2.5.md`](HANDOFF_v2.5.md) | v2.5 後接手 owner 交接(B4/B5.2/C-09/C-10 第一行動指引) |
+| [`RELEASE_v2.6.md`](RELEASE_v2.6.md) | v2.6 release notes — B4 async dispatcher + C# bridge 7 fix + C-09/C-10 guard |
+| [`RELEASE_v2.7.md`](RELEASE_v2.7.md) | v2.7 release notes — P1-3 `dyn_collapse.live` mid-run streaming + cancel |
+| [`RELEASE_v2.8.1.md`](RELEASE_v2.8.1.md) | **v2.8.1 release notes** — audit-hardening pass (7-agent finding,版本字串 / engine NaN / queue cap / dead field / DisposeAsync UAF / dead-link / handoff debt) |
+| [`HANDOFF_v2.8.1.md`](HANDOFF_v2.8.1.md) | **v2.8.1 後接手 owner 交接** — 補齊 v2.6/v2.7 漏的 handoff,含每項 deferred 的「第一個動作」 |
 
 ## 課程素材 / Learning(v2.4 加入)
 

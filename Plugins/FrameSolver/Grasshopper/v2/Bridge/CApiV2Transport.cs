@@ -165,6 +165,14 @@ internal sealed class CApiV2Transport : ITransport
         _disposed = true;
         if (_ctx != IntPtr.Zero)
         {
+            // v2.8.1 audit (D-10b): wake any thread blocked in ReceiveFrameAsync (which sits
+            // inside native frame_v2_recv(..., blockingMs: -1)) BEFORE we hand _ctx to
+            // frame_v2_close + NativeLibrary.Free. Without this, the blocked recv thread
+            // is still holding _ctx as a P/Invoke argument when Free yanks the DLL out
+            // from under it -- classic interop UAF. frame_v2_cancel_recv is non-blocking
+            // (sets a flag + cv.notify_all under ctx->mtx in frame_capi_v2.cpp), so this
+            // is cheap and lets the recv path unwind through INVALID_CTX on its own.
+            _cancelRecvDelegate?.Invoke(_ctx);
             _closeDelegate?.Invoke(_ctx);
             _ctx = IntPtr.Zero;
         }
