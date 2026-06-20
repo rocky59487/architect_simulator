@@ -32,9 +32,19 @@ from __future__ import annotations
 import ctypes
 import json
 import os
+import re
 import struct
 import sys
 from pathlib import Path
+
+# Semver-ish: MAJOR.MINOR(.PATCH)? — accepts "2.8.1" / "2.9" / "3.0.0-dirty"-no.
+# The literal check below catches a build that forgot to bump kEngineVer in Dispatcher.h
+# when the rest of the release was tagged; the regex catches a build whose version string
+# was corrupted to something non-numeric (a v2.5 audit found a `kEngineVer` literal that
+# silently drifted 3 minor versions behind the tag).
+ENGINE_VER_RE = re.compile(r"^\d+\.\d+(?:\.\d+)?$")
+# Optional pin from env: set FRAMECORE_EXPECTED_ENGINE_VER=2.8.1 to enforce a literal match.
+EXPECTED_ENGINE_VER = os.environ.get("FRAMECORE_EXPECTED_ENGINE_VER", "").strip()
 
 REPO = Path(__file__).resolve().parent.parent
 DLL    = REPO / "Plugins" / "FrameSolver" / "Standalone" / "frame_capi_v2.dll"
@@ -262,6 +272,10 @@ def main() -> int:
     if not check("abi_version >= 2",          abi >= 2, f"abi={abi}"):     failures += 1
     if not check("build_sha non-empty",       len(sha) > 0, f"sha={sha}"): failures += 1
     if not check("engine_version non-empty",  len(ver) > 0, f"v={ver}"):   failures += 1
+    if not check("engine_version semver-ish", bool(ENGINE_VER_RE.match(ver)), f"v={ver}"): failures += 1
+    if EXPECTED_ENGINE_VER:
+        if not check(f"engine_version == {EXPECTED_ENGINE_VER} (env pin)",
+                      ver == EXPECTED_ENGINE_VER, f"got={ver}"): failures += 1
 
     ctx = dll.open()
     try:

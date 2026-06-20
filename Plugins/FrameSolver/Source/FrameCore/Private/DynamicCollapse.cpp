@@ -473,6 +473,17 @@ DynCollapseHistory runDynamicCollapse(const FrameModel& model, const DynCollapse
         storeFrame(t, scatterToGlobal(cfg.Phi * q, work, cfg.fmap, cfg.N, true),     // post-inheritance snapshot
                       scatterToGlobal(cfg.Phi * qd, work, cfg.fmap, cfg.N, false));   // (new config, inherited q/qd)
         if (nanAbort) return H;  // v2.8.1 (A-04): post-event snapshot may inherit non-finite state
+        // v2.8.2 (A-04+): mirror the inner-loop cancel poll on line 408. Without this a
+        // client that cancels DURING re-configuration (between event detection and the
+        // next frameStride boundary) has to wait one more frameStride-of-Newmark; the post-
+        // event snapshot is the natural cooperative-cancel point on the event branch. Outcome
+        // stays Invalid (no enum add) and the diagnostic flags the reason — same contract
+        // as line 408 so dispatcher/SDK distinguishing logic is unchanged.
+        if (opts.isCancelled && opts.isCancelled()) {
+            H.outcome    = CollapseOutcome::Invalid;
+            H.diagnostic = "cancelled by caller (post-event snapshot)";
+            return H;
+        }
         ++events; quietTime = 0;
         if (events >= opts.maxEvents) { H.outcome = CollapseOutcome::MaxSteps; H.diagnostic = "event budget exhausted with events still occurring"; return H; }
     }

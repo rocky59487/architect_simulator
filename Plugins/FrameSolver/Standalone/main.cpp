@@ -1,5 +1,17 @@
 // Standalone gate for FrameCore — builds fixtures, solves, compares to closed-form
 // analytic solutions, prints PASS/FAIL, exits 0 iff all pass.
+//
+// F-fixture numbering policy (v2.8.2):
+//   Fixtures are NUMBERED in introduction order across releases (F1..F64+ at v2.8.1).
+//   Two IDs are intentionally absent: F41 and F60. Both were earlier prototype probes
+//   superseded by neighbouring fixtures (F40 / F42 cover the same P-Delta regime; F59 /
+//   F61 cover the warped-shell sweep at distinct alpha). The IDs are RESERVED rather
+//   than renumbered, so historical references in PROGRESS / RELEASE docs and audit
+//   transcripts stay grep-able; new fixtures take F65+, not F41/F60. The standalone
+//   gate counts FAIL on g_fail > 0 (line 42) rather than enforcing a fixture-ID range,
+//   so the gap is benign (grep `g_fail` to find the counter) — but a "F60 returned"
+//   later would conflict with this policy.
+//   See docs/PROGRESS_S* for the originating context.
 #include "FrameCore/FrameSolver.h"
 #include "FrameCore/ElasticAllowable.h"
 #include "FrameCore/Grillage.h"
