@@ -37,6 +37,15 @@ struct DynCollapseOptions {
     // caller", and H.frames keeps whatever was captured before cancel. Default empty = never
     // cancelled.
     std::function<bool()> isCancelled;
+
+    // R2.3 (v2.9 dyn_collapse.live.events): if set, called inside runDynamicCollapse() each
+    // time an event is appended to H.events -- the initial scenario event (t=0), the per-step
+    // brittle-failure events, and the post-fragment energy-after annotation. The transport
+    // (e.g. v2 Dispatcher) can push each event to the client BEFORE runDynamicCollapse() returns,
+    // mirroring the existing frame stream. Default empty = old behaviour: events still
+    // accumulate into H.events and the caller walks them after return; existing standalone
+    // fixtures and the v1 CLI are unaffected because they do not set the callback.
+    std::function<void(const struct DynCollapseEvent&)> onEventEmitted;
 };
 
 // One topology-changing event during the run. The lists are what was APPLIED at this event;

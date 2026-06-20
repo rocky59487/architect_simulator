@@ -337,13 +337,19 @@ DynCollapseHistory runDynamicCollapse(const FrameModel& model, const DynCollapse
     cleanupFragments(work, ev0, nullptr);
     const bool hasInitialEvent = !ev0.removedMembers.empty() || !ev0.removedShells.empty() || !ev0.detached.empty();
 
+    // R2.3 (v2.9): helper closure -- push the event and notify the live transport if armed.
+    auto emitEvent = [&](DynCollapseEvent&& ev) {
+        H.events.push_back(std::move(ev));
+        if (opts.onEventEmitted) opts.onEventEmitted(H.events.back());
+    };
+
     if (!anyActive(work)) {
-        if (hasInitialEvent) H.events.push_back(ev0);
+        if (hasInitialEvent) emitEvent(std::move(ev0));
         H.outcome = CollapseOutcome::Collapsed; H.diagnostic = "no active element remains grounded"; return H;
     }
     ConfigSystem cfg = buildConfig(work, opts, nullptr);
     if (!cfg.ok) {
-        if (hasInitialEvent) H.events.push_back(ev0);
+        if (hasInitialEvent) emitEvent(std::move(ev0));
         H.outcome = cfg.invalid ? CollapseOutcome::Invalid : CollapseOutcome::Collapsed;
         H.diagnostic = cfg.invalid ? cfg.diag : ("mechanism at t=0: " + cfg.diag);
         return H;
@@ -351,7 +357,7 @@ DynCollapseHistory runDynamicCollapse(const FrameModel& model, const DynCollapse
     if (hasInitialEvent) {
         ev0.energyAfter = configEnergy(cfg, cfg.u0ff, VecX::Zero(cfg.nf));   // static elastic energy; fragments at rest
         ev0.energyBefore = ev0.energyAfter;
-        H.events.push_back(ev0);
+        emitEvent(std::move(ev0));
     }
 
     // ---- modal state from the static equilibrium (q from u0 projection, qd=0)
@@ -447,12 +453,12 @@ DynCollapseHistory runDynamicCollapse(const FrameModel& model, const DynCollapse
         real fragKE = 0; for (const FragmentCluster& fc : ev.detached) fragKE += fragmentKE(fc);
 
         if (!anyActive(work)) {
-            ev.energyAfter = fragKE; H.events.push_back(ev);
+            ev.energyAfter = fragKE; emitEvent(std::move(ev));
             H.outcome = CollapseOutcome::Collapsed; H.diagnostic = "no active element remains grounded"; return H;
         }
         ConfigSystem cfg2 = buildConfig(work, opts, &uN_f);
         if (!cfg2.ok) {
-            ev.energyAfter = fragKE; H.events.push_back(ev);
+            ev.energyAfter = fragKE; emitEvent(std::move(ev));
             H.outcome = cfg2.invalid ? CollapseOutcome::Invalid : CollapseOutcome::Collapsed;
             H.diagnostic = cfg2.invalid ? cfg2.diag : ("mechanism in the grounded remainder: " + cfg2.diag);
             return H;
@@ -466,7 +472,7 @@ DynCollapseHistory runDynamicCollapse(const FrameModel& model, const DynCollapse
         const VecX proj = cfg2.Phi * q2;
         ev.truncationResidual = (upff - proj).norm() / std::max<real>(upff.norm(), real(1e-300));
         ev.energyAfter = configEnergy(cfg2, upff, vpff) + fragKE;
-        H.events.push_back(ev);
+        emitEvent(std::move(ev));
 
         cfg = std::move(cfg2); q = std::move(q2); qd = std::move(qd2); qdd = std::move(qdd2);
         T1 = (cfg.W2.size() > 0 && cfg.W2(0) > 0) ? real(2) * kPi / std::sqrt(cfg.W2(0)) : opts.maxTime;

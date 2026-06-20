@@ -161,6 +161,10 @@ inline std::vector<std::string> Capabilities() {
         // Without this capability the client should expect frames in a burst after the final
         // response (v2.6 behaviour).
         "dyn_collapse.live",
+        // R2.3 (v2.9): solve.dyn_collapse also pushes EVENTS live (in addition to frames), via
+        // the engine's onEventEmitted callback. Clients that don't want live events can pass
+        // liveEvents=false in the request body and fall back to the v2.7 post-run loop.
+        "dyn_collapse.live.events",
     };
 }
 

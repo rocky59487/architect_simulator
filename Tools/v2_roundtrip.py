@@ -563,6 +563,73 @@ def main() -> int:
                     }))
                     dll.recv(ctx)
 
+            # R2.3 (v2.9) live event streaming: with mass + an initialRemovals scenario the
+            # dispatcher should push at least one dyn_collapse.event channel WHILE
+            # runDynamicCollapse runs (via the engine's onEventEmitted callback), the count
+            # equal to the final summary's nEvents. liveEvents defaults to true so this is the
+            # default contract starting v2.9.
+            dll.send(ctx, build_frame({
+                "v": 2, "kind": "request", "id": "rdc_e1", "method": "session.open",
+                "body": {"mode": "default"}
+            }))
+            rc_e1, raw_e1 = dll.recv(ctx)
+            if rc_e1 == OK:
+                _, hdr_e1, _ = parse_frame(raw_e1)
+                sid_e = hdr_e1["body"].get("session")
+                if sid_e:
+                    mass_model_e = dict(CANTILEVER_V2_JSON)
+                    mass_model_e["materials"] = [{"E": 210000, "G": 80769, "rho": 7.85e-9}]
+                    dll.send(ctx, build_frame({
+                        "v": 2, "kind": "request", "id": "rdc_em", "method": "model.set",
+                        "body": {"session": sid_e, **mass_model_e}
+                    }))
+                    dll.recv(ctx)
+                    # initialRemovals = [0] triggers the t=0 brittle-removal event; the
+                    # cantilever has at least member id 0 in the fixture. mass + frameStride=1
+                    # keeps the run short.
+                    dll.send(ctx, build_frame({
+                        "v": 2, "kind": "request", "id": "rdc_ev", "method": "solve.dyn_collapse",
+                        "body": {"session": sid_e, "dt": 0.001, "maxTime": 0.005,
+                                 "frameStride": 1, "streamFrames": False, "streamEvents": True,
+                                 "liveEvents": True, "binaryFrames": False,
+                                 "initialRemovals": [0]}
+                    }))
+                    live_events = 0
+                    final_e = None
+                    for _ in range(64):
+                        rc_x, raw_x = dll.recv(ctx)
+                        if rc_x != OK: break
+                        _, hdr_x, _ = parse_frame(raw_x)
+                        kind = hdr_x.get("kind")
+                        body_x = hdr_x.get("body", {})
+                        if kind == "event" and body_x.get("channel") == "dyn_collapse.event":
+                            live_events += 1
+                        elif kind in ("response", "error"):
+                            final_e = hdr_x
+                            break
+                    n_events_final = (final_e.get("body", {}).get("nEvents", -1)
+                                      if final_e is not None else -1)
+                    ok_live_ev = (final_e is not None
+                                  and final_e.get("kind") == "response"
+                                  and live_events == n_events_final)
+                    if not check(
+                        "R2.3: solve.dyn_collapse live events stream during run "
+                        "(live count == final nEvents)",
+                        ok_live_ev,
+                        f"live_events={live_events} nEvents={n_events_final} "
+                        f"final={None if final_e is None else final_e.get('kind')}"):
+                        failures += 1
+                    dll.send(ctx, build_frame({
+                        "v": 2, "kind": "request", "id": "rdc_ec",
+                        "method": "session.close", "body": {"session": sid_e}
+                    }))
+                    dll.recv(ctx)
+            # Verify the capability is advertised by the v2.9 hello handshake.
+            if not check("R2.3: hello.capabilities advertises 'dyn_collapse.live.events'",
+                          "dyn_collapse.live.events" in caps,
+                          f"caps subset has dyn_collapse.live.events? {'dyn_collapse.live.events' in caps}"):
+                failures += 1
+
         # --- session.close ---
         if sid:
             dll.send(ctx, build_frame({

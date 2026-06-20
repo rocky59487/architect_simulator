@@ -1234,6 +1234,10 @@ Frame Dispatcher::HandleDynCollapse(Dispatcher& d, Context& ctx, const Frame& in
     const bool streamFrames = body->getBool("streamFrames", true);
     const bool binaryFrames = body->getBool("binaryFrames", true);
     const bool streamEvents = body->getBool("streamEvents", true);
+    // R2.3 (v2.9): default-on live event streaming. Engine callback fires for each event the
+    // moment it lands in H.events, mirroring the v2.7 dyn_collapse.frame live stream. Pass
+    // liveEvents=false to opt back into the v2.7 post-run loop (kept for backward compat).
+    const bool liveEvents   = body->getBool("liveEvents", true);
 
     // P1-3 (v2.7 live streaming): wire the engine's onFrameEmitted callback to push each
     // dyn_collapse.frame event onto the outbound queue THE MOMENT runDynamicCollapse stores it,
@@ -1274,6 +1278,20 @@ Frame Dispatcher::HandleDynCollapse(Dispatcher& d, Context& ctx, const Frame& in
         return !abortReason->empty() || d.IsCancelled(capturedId);
     };
 
+    // R2.3 (v2.9 dyn_collapse.live.events): mirror the frame live-stream pattern. Each event
+    // is pushed onto the outbound queue THE MOMENT runDynamicCollapse appends it to H.events.
+    // The event index is a callback-local counter; the same packDynEvent helper is reused so
+    // the post-run loop and live channel emit identical payloads. Skipped when liveEvents==false
+    // (the v2.7 post-run loop below still runs in that case) or when streamEvents==false (the
+    // client opted out of receiving any events at all).
+    auto liveEventIndex = std::make_shared<int>(0);
+    if (streamEvents && liveEvents) {
+        opts.onEventEmitted = [&d, capturedId, liveEventIndex](const frame::DynCollapseEvent& ev) {
+            JsonObject details = packDynEvent(ev, (*liveEventIndex)++);
+            d.EnqueueOutbound(MakeEvent(capturedId, "dyn_collapse.event", std::move(details)));
+        };
+    }
+
     frame::DynCollapseHistory H;
     try { H = frame::runDynamicCollapse(*sess->model, opts); }
     catch (const std::exception& e) { return MakeError(id, "INTERNAL", std::string("engine: ") + e.what()); }
@@ -1283,9 +1301,10 @@ Frame Dispatcher::HandleDynCollapse(Dispatcher& d, Context& ctx, const Frame& in
     if (d.IsCancelled(id))
         return MakeError(id, "CANCELLED", "dyn_collapse cancelled by client mid-run");
 
-    // Events stay post-run (engine accumulates into H.events; live event emission would need a
-    // second engine callback for that channel — out of v2.7 scope, deferred).
-    if (streamEvents) {
+    // Post-run loop: keeps v2.7 wire ABI when liveEvents==false. With the default (liveEvents
+    // ==true), the live channel already covered every event, so we skip the loop to avoid
+    // duplicate delivery.
+    if (streamEvents && !liveEvents) {
         for (std::size_t i = 0; i < H.events.size(); ++i) {
             JsonObject details = packDynEvent(H.events[i], static_cast<int>(i));
             d.EnqueueOutbound(MakeEvent(id, "dyn_collapse.event", std::move(details)));
