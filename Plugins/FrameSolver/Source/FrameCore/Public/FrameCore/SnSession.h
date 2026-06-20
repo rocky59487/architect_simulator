@@ -24,6 +24,15 @@ struct SnSessionOptions {
     // so compensated SpMV reuses the same matrix the factor was built from.
     int    irSteps = 0;            // 0 = off (bit-identical to no-IR); 1-2 typical
     double irTol   = 0.0;          // 0 = no early stop; >0 = break when ||r||_inf <= irTol * ||b||_inf
+
+    // R2.2 lazy-recover (v2.8.2+): when true, solveFrame() returns u + reactions only;
+    // R.memberForces / R.shellForces are left empty (size()==0). Callers reading those
+    // post-solve MUST check .empty() and re-run solveFrame() with skipForceRecovery=false
+    // to populate. Use when a per-frame interactive load drag only needs to render the
+    // deformed mesh — Research/R2_realtime_150k/RESULTS_round1.md measured the
+    // per-element recover pass at ~50-80 ms on a 90k frame tower, dominating the user-
+    // facing solveFrame() time. Default false: bit-identical to v2.8.x SnSession behaviour.
+    bool skipForceRecovery = false;
 };
 
 // Stateful supernodal solve session: factor ONCE in the ctor, reuse the factor across solveFrame

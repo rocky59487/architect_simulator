@@ -252,11 +252,18 @@ SolveResult SnSession::solveFrame(const FrameModel& model) {
     const VecX Rv = S.K * u - F;
     for (int g = 0; g < N; ++g) R.reactions[(size_t)g] = Rv(g);
 
-    R.memberForces.resize(model.members.size());
-    R.shellForces.resize(model.shells.size());
-    for (size_t e = 0; e < model.members.size(); ++e) R.memberForces[e].member = model.members[e].id;
-    for (size_t s = 0; s < model.shells.size(); ++s)  R.shellForces[s].shell   = model.shells[s].id;
-    for (const auto& el : S.elems) el->recover(u, R);
+    if (!p_->opts.skipForceRecovery) {
+        R.memberForces.resize(model.members.size());
+        R.shellForces.resize(model.shells.size());
+        for (size_t e = 0; e < model.members.size(); ++e) R.memberForces[e].member = model.members[e].id;
+        for (size_t s = 0; s < model.shells.size(); ++s)  R.shellForces[s].shell   = model.shells[s].id;
+        for (const auto& el : S.elems) el->recover(u, R);
+    } else {
+        // R2.2 lazy-recover: callers requested only u + reactions. R.memberForces /
+        // R.shellForces stay empty; downstream readers must check .empty() and re-solve
+        // with skipForceRecovery=false if they need stress resultants.
+        note += " [lazy-recover]";
+    }
     R.pivotMargin = S.pivotMargin;
     R.diagnostic = note;
     return R;

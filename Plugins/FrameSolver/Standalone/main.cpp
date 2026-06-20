@@ -3781,6 +3781,80 @@ int main() {
         }
     }
 
+#if FRAMECORE_SUPERNODAL
+    // ---------- F65: R2.2 lazy force recovery on SnSession (skipForceRecovery flag) ----------
+    // Research/R2_realtime_150k/RESULTS_round1.md measured solveFrame on a 90k-DOF frame
+    // tower at 132 ms with the default recovery pass and 116 ms with skipForceRecovery=true.
+    // The opt-in flag lets an interactive client (educational game dragging a load case)
+    // request a per-frame solve that returns ONLY u + reactions, skipping the per-element
+    // memberForces / shellForces recovery. The contract:
+    //   * default (skipForceRecovery=false) -- bit-equivalent to v2.8.1 SnSession behaviour.
+    //   * lazy (skipForceRecovery=true) -- R.u and R.reactions identical to the recover
+    //     path; R.memberForces.empty() and R.shellForces.empty(); diagnostic contains
+    //     "[lazy-recover]" so downstream code can sanity-check the mode.
+    // The bit-equivalence (lazy.u == recover.u, recover.reactions == lazy.reactions) is the
+    // critical guarantee: lazy is a cheaper subset, NOT a different solve.
+    {
+        Material mat65(200000.0, 76923.07692307692);
+        Section sec65 = Section::Rectangular(150.0, 200.0);
+        sec65.J = 1.5e8;
+
+        FrameModel m; fixtures::cantileverTipLoad(m, 1000.0, 2000.0, mat65, sec65);
+        SolveOptions optSn; optSn.useSupernodalPrimary = true;
+        PreparedSystem psS = assembleAndFactor(m, optSn);
+        checkTrue("F65 SnPrimary prepared non-singular", !psS.isSingular(), psS.diagnostic());
+
+        SnSessionOptions sOptRecover;  sOptRecover.skipForceRecovery  = false;
+        SnSessionOptions sOptLazy;     sOptLazy.skipForceRecovery     = true;
+        SnSession sessRecover(psS, sOptRecover);
+        SnSession sessLazy   (psS, sOptLazy);
+        checkTrue("F65 recover-mode session valid", sessRecover.valid(), sessRecover.diagnostic());
+        checkTrue("F65 lazy-mode session valid",    sessLazy.valid(),    sessLazy.diagnostic());
+
+        const SolveResult R = sessRecover.solveFrame(m);
+        const SolveResult L = sessLazy.solveFrame(m);
+        checkTrue("F65 recover.u sized to global DOF", R.u.size() == (size_t)m.dofCount(), "");
+        checkTrue("F65 lazy.u sized to global DOF",    L.u.size() == (size_t)m.dofCount(), "");
+
+        // u and reactions are bit-equivalent: lazy is a strict subset (skips the per-element
+        // recover pass only). Use absolute uPrecision (cantilever scale: tip displacement
+        // ~ FL^3/(3EI); 1e-12 relative is enough on a 6-element model).
+        double duMax = 0, urMax = 0;
+        for (size_t k = 0; k < R.u.size(); ++k) {
+            duMax = std::max(duMax, std::fabs((double)R.u[k] - (double)L.u[k]));
+            urMax = std::max(urMax, std::fabs((double)R.u[k]));
+        }
+        const double uRel = (urMax > 0) ? duMax / urMax : duMax;
+        checkTrue("F65 lazy.u == recover.u (rel<1e-12)", uRel < 1e-12, "rel=" + std::to_string(uRel));
+
+        double drMax = 0, rrMax = 0;
+        for (size_t k = 0; k < R.reactions.size(); ++k) {
+            drMax = std::max(drMax, std::fabs((double)R.reactions[k] - (double)L.reactions[k]));
+            rrMax = std::max(rrMax, std::fabs((double)R.reactions[k]));
+        }
+        const double rRel = (rrMax > 0) ? drMax / rrMax : drMax;
+        checkTrue("F65 lazy.reactions == recover.reactions (rel<1e-12)", rRel < 1e-12, "rel=" + std::to_string(rRel));
+
+        // memberForces / shellForces: recover full, lazy empty
+        checkTrue("F65 recover.memberForces.size == model.members.size()",
+                  R.memberForces.size() == m.members.size(),
+                  "got=" + std::to_string(R.memberForces.size()) + " expect=" + std::to_string(m.members.size()));
+        checkTrue("F65 lazy.memberForces.empty()", L.memberForces.empty(),
+                  "size=" + std::to_string(L.memberForces.size()));
+        checkTrue("F65 recover.shellForces.size == model.shells.size()",
+                  R.shellForces.size() == m.shells.size(),
+                  "got=" + std::to_string(R.shellForces.size()) + " expect=" + std::to_string(m.shells.size()));
+        checkTrue("F65 lazy.shellForces.empty()", L.shellForces.empty(),
+                  "size=" + std::to_string(L.shellForces.size()));
+
+        // diagnostic carries the mode tag so an SDK can spot a stale recover/lazy mismatch.
+        checkTrue("F65 lazy.diagnostic contains [lazy-recover]",
+                  L.diagnostic.find("[lazy-recover]") != std::string::npos, L.diagnostic);
+        checkTrue("F65 recover.diagnostic does NOT contain [lazy-recover]",
+                  R.diagnostic.find("[lazy-recover]") == std::string::npos, R.diagnostic);
+    }
+#endif // FRAMECORE_SUPERNODAL
+
     std::printf("\n%s  (failures=%d)\n", g_fail == 0 ? "ALL PASS" : "FAILURES", g_fail);
     return g_fail == 0 ? 0 : 1;
 }

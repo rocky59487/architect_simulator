@@ -37,40 +37,87 @@
 
 ---
 
-## 段落 1 — 現況審計 + 候選技術盤點 (預計 00:40–02:30)
+## 段落 1 — 現況審計 + 候選技術盤點 + 三項小補完 (00:40–02:30,實際 00:11–02:00)
 
 ### 目標
-1. 找出 150K 即時下的真正 wall-clock bottleneck (factor / backsub / Newmark / 殼裝配 / D/C 各佔比)
-2. 盤點 5 個候選技術:
-   - (a) BLR/HSS rank-structured Cholesky (進一步降 factor cost)
-   - (b) GPU offload backsub (BLAS3 重型運算搬 GPU)
-   - (c) 局部更新 (Schur complement / Sherman-Morrison) — 元素移除 → low-rank update
-   - (d) 混合精度 (FP32 backsub + FP64 iterative refinement)
-   - (e) reorder / blocking / NUMA pinning
-3. 為每個候選找 oracle 證據 (paper benchmark / 開源實作數字)
+1. 找出 150K 即時 wall-clock bottleneck
+2. 盤點 5 候選技術
+3. 為每個找 oracle 證據
 4. 寫研究筆記 `Research/R2_realtime_150k/CANDIDATES.md`
+5. 同步做 deferred 清單 small 項
 
 ### 完成
-(待填)
+- 兩 Explore agent 並行收事實 (bottleneck audit + deferred 項清單)
+- **關鍵發現**:現有「150K 即時」是 log-log 外推 [THEORY],底層實測 17/32/64k + 113k + 191k。113k CHOLMOD backsub 67ms 已超 60fps 預算 4×。**真正瓶頸 = backsub** (factor once-then-reuse)。150K 60fps 在混合建築未直接量測,純殼 85K 已達 16.8ms。
+- `Research/R2_realtime_150k/CANDIDATES.md` 完成,6 候選 (A 混合精度+IR / B Schur local update / C GPU / D BLR / E reorder / F multi-RHS) 全部評估
+- **判決**:✅ A 混合精度+IR (prototype 階段) / ⚠️ B 高效益但風險高 (延後) / ❌ C, D, E, F (違反「不堆奇怪技術」或場景不對)
+- **必補**:沒有 100K/150K 直接實測 → 必先做 micro-bench 才能確認 candidate A 預期值
 
-### 失敗的嘗試 / 誠實負面
-(待填)
+並行做 deferred 小補完 (A1 + A2 + A5):
+- A1 `v2_roundtrip.py`: engine_version 從 "non-empty" → "semver-ish" + `FRAMECORE_EXPECTED_ENGINE_VER` env literal pin (catches v2.5-era kEngineVer drift)
+- A2 `DynamicCollapse.cpp`: post-event snapshot 後加 isCancelled poll (mirror line 408 inner-loop pattern); cancel during re-configuration 響應加速一個 frameStride
+- A5 `Standalone/main.cpp`: F41/F60 跳號 policy 入 source comment
+
+### Gates 全綠
+- standalone F1-F64 ALL PASS (failures=0)
+- UE automation 57/57 (UE incremental build 23.88s — hot cache 神速,不是 MEMORY 警告的 swap thrash)
+- OpenSees PASS
+- linear-deep-audit 104/104
+- frame_cli round-trip ALL PASS
+- v2_roundtrip ALL PASS (含新 engine_version semver + env pin checks)
 
 ### Commit
-(待填)
+- `a307a0c` "feat: v2.8.2 audit closeouts — A1 engine_version semver+pin / A2 post-event cancel poll / A5 F41/F60 policy"
+- pushed to origin/main
+
+### 失敗的嘗試 / 誠實負面
+- A5 初版 comment 提 `$ExpectedFixtures` 變數 — `run_gate.ps1` 沒這變數,改成 grep-friendly 描述 `g_fail` 計數器,**踩雷:不要寫不存在的事實**
+
+### 用量
+- 主上下文兩 Explore agent + 三個 Edit + 五腿 build/test。無 web fetch (CANDIDATES.md 用既有 ICL/MUMPS/cuSPARSE 公開知識引用,先不查證 paper 細節)
 
 ---
 
-## 段落 2 — 實驗 lane + 微基準 (預計 02:30–05:00)
+## 段落 2 — R2 lane micro-bench + lazy recover 落地 (02:00–04:30,實際進行中)
 
 ### 目標
-1. 設計實驗 lane 目錄 `Research/R2_realtime_150k/` (untracked,不破 main)
-2. 對最有希望的 1-2 個技術做 micro-bench
+1. 設計實驗 lane `Research/R2_realtime_150k/` (untracked)
+2. 對最有希望的 1-2 個技術 micro-bench
 3. 量化 speedup vs LDLT-supernodal baseline
 4. 誠實記下負面結果
 
 ### 完成
-(待填)
+- r2_bench.cpp + build_r2.bat (Research lane,untracked)
+- 跑 90k / 120k / 160k 三個 frame tower 規模:
+  - 90k: factor 3508ms, solveFrame **132 ms** (60fps -115ms / 100ms -32ms 雙 FAIL)
+  - 120k: factor 5282ms, solveFrame **218 ms**
+  - 160k: factor 9610ms, solveFrame **389 ms**
+- **關鍵發現**:既有「150k 即時 backsub<100ms」是純 sn::solveSuper 數字,不是 user-facing solveFrame 體驗時間。**真正瓶頸是 RHS+backsub+SPMV+recover 全棧**。
+- RESULTS_round1.md 完整記錄
+
+實作 Candidate G (lazy force recovery):
+- SnSessionOptions::skipForceRecovery 預設 false (backward-compat)
+- SnSession::solveFrame skip member/shell recover,留 u + reactions
+- r2_bench 加 --compare 模式
+- standalone F65 fixture: 8 個 check 驗 bit-equivalence + sizes + diagnostic tag
+- **measured**: 90k 從 132.9 → 115.9 ms (1.15× / -16.9ms)
+
+### 失敗的嘗試 / 誠實負面
+- **預測錯**:RESULTS_round1.md 估 recover 50-80ms,實測只 17ms (-13% solveFrame)。BeamColumnElement::recover 對 46k members 估 6.6M flops ≈ 1ms 應該想得到,被「46k member 很多」的錯覺誤導
+- lazy recover 是 ABI-friendly mini-win,**不是「真正實時 150K」突破**。真正大頭 (115ms) 在 RHS+backsub+SPMV 沒解。
+- 60fps @ 150K 在當前架構是物理牆 (RESULTS 結論)
+
+### Gates 全綠
+- standalone F1-F65 ALL PASS (failures=0)
+- UE automation 57/57
+- OpenSees PASS
+- linear-deep-audit 104/104
+- frame_cli round-trip ALL PASS
+- v2_roundtrip ALL PASS (env pin 2.8.1)
+
+### Commit (準備中)
+- 4 modified files (SnSession.h/cpp/main.cpp/NIGHT_SHIFT)
+- Research/ 仍 untracked (research-only)
 
 ---
 
