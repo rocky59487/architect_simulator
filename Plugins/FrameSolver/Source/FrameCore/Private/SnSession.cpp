@@ -16,10 +16,27 @@
 #include "FrameSnChol.h"          // FRAMECORE_SUPERNODAL + sn:: (guarded)
 
 #include <vector>
+#include <unordered_map>
 #include <string>
 #include <cmath>
 #include <algorithm>
 #include <cstdint>
+#ifdef SN_SESSION_TIMING
+  #include <chrono>
+#endif
+
+// R2.2 sub-stage timing helpers: zero-cost when SN_SESSION_TIMING is not defined.
+// Compile main lane without -DSN_SESSION_TIMING to keep solveFrame on the bare hot path
+// (no chrono::steady_clock::now calls). Research/R2_realtime_150k/build_r2.bat opts in.
+#ifdef SN_SESSION_TIMING
+  #define SN_TIME_BEGIN(name) const auto name##_t0 = std::chrono::steady_clock::now()
+  #define SN_TIME_END(name, dst)                                                              \
+      const auto name##_t1 = std::chrono::steady_clock::now();                                \
+      (dst) = std::chrono::duration<double, std::milli>(name##_t1 - name##_t0).count()
+#else
+  #define SN_TIME_BEGIN(name)        ((void)0)
+  #define SN_TIME_END(name, dst)     ((void)(dst))
+#endif
 
 namespace frame {
 
@@ -44,6 +61,12 @@ struct SnSession::Impl {
     std::vector<int>    Ap, Ai;
     std::vector<double> Ax;
 #endif
+    SnSessionTimings lastT;          // R2.2 always-present; zero unless SN_SESSION_TIMING is on
+    // R2.2 PERF: NodeId -> node-index cache, populated lazily on first solveFrame() and reused.
+    // model.nodeIndex() is O(N) linear search; on a 14k nodal-load / 15k-node tower the per-frame
+    // cost is ~74ms (Research/R2_realtime_150k profile). The fingerprint guard keeps nodes stable
+    // for the session lifetime, so a one-shot rebuild covers all subsequent solveFrame() calls.
+    std::unordered_map<NodeId, int> nodeIdToIdx;
 };
 
 SnSession::SnSession(const PreparedSystem& prepared, const SnSessionOptions& opts)
@@ -134,6 +157,7 @@ SolveResult SnSession::solveFrame(const FrameModel& model) {
         R.diagnostic = "SnSession::solveFrame called on a moved-from session";
         return R;
     }
+    SN_TIME_BEGIN(total);
     const PreparedSystem::Impl& S = *p_->S;
     SolveResult R;
     const int N = S.N;
@@ -149,28 +173,59 @@ SolveResult SnSession::solveFrame(const FrameModel& model) {
         return R;
     }
 
-    // ---- RHS assembly: verbatim from solveLoad --------------------------------------
+    // ---- RHS assembly: verbatim from solveLoad ----------------------------------------
+    // R2.2 PERF: detect the "all-zero prescribed displacement" case and skip the entire
+    // sparse-K column iteration. Research/R2_realtime_150k showed the iteration was 88 ms /
+    // 161 ms (55%) on a 90k frame tower with base-fixed-at-0 supports — the loop runs O(nnz)
+    // but every contribution is presc*K = 0*K = 0. The bit-equivalent fastpath: if no
+    // prescribed displacement is non-zero, Ff = F (mapped to free DOFs). The slow path is
+    // EXACTLY the original code so prescribed-displacement fixtures (F53 tip Dirichlet, F58
+    // patch warping) stay bit-identical.
+    // R2.2 PERF: lazy-build NodeId map (one-shot per session lifetime; fingerprint guards stability).
+    if (p_->nodeIdToIdx.empty() && !model.nodes.empty()) {
+        p_->nodeIdToIdx.reserve(model.nodes.size() * 2);
+        for (size_t k = 0; k < model.nodes.size(); ++k)
+            p_->nodeIdToIdx.emplace(model.nodes[k].id, static_cast<int>(k));
+    }
+    auto nodeIdxFast = [&](NodeId id) -> int {
+        const auto it = p_->nodeIdToIdx.find(id);
+        return (it == p_->nodeIdToIdx.end()) ? -1 : it->second;
+    };
+
+    SN_TIME_BEGIN(rhs);
     VecX F = VecX::Zero(N);
     for (const auto& nl : model.nodalLoads) {
-        const int ni = model.nodeIndex(nl.node);
+        const int ni = nodeIdxFast(nl.node);                        // R2.2: O(1) via cache
         if (ni < 0) continue;
         for (int d = 0; d < 6; ++d) F(gdof(ni, d)) += nl.comp[d];
     }
+    SN_TIME_BEGIN(rhsEq);
     for (const auto& el : S.elems) el->addEquivalentNodalLoads(F);
+    SN_TIME_END(rhsEq, p_->lastT.rhsEqMs);
 
+    bool hasNonZeroPresc = false;
     std::vector<real> presc((size_t)N, 0.0);
     for (size_t k = 0; k < model.nodes.size(); ++k)
         for (int d = 0; d < 6; ++d)
-            if (model.nodes[k].fixed[d]) presc[(size_t)gdof((int)k, d)] = model.nodes[k].prescribed[d];
+            if (model.nodes[k].fixed[d]) {
+                const real v = model.nodes[k].prescribed[d];
+                presc[(size_t)gdof((int)k, d)] = v;
+                if (v != real(0)) hasNonZeroPresc = true;
+            }
 
     VecX Ff = VecX::Zero(S.nf);
-    for (int c = 0; c < N; ++c)
-        for (SpMat::InnerIterator it(S.K, c); it; ++it) {
-            const int r = it.row();
-            if (S.fmap[r] < 0) continue;
-            if (S.fmap[c] < 0 && presc[(size_t)c] != 0.0) Ff(S.fmap[r]) -= it.value() * presc[(size_t)c];
-        }
+    SN_TIME_BEGIN(rhsK);
+    if (hasNonZeroPresc) {
+        for (int c = 0; c < N; ++c)
+            for (SpMat::InnerIterator it(S.K, c); it; ++it) {
+                const int r = it.row();
+                if (S.fmap[r] < 0) continue;
+                if (S.fmap[c] < 0 && presc[(size_t)c] != 0.0) Ff(S.fmap[r]) -= it.value() * presc[(size_t)c];
+            }
+    }
+    SN_TIME_END(rhsK, p_->lastT.rhsKMs);
     for (int g = 0; g < N; ++g) if (S.fmap[g] >= 0) Ff(S.fmap[g]) += F(g);
+    SN_TIME_END(rhs, p_->lastT.rhsMs);
 
     // ---- solve: reuse the PREBUILT supernodal factor (the ONLY departure from solveLoad) --
     VecX uf;
@@ -186,10 +241,13 @@ SolveResult SnSession::solveFrame(const FrameModel& model) {
         const sn::SnSymbolic& sym = p_->useExternalFac ? S.snSym : p_->sym;
         std::vector<double> b((size_t)n), x((size_t)n);
         for (int i = 0; i < n; ++i) b[(size_t)i] = static_cast<double>(Ff(i));
+        SN_TIME_BEGIN(bsub);
         sn::solveSuper(fac, sym, b.data(), x.data());   // forward/back subst on the reused factor
+        SN_TIME_END(bsub, p_->lastT.backsubMs);
 
         // R2: Neumaier-compensated IR. Cache populated only when opts.irSteps>0 at ctor, so the
         // empty check below also gates "session was built without IR, ignore the runtime opt".
+        SN_TIME_BEGIN(ir);
         if (p_->opts.irSteps > 0 && !p_->Ap.empty()) {
             const double bNorm = sn::infNorm(n, b.data());
             const double absTol = (p_->opts.irTol > 0.0) ? (p_->opts.irTol * bNorm) : 0.0;
@@ -205,6 +263,7 @@ SolveResult SnSession::solveFrame(const FrameModel& model) {
             }
         }
 
+        SN_TIME_END(ir, p_->lastT.irMs);
         uf.resize(n);
         for (int i = 0; i < n; ++i) uf(i) = static_cast<real>(x[(size_t)i]);
         if (uf.allFinite()) used = true;
@@ -245,13 +304,18 @@ SolveResult SnSession::solveFrame(const FrameModel& model) {
     }
 
     // ---- scatter / reactions / recover: verbatim from solveLoad ---------------------
+    SN_TIME_BEGIN(scat);
     VecX u = VecX::Zero(N);
     for (int g = 0; g < N; ++g) u(g) = (S.fmap[g] >= 0) ? uf(S.fmap[g]) : presc[(size_t)g];
     for (int g = 0; g < N; ++g) R.u[(size_t)g] = u(g);
+    SN_TIME_END(scat, p_->lastT.scatterMs);
 
+    SN_TIME_BEGIN(spmv);
     const VecX Rv = S.K * u - F;
     for (int g = 0; g < N; ++g) R.reactions[(size_t)g] = Rv(g);
+    SN_TIME_END(spmv, p_->lastT.spmvMs);
 
+    SN_TIME_BEGIN(rec);
     if (!p_->opts.skipForceRecovery) {
         R.memberForces.resize(model.members.size());
         R.shellForces.resize(model.shells.size());
@@ -264,9 +328,15 @@ SolveResult SnSession::solveFrame(const FrameModel& model) {
         // with skipForceRecovery=false if they need stress resultants.
         note += " [lazy-recover]";
     }
+    SN_TIME_END(rec, p_->lastT.recoverMs);
     R.pivotMargin = S.pivotMargin;
     R.diagnostic = note;
+    SN_TIME_END(total, p_->lastT.totalMs);
     return R;
+}
+
+SnSessionTimings SnSession::lastTimings() const {
+    return p_ ? p_->lastT : SnSessionTimings{};
 }
 
 } // namespace frame

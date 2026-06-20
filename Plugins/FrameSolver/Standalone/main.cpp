@@ -3855,6 +3855,95 @@ int main() {
     }
 #endif // FRAMECORE_SUPERNODAL
 
+#if FRAMECORE_SUPERNODAL
+    // ---------- F66: R2.2 RHS-assembly fastpath + nodeIdx cache equivalence ----------
+    // Research/R2_realtime_150k round-2 traced the 90k frame-tower solveFrame() bottleneck
+    // to two RHS-assembly inefficiencies: (1) the sparse-K column iteration paying O(nnz)
+    // even when ALL prescribed displacements are zero (base-fixed-at-zero -- the educational-game
+    // common case), and (2) `FrameModel::nodeIndex` being a linear O(N) search invoked once per
+    // nodal load. After patches (1) skip-K-when-all-presc-zero and (2) lazy-build NodeId map,
+    // RHS dropped 87 ms -> 3.4 ms and solveFrame LAZY 134 ms -> 56 ms at 90k.
+    //
+    // Both patches change the path callers take, so the regression risk is that the prescribed
+    // != 0 path silently diverges from solveLoad. F66 exercises a tip-prescribed-rotation
+    // cantilever (the F45/F53b workhorse) under BOTH SnPrimary SnSession and the default solveLoad
+    // oracle and verifies u + reactions match to factorization round-off.
+    {
+        const real Es = 200000.0, theta = 1e-4;
+        const int n = 8;
+        const real L66 = 1000.0;
+        Material mat66(Es, Es / (2.0 * (1.0 + 0.3))); mat66.nu = 0.3;
+        Section sec66 = Section::Rectangular(100.0, 150.0);
+        sec66.J = 1.0e8;
+
+        FrameModel m;
+        m.materials.push_back(mat66);
+        m.sections.push_back(sec66);
+        for (int k = 0; k <= n; ++k) {
+            Node nd((NodeId)k, L66 * real(k) / real(n), 0, 0);
+            nd.fixed[Uz] = nd.fixed[Rx] = nd.fixed[Ry] = true;     // planar XY bending
+            if (k == 0) nd.fixAll();
+            m.nodes.push_back(nd);
+        }
+        m.nodes[(size_t)n].fixed[Rz] = true;
+        m.nodes[(size_t)n].prescribed[Rz] = theta;                 // impose tip rotation (non-zero)
+        for (int k = 0; k < n; ++k) {
+            Member mm(k, k, k + 1, 0, 0);
+            mm.refVec = Vec3(0, 0, 1);
+            m.members.push_back(mm);
+        }
+
+        SolveOptions optSn; optSn.useSupernodalPrimary = true;
+        PreparedSystem psS = assembleAndFactor(m, optSn);
+        checkTrue("F66 SnPrimary prepared non-singular (prescribed rotation)",
+                  !psS.isSingular(), psS.diagnostic());
+
+        SnSession sess(psS);
+        const SolveResult Rsf = sess.solveFrame(m);
+
+        // Oracle: default LDLT path (no SnPrimary) -- solve.linear via solveLoad
+        SolveOptions optLdlt;
+        PreparedSystem psL = assembleAndFactor(m, optLdlt);
+        const SolveResult Rld = solveLoad(psL, m);
+        checkTrue("F66 LDLT oracle non-singular", !psL.isSingular(), psL.diagnostic());
+
+        // u/reactions must match to round-off; the RHS fastpath and nodeIdx cache do NOT
+        // change the linear-algebra contract, only how the RHS is assembled.
+        double uMax = 0, uDiff = 0;
+        for (size_t k = 0; k < Rsf.u.size(); ++k) {
+            uMax  = std::max(uMax, std::fabs((double)Rld.u[k]));
+            uDiff = std::max(uDiff, std::fabs((double)Rsf.u[k] - (double)Rld.u[k]));
+        }
+        const double uRel = (uMax > 0) ? uDiff / uMax : uDiff;
+        checkTrue("F66 SnSession.u == LDLT.u under prescribed rotation (rel<1e-10)",
+                  uRel < 1e-10, "rel=" + std::to_string(uRel));
+
+        double rMax = 0, rDiff = 0;
+        for (size_t k = 0; k < Rsf.reactions.size(); ++k) {
+            rMax  = std::max(rMax, std::fabs((double)Rld.reactions[k]));
+            rDiff = std::max(rDiff, std::fabs((double)Rsf.reactions[k] - (double)Rld.reactions[k]));
+        }
+        const double rRel = (rMax > 0) ? rDiff / rMax : rDiff;
+        checkTrue("F66 SnSession.reactions == LDLT.reactions under prescribed rotation (rel<1e-10)",
+                  rRel < 1e-10, "rel=" + std::to_string(rRel));
+
+        // Tip dof carries the prescribed value (Dirichlet identity)
+        checkClose("F66 tip Rz == prescribed theta (Dirichlet identity)",
+                   (double)Rsf.u[(size_t)gdof(n, Rz)], (double)theta, 1e-12);
+
+        // Re-run on a SECOND solveFrame call to ensure the lazy-build nodeIdx cache survives.
+        const SolveResult Rsf2 = sess.solveFrame(m);
+        double uMax2 = 0, uDiff2 = 0;
+        for (size_t k = 0; k < Rsf2.u.size(); ++k) {
+            uMax2  = std::max(uMax2, std::fabs((double)Rsf.u[k]));
+            uDiff2 = std::max(uDiff2, std::fabs((double)Rsf2.u[k] - (double)Rsf.u[k]));
+        }
+        const double uRel2 = (uMax2 > 0) ? uDiff2 / uMax2 : uDiff2;
+        checkTrue("F66 SnSession.u stable across consecutive solveFrame calls (nodeIdx cache)",
+                  uRel2 < 1e-12, "rel=" + std::to_string(uRel2));
+    }
+#endif // FRAMECORE_SUPERNODAL
+
     std::printf("\n%s  (failures=%d)\n", g_fail == 0 ? "ALL PASS" : "FAILURES", g_fail);
     return g_fail == 0 ? 0 : 1;
 }

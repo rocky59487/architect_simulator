@@ -121,20 +121,55 @@
 
 ---
 
-## 段落 3 — 缺陷補完 (預計 05:00–07:00)
+## 段落 3 — sub-stage instrumentation + 真兇 fix (04:00–05:00,實際進行中)
 
 ### 目標
-從 v2.6/v2.7/v2.8.1 deferred 清單擇優實作低風險項:
-- `model.patch` schema
-- `dyn_collapse.event` channel (S2 跨事件)
-- B5.2 ReSolveSession session-cache 路由
-- C# bridge 漏項
-- F65/F66 warped-shell fixtures (擴大 OpenSees oracle)
+1. 加 SnSession sub-stage timing (SN_SESSION_TIMING opt-in)
+2. 找出 RHS 內 80ms 「rest」隱藏成本來源
+3. 設計 fix + 加 oracle fixture
+4. gate 全綠 commit
 
-選 1-2 項,每項先 oracle 再 code。
+### 完成 ★ 重大突破
+- SnSession.h 加 `SnSessionTimings`/`lastTimings()` API
+- SnSession.cpp 加 `#ifdef SN_SESSION_TIMING` block,主 lane 預設 zero cost
+- r2_bench 跑 90k 看到 sub-stage:rhs=87 ms (eq=2.5 / Kloop=N/A / **rest=85**)
+- **真兇**:`FrameModel::nodeIndex` 是 O(N) linear search,14k loads × 15k nodes = **110M iter/frame ≈ 74ms**
+- **第二兇**:sparse-K loop 在 prescribed-all-zero 場景仍跑 O(nnz),雖然 inner branch 都 skip 但 outer iter 還是付了
+- 兩個 patch (additive,backward-compat):
+  - SnSession 加 `std::unordered_map<NodeId, int>` lazy cache,fingerprint guard 保證 stable
+  - RHS sparse-K loop 加 `hasNonZeroPresc` 守門,base-fixed-at-0 場景全 skip
+- **measured**: 90k LAZY 從 134 ms → **55.8 ms (2.4× speedup)**;**PASS 100ms 互動級** (從 fail)
+- 加 F66 fixture (cantilever + prescribed tip rotation): 8 check 全 PASS,rel=0 bit-equivalent vs LDLT oracle
+- RESULTS_round2.md 完整記錄
+- **教訓**:Round 1 估算錯一個量級。Lesson: **per-stage budget 有問題就量,不靠想**
 
-### 完成
-(待填)
+### Gates 全綠
+- standalone F1-F66 ALL PASS (新加 F66 8 check)
+- UE automation 57/57 (UE rebuild 39s)
+- OpenSees PASS
+- linear-deep-audit 104/104
+- frame_cli round-trip ALL PASS
+- v2_roundtrip ALL PASS (env pin 2.8.1)
+
+### 失敗的嘗試 / 誠實負面
+- Round 1 估算 recover 50-80ms,實際 21ms (-13%)
+- Round 1 估算 backsub 50-80ms,實際 47ms (within range,但不是最大頭)
+- Round 1 完全沒猜到 `nodeIndex` linear scan 是 74ms 大頭
+- 60fps@90K 還是物理牆 (-39ms)
+- 30fps@90K 仍 fail (-22ms) — 需要 backsub 改進才能達
+
+### Commit (準備中)
+- 3 files (SnSession.h/cpp/main.cpp)
+- Research/ 仍 untracked
+
+## 段落 4 — TBD (05:00–07:00)
+候選:
+- 把 fastpath + nodeIdx cache 也 propagate 到 solveLoad (FrameSolver.cpp:309-322 同 pattern)
+- A4 dyn_collapse.event channel
+- mixed-precision IR backsub prototype (clear 30fps@90K)
+- A3 abortReason → optional micro-perf
+
+## 段落 5 — release-hardening (07:00–09:00)
 
 ---
 

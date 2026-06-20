@@ -35,6 +35,25 @@ struct SnSessionOptions {
     bool skipForceRecovery = false;
 };
 
+// R2.2 sub-stage timings of the LAST solveFrame() call. ALWAYS-ZERO unless the engine
+// was built with -DSN_SESSION_TIMING=1 (a research-only diagnostic; main lane / production
+// builds are zero-cost — the chrono pairs are #ifdef'd out and this struct stays all-zero).
+// The Research/R2_realtime_150k bench reads these to break down the 90k frame-tower
+// solveFrame budget (RESULTS_round1.md round 1 showed the user-facing solveFrame is
+// dominated by RHS assembly + supernodal backsub + K*u SPMV + per-element recover, not by
+// any single one — quantifying each is round 2's job and this is the hook).
+struct SnSessionTimings {
+    double rhsMs      = 0;   // total RHS: nodalLoads + equivalent loads + prescribed reduction
+    double rhsEqMs    = 0;   // sub: el->addEquivalentNodalLoads loop over all elements
+    double rhsKMs     = 0;   // sub: sparse-K column-iterator prescribed reduction (0 when fastpath skips)
+    double backsubMs  = 0;   // sn::solveSuper itself (or LDLT fallback)
+    double irMs       = 0;   // Neumaier IR loop (0 unless irSteps>0)
+    double scatterMs  = 0;   // uf -> u global scatter
+    double spmvMs     = 0;   // K*u - F for reactions
+    double recoverMs  = 0;   // per-element recover() loop (0 in lazy mode)
+    double totalMs    = 0;   // end-to-end solveFrame()
+};
+
 // Stateful supernodal solve session: factor ONCE in the ctor, reuse the factor across solveFrame
 // calls. This is the production "factor-once + solve-many" mode of the self-built supernodal direct
 // solver -- for a fixed structure re-solved each frame (the game niche), the supernodal factor is far
@@ -74,6 +93,10 @@ public:
     // SolveResult (u / reactions / member+shell forces) matches solveLoad to factorization round-off;
     // on a mechanism or fingerprint mismatch, SolveResult.singular.
     SolveResult solveFrame(const FrameModel& model);
+
+    // R2.2 timings of the LAST solveFrame() call. All-zero on a default build (zero-cost);
+    // populated when the engine was compiled with -DSN_SESSION_TIMING=1.
+    SnSessionTimings lastTimings() const;
 
 private:
     struct Impl;
