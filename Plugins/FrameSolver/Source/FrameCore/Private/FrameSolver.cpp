@@ -293,29 +293,52 @@ SolveResult solveLoad(const PreparedSystem& prepared, const FrameModel& model) {
         return R;
     }
 
+    // R2.2 PERF: O(N) FrameModel::nodeIndex is too slow for the 14k+ nodal-load case (see
+    // SnSession::solveFrame for the 110M-iter measurement that triggered this). Build a
+    // local id-to-index map up front; solveLoad is one-shot per call so we don't bother
+    // caching it across invocations the way SnSession does (the savings would be ~0.5 ms
+    // out of the 0.8 ms map build). The map is keyed on NodeId (int), so the unordered_map
+    // overhead is dominated by hashing; reserve to cut rehash cost.
+    std::unordered_map<NodeId, int> nodeIdToIdx;
+    nodeIdToIdx.reserve(model.nodes.size() * 2);
+    for (size_t k = 0; k < model.nodes.size(); ++k)
+        nodeIdToIdx.emplace(model.nodes[k].id, static_cast<int>(k));
+
     // global load vector: current nodal loads + baked distributed equivalent loads
     VecX F = VecX::Zero(N);
     for (const auto& nl : model.nodalLoads) {
-        const int ni = model.nodeIndex(nl.node);
-        if (ni < 0) continue;
+        const auto it = nodeIdToIdx.find(nl.node);
+        if (it == nodeIdToIdx.end()) continue;
+        const int ni = it->second;
         for (int d = 0; d < 6; ++d) F(gdof(ni, d)) += nl.comp[d];
     }
     for (const auto& el : S.elems) el->addEquivalentNodalLoads(F);
 
     // current prescribed (support displacement) values — may differ between solveLoad calls
+    bool hasNonZeroPresc = false;
     std::vector<real> presc((size_t)N, 0.0);
     for (size_t k = 0; k < model.nodes.size(); ++k)
         for (int d = 0; d < 6; ++d)
-            if (model.nodes[k].fixed[d]) presc[(size_t)gdof((int)k, d)] = model.nodes[k].prescribed[d];
+            if (model.nodes[k].fixed[d]) {
+                const real v = model.nodes[k].prescribed[d];
+                presc[(size_t)gdof((int)k, d)] = v;
+                if (v != real(0)) hasNonZeroPresc = true;
+            }
 
     // reduced RHS  F_f - K_fc u_c
+    // R2.2 PERF: skip the sparse-K column iteration when every prescribed value is zero.
+    // Bit-equivalent: the inner body multiplies by presc[c] == 0 in that case so Ff is
+    // unchanged. The full block stays in place for the prescribed != 0 path (sinking
+    // supports, F45 tip-displacement, F58 patch warping, etc).
     VecX Ff = VecX::Zero(S.nf);
-    for (int c = 0; c < N; ++c)
-        for (SpMat::InnerIterator it(S.K, c); it; ++it) {
-            const int r = it.row();
-            if (S.fmap[r] < 0) continue;
-            if (S.fmap[c] < 0 && presc[(size_t)c] != 0.0) Ff(S.fmap[r]) -= it.value() * presc[(size_t)c];
-        }
+    if (hasNonZeroPresc) {
+        for (int c = 0; c < N; ++c)
+            for (SpMat::InnerIterator it(S.K, c); it; ++it) {
+                const int r = it.row();
+                if (S.fmap[r] < 0) continue;
+                if (S.fmap[c] < 0 && presc[(size_t)c] != 0.0) Ff(S.fmap[r]) -= it.value() * presc[(size_t)c];
+            }
+    }
     for (int g = 0; g < N; ++g) if (S.fmap[g] >= 0) Ff(S.fmap[g]) += F(g);
 
     // solve (reuse factorization). R2.1 PERF-01: when assembleAndFactor built the supernodal
