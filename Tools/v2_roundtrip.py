@@ -278,8 +278,9 @@ def main() -> int:
             flags, hdr, payload = parse_frame(raw)
             body = hdr.get("body", {})
             caps = set(body.get("capabilities", []))
-            wanted = {"session", "model.set", "solve.linear", "profile.simple",
-                       "profile.advanced", "cancel"}
+            wanted = {"session", "model.set", "solve.linear", "solve.dyn_collapse",
+                       "analysis.reanalysis_solve", "profile.simple", "profile.advanced",
+                       "cancel", "transport.async"}
             missing = wanted - caps
             if not check("hello.capabilities includes core set", not missing,
                           f"missing={sorted(missing)}"): failures += 1
@@ -328,20 +329,48 @@ def main() -> int:
                 check("simple model.set returns OK", False, f"rc={rc}")
                 failures += 1
 
+            dup_nodes = dict(CANTILEVER_V2_JSON)
+            dup_nodes["nodes"] = [
+                {"id": 0, "x": 0, "y": 0, "z": 0, "fixed": [True, True, True, True, True, True]},
+                {"id": 0, "x": 1000, "y": 0, "z": 0},
+            ]
+            dll.send(ctx, build_frame({
+                "v": 2, "kind": "request", "id": "r2_dup", "method": "model.set",
+                "body": {"session": sid, **dup_nodes}
+            }))
+            rc, raw = dll.recv(ctx)
+            dup_rejected = False
+            if rc == OK:
+                _, hdr, _ = parse_frame(raw)
+                dup_rejected = (hdr.get("kind") == "error"
+                                and hdr.get("body", {}).get("code") == "VALIDATION_FAILED"
+                                and "duplicates node id" in hdr.get("body", {}).get("message", ""))
+            if not check("model.set rejects duplicate node ids", dup_rejected,
+                          f"rc={rc} hdr={(parse_frame(raw)[1] if rc == OK else None)}"):
+                failures += 1
+
         # --- solve.linear (B3 wired: bit-exact vs v1 frame_capi.dll on the same fixture) ---
         if sid:
             dll.send(ctx, build_frame({
                 "v": 2, "kind": "request", "id": "r3", "method": "solve.linear",
-                "body": {"session": sid, "wantReactions": True}
+                "body": {"session": sid, "wantReactions": True, "wantDC": True}
             }))
             rc, raw = dll.recv(ctx)
             if rc == OK:
                 _, hdr, _ = parse_frame(raw)
                 b = hdr["body"]
                 shape_ok = all(k in b for k in ("singular", "pivotMargin", "disp",
-                                                  "reactions", "memberForces", "shellForces"))
+                                                  "reactions", "memberForces", "shellForces",
+                                                  "memberUtilization", "utilization"))
                 if not check("solve.linear returns spec shape", shape_ok,
                               f"keys={sorted(b.keys())}"): failures += 1
+                dc_ok = (isinstance(b.get("memberUtilization"), dict)
+                         and "0" in b["memberUtilization"]
+                         and b["memberUtilization"]["0"].get("peak", -1) >= 0
+                         and b.get("utilization", {}).get("maxDC", -1) >= 0)
+                if not check("solve.linear wantDC returns native D/C", dc_ok,
+                              f"memberUtilization={b.get('memberUtilization')} utilization={b.get('utilization')}"):
+                    failures += 1
                 if not check("solve.linear not a stub (engine wired)",
                               b.get("_stub") is None, f"_stub={b.get('_stub')}"): failures += 1
                 if not check("solve.linear not singular on cantilever",
@@ -399,7 +428,7 @@ def main() -> int:
                 else:
                     check(f"{method} == solve.linear.{key} (bit-exact)", True)
 
-        # --- B3.3: 7 analysis methods -- shape-level check (no more NOT_IMPLEMENTED) ---
+        # --- B3/B5: analysis methods -- shape-level check (no more NOT_IMPLEMENTED) ---
         if sid:
             method_specs = [
                 # (rid, method, body_overrides, required-result-keys)
@@ -422,6 +451,8 @@ def main() -> int:
                  ("singular", "modes")),
                 ("rb",  "analysis.buckling",  None,
                  ("singular", "criticalFactor", "reportedCriticalFactor", "knockdownFactor", "mode")),
+                ("rr",  "analysis.reanalysis_solve", {"memberActive": [{"id": 0, "active": True}]},
+                 ("valid", "stats", "finalState")),
             ]
             for rid, method, extra, required in method_specs:
                 body, why = _post(rid, method, extra)
@@ -433,6 +464,29 @@ def main() -> int:
                 if not check(f"{method} returns spec shape", not missing,
                               f"missing={missing} keys={sorted(body.keys())}"):
                     failures += 1
+
+            # B4 dynamic collapse may return Invalid on the zero-density cantilever, but the
+            # dispatcher contract must still be a structured final response, not NOT_IMPLEMENTED.
+            dll.send(ctx, build_frame({
+                "v": 2, "kind": "request", "id": "rdc", "method": "solve.dyn_collapse",
+                "body": {"session": sid, "dt": 0.001, "maxTime": 0.001,
+                         "frameStride": 1, "streamFrames": False, "streamEvents": False}
+            }))
+            final = None
+            for _ in range(8):
+                rc, raw = dll.recv(ctx)
+                if rc != OK:
+                    break
+                flags, hdr, _ = parse_frame(raw)
+                if flags & FLAG_END_OF_RESPONSE:
+                    final = hdr
+                    break
+            dyn_ok = (final is not None
+                      and final.get("kind") == "response"
+                      and all(k in final.get("body", {}) for k in ("outcome", "nEvents", "nFrames", "events")))
+            if not check("solve.dyn_collapse returns final summary shape", dyn_ok,
+                          f"final={final} rc={rc if final is None else OK}"):
+                failures += 1
 
         # --- session.close ---
         if sid:
@@ -487,6 +541,37 @@ def main() -> int:
                             ok, why = diff_vs_v1(b3, v1_parsed, tol=1e-11)
                             if not check("supernodal solve.linear bit-exact vs v1 (rel<1e-11)",
                                           ok, why): failures += 1
+                # C-09 / C-10 guard: a session opened with mode=supernodal owns a SnSession
+                # factor, not the LDLT PreparedSystem that analysis.modal / analysis.buckling
+                # require. The dispatcher must refuse with NOT_IMPLEMENTED rather than silently
+                # building a parallel LDLT factor that defeats the supernodal factor-once
+                # contract and mis-tags advancedDiagnostics' backend.
+                dll.send(ctx, build_frame({
+                    "v": 2, "kind": "request", "id": "rb5_mo", "method": "analysis.modal",
+                    "body": {"session": sid_sn, "numModes": 1}
+                }))
+                rc_mo, raw_mo = dll.recv(ctx)
+                if rc_mo == OK:
+                    _, hdr_mo, _ = parse_frame(raw_mo)
+                    is_err_mo = hdr_mo.get("kind") == "error"
+                    code_mo   = hdr_mo.get("body", {}).get("code", "")
+                    if not check("C-09: supernodal session refuses analysis.modal (NOT_IMPLEMENTED)",
+                                  is_err_mo and code_mo == "NOT_IMPLEMENTED",
+                                  f"kind={hdr_mo.get('kind')} code={code_mo}"):
+                        failures += 1
+                dll.send(ctx, build_frame({
+                    "v": 2, "kind": "request", "id": "rb5_bk", "method": "analysis.buckling",
+                    "body": {"session": sid_sn, "nev": 1}
+                }))
+                rc_bk, raw_bk = dll.recv(ctx)
+                if rc_bk == OK:
+                    _, hdr_bk, _ = parse_frame(raw_bk)
+                    is_err_bk = hdr_bk.get("kind") == "error"
+                    code_bk   = hdr_bk.get("body", {}).get("code", "")
+                    if not check("C-10: supernodal session refuses analysis.buckling (NOT_IMPLEMENTED)",
+                                  is_err_bk and code_bk == "NOT_IMPLEMENTED",
+                                  f"kind={hdr_bk.get('kind')} code={code_bk}"):
+                        failures += 1
 
     finally:
         dll.close(ctx)
@@ -540,8 +625,8 @@ def main() -> int:
         if rc == OK:
             _, hh, _ = parse_frame(raw)
             hello_caps = set(hh.get("body", {}).get("capabilities", []))
-        if not check("P1 review-round: hello.capabilities advertises 'transport.sync'",
-                      "transport.sync" in hello_caps,
+        if not check("B4: hello.capabilities advertises 'transport.async'",
+                      "transport.async" in hello_caps and "transport.sync" not in hello_caps,
                       f"caps={sorted(hello_caps)}"): failures += 1
 
         # (a) pre-emptive cancel

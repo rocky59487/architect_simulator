@@ -154,7 +154,7 @@ Plugins\LevelSim\Standalone\build.bat
 ### C# Grasshopper hardening
 
 8. **D-01 UtilizationFringeComponent placeholder D/C**
-   First action: `Plugins/FrameSolver/Grasshopper/v2/Rhino/Components/Visualize/UtilizationFringeComponent.cs:69`
+   First action: `Plugins/FrameSolver/Grasshopper/v2/Rhino/Components/Display/UtilizationFringeComponent.cs:69`
    把 `sigmaI = Math.Abs(mf.Ni) / 1.0` 改成 `sigmaI = double.NaN` + 加 `AddRuntimeMessage(GH_RuntimeMessageLevel.Warning,
    "Native D/C output deferred to v2.6 (audit C-03); rendering as NaN until then.")`;wait until
    C-03 lands 再恢復真實值。

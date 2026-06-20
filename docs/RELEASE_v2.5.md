@@ -1,5 +1,9 @@
 # FrameCore v2.5 — B3 Dispatcher Engine Wire + Capability Widening + Hardening
 
+> Post-tag note: `main` now contains additional post-v2.5 hardening that is not part of the
+> published `v2.5` tag. See [`POST_V2_5_HARDENING.md`](POST_V2_5_HARDENING.md) for the current
+> async transport / dyn-collapse / reanalysis / native-D/C status.
+
 **Tag:** `v2.5`
 **Branch:** `main`
 **Date:** 2026-06-19

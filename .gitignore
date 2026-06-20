@@ -9,6 +9,8 @@ Saved/
 .vs/
 .vscode/
 .idea/
+.codex/
+.cursor/
 *.sln
 *.suo
 *.user
@@ -33,6 +35,10 @@ obj_linear_audit/
 # Python
 __pycache__/
 *.pyc
+
+# Local agent / audit transcripts
+*.transcript
+*.jsonl
 
 # OS cruft
 Desktop.ini

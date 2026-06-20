@@ -55,6 +55,12 @@ python Tools\v2_roundtrip.py
 Inclusion in `run_gate.ps1` is re-evaluated when B4 (streaming dispatcher) lands; the
 v2.5 contract is "if you touched the dispatcher, you ran this manually before push".
 
+**Post-v2.5 update (2026-06-20).** `Tools/v2_roundtrip.py` now also covers the
+post-tag transport/dispatcher hardening: `transport.async` advertised with `transport.sync`
+absent, native `solve.linear wantDC` utilization output, duplicate-id rejection,
+`analysis.reanalysis_solve` response shape, and `solve.dyn_collapse` final summary shape.
+See `docs/POST_V2_5_HARDENING.md`.
+
 ## 2. Oracle taxonomy
 
 Every fixture is anchored to at least one oracle that is *independent of the code under test*:
