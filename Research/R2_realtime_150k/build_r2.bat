@@ -44,12 +44,14 @@ if errorlevel 1 ( echo [build_r2] vcvars64 failed & exit /b 1 )
 pushd "%ROOT%"
 if not exist "Research\R2_realtime_150k\obj" mkdir "Research\R2_realtime_150k\obj"
 
-cl /nologo /EHsc /std:c++17 /O2 /MD /utf-8 /DEIGEN_MPL2_ONLY /DFRAMECORE_SUPERNODAL=1 /DSN_SESSION_TIMING=1 ^
+set "CUDA_ROOT=%USERPROFILE%\anaconda3\envs\framecore-direct"
+cl /nologo /EHsc /std:c++17 /O2 /MD /utf-8 /DEIGEN_MPL2_ONLY /DFRAMECORE_SUPERNODAL=1 /DFRAMECORE_CUDA=1 /DSN_SESSION_TIMING=1 ^
    /Fe:Research\R2_realtime_150k\r2_bench.exe ^
    /Fo:Research\R2_realtime_150k\obj\ ^
    /I"%EIGEN%" ^
    /I"%CONDA_SS%\include" ^
    /I"%CONDA_SS%\include\openblas" ^
+   /I"%CUDA_ROOT%\include" ^
    /I"Plugins\FrameSolver\Source\FrameCore\Public" ^
    /I"Plugins\FrameSolver\Source\FrameCore\Private" ^
    Plugins\FrameSolver\Source\FrameCore\Private\Section.cpp ^
@@ -80,7 +82,7 @@ cl /nologo /EHsc /std:c++17 /O2 /MD /utf-8 /DEIGEN_MPL2_ONLY /DFRAMECORE_SUPERNO
    Plugins\FrameSolver\Source\FrameCore\Private\SnSolver.cpp ^
    Plugins\FrameSolver\Source\FrameCore\Private\SnSession.cpp ^
    Research\R2_realtime_150k\r2_bench.cpp ^
-   /link /LIBPATH:"%CONDA_SS%\lib" openblas.lib metis.lib
+   /link /LIBPATH:"%CONDA_SS%\lib" /LIBPATH:"%CUDA_ROOT%\lib\x64" openblas.lib metis.lib cudart.lib cudss.lib
 if errorlevel 1 ( echo [build_r2] COMPILE FAILED & popd & exit /b 1 )
 
 echo [build_r2] OK -^> Research\R2_realtime_150k\r2_bench.exe

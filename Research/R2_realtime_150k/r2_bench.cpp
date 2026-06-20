@@ -64,6 +64,7 @@ struct BenchSpec {
     int warmup = 3;
     bool skipRecover = false;
     bool compareModes = false;   // run both modes back-to-back and print speedup
+    bool useGpu = false;
     std::string name = "~90k";
 };
 
@@ -182,11 +183,11 @@ double checksum(const SolveResult& r) {
 
 void applyPreset(const std::string& p, BenchSpec& s) {
     // Targets are free-DOF (k=0 fixed). Approx free = (nx+1)(ny+1)(stories+1)*6 - (nx+1)(ny+1)*6
-    const bool sr = s.skipRecover, cm = s.compareModes;
-    if (p == "90k")  { s = BenchSpec{18, 12, 60, s.repeat, s.warmup, sr, cm, "~90k-frame-tower"}; }
-    else if (p == "120k") { s = BenchSpec{18, 12, 80, s.repeat, s.warmup, sr, cm, "~120k-frame-tower"}; }
-    else if (p == "150k") { s = BenchSpec{20, 15, 80, s.repeat, s.warmup, sr, cm, "~160k-frame-tower"}; }
-    else if (p == "200k") { s = BenchSpec{22, 16, 90, s.repeat, s.warmup, sr, cm, "~200k-frame-tower"}; }
+    const bool sr = s.skipRecover, cm = s.compareModes, gp = s.useGpu;
+    if (p == "90k")  { s = BenchSpec{18, 12, 60, s.repeat, s.warmup, sr, cm, gp, "~90k-frame-tower"}; }
+    else if (p == "120k") { s = BenchSpec{18, 12, 80, s.repeat, s.warmup, sr, cm, gp, "~120k-frame-tower"}; }
+    else if (p == "150k") { s = BenchSpec{20, 15, 80, s.repeat, s.warmup, sr, cm, gp, "~160k-frame-tower"}; }
+    else if (p == "200k") { s = BenchSpec{22, 16, 90, s.repeat, s.warmup, sr, cm, gp, "~200k-frame-tower"}; }
 }
 
 BenchSpec parseArgs(int argc, char** argv) {
@@ -201,6 +202,7 @@ BenchSpec parseArgs(int argc, char** argv) {
         else if (std::strcmp(argv[i], "--warmup") == 0) s.warmup = std::max(0, std::atoi(next()));
         else if (std::strcmp(argv[i], "--skip-recover") == 0) s.skipRecover = true;
         else if (std::strcmp(argv[i], "--compare") == 0) s.compareModes = true;
+        else if (std::strcmp(argv[i], "--gpu") == 0) s.useGpu = true;
     }
     return s;
 }
@@ -216,7 +218,7 @@ struct RunStats {
 };
 
 RunStats runOnce(const FrameModel& model, const SolveOptions& opt, bool skipRecover,
-                 int repeat, int warmup, const char* label) {
+                 int repeat, int warmup, const char* label, bool useGpu = false) {
     const auto tF0 = std::chrono::steady_clock::now();
     PreparedSystem prepared = assembleAndFactor(model, opt);
     const auto tF1 = std::chrono::steady_clock::now();
@@ -227,6 +229,7 @@ RunStats runOnce(const FrameModel& model, const SolveOptions& opt, bool skipReco
     }
     SnSessionOptions sOpts;
     sOpts.skipForceRecovery = skipRecover;
+    sOpts.useGpuBacksub     = useGpu;
     SnSession session(prepared, sOpts);
     if (!session.valid()) {
         std::printf("FAIL: session invalid: %s\n", session.diagnostic().c_str());
@@ -307,17 +310,18 @@ int main(int argc, char** argv) {
     auto verdict = [](double budget, double v) -> const char* { return v <= budget ? "PASS" : "FAIL"; };
 
     if (spec.compareModes) {
-        RunStats off = runOnce(model, opt, /*skipRecover=*/false, spec.repeat, spec.warmup, "RECOVER");
-        RunStats on  = runOnce(model, opt, /*skipRecover=*/true,  spec.repeat, spec.warmup, "LAZY   ");
-        std::printf("SPEEDUP solveFrame_med RECOVER=%.3f LAZY=%.3f ratio=%.2fx saved=%.3fms\n",
-                    off.med, on.med, off.med / std::max(on.med, 1e-9), off.med - on.med);
-        std::printf("VERDICT (LAZY mode)\n");
+        RunStats off = runOnce(model, opt, /*skipRecover=*/false, spec.repeat, spec.warmup, "RECOVER", spec.useGpu);
+        RunStats on  = runOnce(model, opt, /*skipRecover=*/true,  spec.repeat, spec.warmup, "LAZY   ", spec.useGpu);
+        std::printf("SPEEDUP solveFrame_med RECOVER=%.3f LAZY=%.3f ratio=%.2fx saved=%.3fms (gpu=%d)\n",
+                    off.med, on.med, off.med / std::max(on.med, 1e-9), off.med - on.med, spec.useGpu ? 1 : 0);
+        std::printf("VERDICT (LAZY mode%s)\n", spec.useGpu ? " + GPU" : "");
         std::printf("  60fps_budget=16.67ms  %s  margin=%+.3fms\n", verdict(16.67, on.med), 16.67 - on.med);
         std::printf("  30fps_budget=33.33ms  %s  margin=%+.3fms\n", verdict(33.33, on.med), 33.33 - on.med);
         std::printf("  interactive_100ms     %s  margin=%+.3fms\n", verdict(100.0, on.med), 100.0 - on.med);
     } else {
-        RunStats rs = runOnce(model, opt, spec.skipRecover, spec.repeat, spec.warmup, spec.skipRecover ? "LAZY   " : "RECOVER");
-        std::printf("VERDICT\n");
+        RunStats rs = runOnce(model, opt, spec.skipRecover, spec.repeat, spec.warmup,
+                              spec.skipRecover ? "LAZY   " : "RECOVER", spec.useGpu);
+        std::printf("VERDICT%s\n", spec.useGpu ? " (GPU lane)" : "");
         std::printf("  60fps_budget=16.67ms  %s  margin=%+.3fms  (median %.3f)\n", verdict(16.67, rs.med), 16.67 - rs.med, rs.med);
         std::printf("  30fps_budget=33.33ms  %s  margin=%+.3fms\n", verdict(33.33, rs.med), 33.33 - rs.med);
         std::printf("  interactive_100ms     %s  margin=%+.3fms\n", verdict(100.0, rs.med), 100.0 - rs.med);
