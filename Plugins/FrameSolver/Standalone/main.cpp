@@ -3944,6 +3944,78 @@ int main() {
     }
 #endif // FRAMECORE_SUPERNODAL
 
+#if defined(FRAMECORE_SUPERNODAL) && FRAMECORE_SUPERNODAL && defined(FRAMECORE_CUDA) && FRAMECORE_CUDA
+    // ---------- F67: R2.3 GPU backsub bit-equivalence (cuDSS lane) ----------
+    // Research/R2_realtime_150k/RESULTS_round3_gpu_success.md measured the cuDSS GPU lane at
+    // 2.5 ms / frame at 90 k DOF (22x faster than the CPU sn_chol lane). F67 verifies that
+    // the production opt-in flag (SnSessionOptions::useGpuBacksub=true) returns numerically-
+    // matching displacements vs the same fixture solved on the CPU lane.
+    //
+    // Tolerance: rel < 1e-8 -- the cuDSS METIS ordering differs slightly from the self-built
+    // sn_chol ordering, so we don't expect rel = 0 even at FP64. Empirically GPU vs CPU on the
+    // same SPD K_ff matches to ~1e-9 - 1e-10 on the 90k tower.
+    //
+    // This fixture only runs in the optional CUDA-enabled standalone build
+    // (build_sn_cuda.bat -> Standalone\frametest_cuda.exe). The default standalone gate
+    // (build.bat -> frametest.exe) skips it because FRAMECORE_CUDA is undefined.
+    {
+        Material mat67(200000.0, 76923.07692307692);
+        Section sec67 = Section::Rectangular(150.0, 200.0);
+        sec67.J = 1.5e8;
+
+        FrameModel m; fixtures::cantileverTipLoad(m, 1000.0, 2000.0, mat67, sec67);
+        SolveOptions optSn; optSn.useSupernodalPrimary = true;
+        PreparedSystem psS = assembleAndFactor(m, optSn);
+        checkTrue("F67 SnPrimary prepared non-singular (GPU bit-equiv fixture)",
+                  !psS.isSingular(), psS.diagnostic());
+
+        SnSessionOptions sCpu;  // useGpuBacksub stays false (default)
+        SnSessionOptions sGpu;  sGpu.useGpuBacksub = true;
+        SnSession sessCpu(psS, sCpu);
+        SnSession sessGpu(psS, sGpu);
+        checkTrue("F67 CPU-mode SnSession valid", sessCpu.valid(), sessCpu.diagnostic());
+        checkTrue("F67 GPU-mode SnSession valid", sessGpu.valid(), sessGpu.diagnostic());
+        // The GPU mode diagnostic must mention either a real cuDSS path or a clean fallback
+        // reason (e.g. cuDSS context create failed -- no GPU on this machine).
+        const std::string gpuDiag = sessGpu.diagnostic();
+        checkTrue("F67 GPU-mode diagnostic carries [GPU] tag",
+                  gpuDiag.find("[GPU]") != std::string::npos, gpuDiag);
+
+        const SolveResult Rc = sessCpu.solveFrame(m);
+        const SolveResult Rg = sessGpu.solveFrame(m);
+
+        double dMax = 0, mMax = 0;
+        for (size_t k = 0; k < Rc.u.size(); ++k) {
+            mMax = std::max(mMax, std::fabs((double)Rc.u[k]));
+            dMax = std::max(dMax, std::fabs((double)Rg.u[k] - (double)Rc.u[k]));
+        }
+        const double rel = (mMax > 0) ? dMax / mMax : dMax;
+        // If GPU was unavailable (no NVIDIA card / driver), sessGpu transparently fell back
+        // to CPU -- the displacements then match exactly. Either case passes; the diagnostic
+        // tag tells the reader which path ran.
+        checkTrue("F67 GPU.u == CPU.u (rel<1e-8 -- different reorder, same physics)",
+                  rel < 1e-8, "rel=" + std::to_string(rel));
+
+        // Reactions are computed CPU-side (K*u SPMV) in both modes, so they must match to
+        // the same tolerance as u (factor-round-off propagates through K*u).
+        double drMax = 0, rmMax = 0;
+        for (size_t k = 0; k < Rc.reactions.size(); ++k) {
+            rmMax = std::max(rmMax, std::fabs((double)Rc.reactions[k]));
+            drMax = std::max(drMax, std::fabs((double)Rg.reactions[k] - (double)Rc.reactions[k]));
+        }
+        const double rRel = (rmMax > 0) ? drMax / rmMax : drMax;
+        checkTrue("F67 GPU.reactions == CPU.reactions (rel<1e-8)",
+                  rRel < 1e-8, "rel=" + std::to_string(rRel));
+
+        // Member forces are computed CPU-side via el->recover(u, R), so they must match
+        // when both modes ran with skipForceRecovery=false (default).
+        checkTrue("F67 GPU and CPU memberForces sizes match",
+                  Rg.memberForces.size() == Rc.memberForces.size(),
+                  "got=" + std::to_string(Rg.memberForces.size()) + " expect=" +
+                  std::to_string(Rc.memberForces.size()));
+    }
+#endif // FRAMECORE_SUPERNODAL && FRAMECORE_CUDA
+
     std::printf("\n%s  (failures=%d)\n", g_fail == 0 ? "ALL PASS" : "FAILURES", g_fail);
     return g_fail == 0 ? 0 : 1;
 }

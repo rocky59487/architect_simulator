@@ -25,6 +25,13 @@
   #include <chrono>
 #endif
 
+// R2.3 GPU lane: cuDSS state lives in Impl when FRAMECORE_CUDA=1; main lane compiles
+// with FRAMECORE_CUDA=0 and these declarations are not visible -- ABI / build stays clean.
+#if defined(FRAMECORE_CUDA) && FRAMECORE_CUDA
+  #include <cuda_runtime.h>
+  #include <cudss.h>
+#endif
+
 // R2.2 sub-stage timing helpers: zero-cost when SN_SESSION_TIMING is not defined.
 // Compile main lane without -DSN_SESSION_TIMING to keep solveFrame on the bare hot path
 // (no chrono::steady_clock::now calls). Research/R2_realtime_150k/build_r2.bat opts in.
@@ -67,6 +74,27 @@ struct SnSession::Impl {
     // cost is ~74ms (Research/R2_realtime_150k profile). The fingerprint guard keeps nodes stable
     // for the session lifetime, so a one-shot rebuild covers all subsequent solveFrame() calls.
     std::unordered_map<NodeId, int> nodeIdToIdx;
+
+#if defined(FRAMECORE_CUDA) && FRAMECORE_CUDA
+    // R2.3: cuDSS GPU lane state. Built at ctor when opts.useGpuBacksub == true. All-null when
+    // GPU lane is off; the dtor's individual null checks make cleanup safe in either case.
+    bool                gpuReady       = false;   // analysis + factorisation succeeded on GPU
+    int                 gpuNf          = 0;
+    cudssHandle_t       cudssHandle    = nullptr;
+    cudssConfig_t       cudssCfg       = nullptr;
+    cudssData_t         cudssDataS     = nullptr;
+    cudssMatrix_t       cuK            = nullptr;
+    cudssMatrix_t       cuB            = nullptr;
+    cudssMatrix_t       cuX            = nullptr;
+    int*                d_rowOff       = nullptr;
+    int*                d_colIdx       = nullptr;
+    double*             d_val          = nullptr;
+    double*             d_b            = nullptr;
+    double*             d_x            = nullptr;
+    int                 gpuNnz         = 0;
+    // Permutation from full-DOF (S.K column order) to free-DOF (nf) order for fast Ff scatter
+    std::vector<int>    csrRowOff;     // host-side CSR rowOffsets, cached for re-upload checks
+#endif
 };
 
 SnSession::SnSession(const PreparedSystem& prepared, const SnSessionOptions& opts)
@@ -96,9 +124,10 @@ SnSession::SnSession(const PreparedSystem& prepared, const SnSessionOptions& opt
             p_->Ax.assign(Kff.valuePtr(),      Kff.valuePtr()      + nnzKff);
             p_->diag += " + IR cache (nnz=" + std::to_string(nnzKff) + ")";
         }
-        return;
+        // R2.3: do NOT early-return -- fall through to the GPU setup block at the end of ctor
+        // so useGpuBacksub still attaches a cuDSS factor even on a SnPrimary-reuse session.
     }
-    if (opts.enabled && S.nf > 0) {
+    else if (opts.enabled && S.nf > 0) {
         try {
             const int n = S.nf;
             SpMat Kff = reduceFF(S.K, S.fmap, n);     // full-symmetric nf x nf CSC -- sn input
@@ -132,9 +161,100 @@ SnSession::SnSession(const PreparedSystem& prepared, const SnSessionOptions& opt
 #else
     p_->diag = "[SnSession] supernodal not compiled (FRAMECORE_SUPERNODAL=0); frames use LDLT";
 #endif
+
+#if defined(FRAMECORE_CUDA) && FRAMECORE_CUDA
+    // R2.3: opt-in GPU lane. Only attempt when:
+    //   * caller explicitly set useGpuBacksub=true
+    //   * the supernodal CPU path was set up successfully (snReady) -- we need the same K_ff
+    //     pattern; the LDLT fallback path is FP64 and stays valid if GPU setup fails.
+    //   * S.nf > 0 (no free DOF -> no system to solve).
+    if (opts.useGpuBacksub && p_->snReady && S.nf > 0) {
+        try {
+            const int n = S.nf;
+            // We need K_ff in CSR. Build once; the supernodal CPU path used CSC -- swap by going
+            // through Eigen RowMajor (no extra factorisation).
+            SpMat Kff_csc = reduceFF(S.K, S.fmap, n);
+            Kff_csc.makeCompressed();
+            Eigen::SparseMatrix<double, Eigen::RowMajor> Kff_csr(Kff_csc);
+            Kff_csr.makeCompressed();
+            const int nnz = static_cast<int>(Kff_csr.nonZeros());
+
+            if (cudssCreate(&p_->cudssHandle) != CUDSS_STATUS_SUCCESS ||
+                cudssConfigCreate(&p_->cudssCfg) != CUDSS_STATUS_SUCCESS ||
+                cudssDataCreate(p_->cudssHandle, &p_->cudssDataS) != CUDSS_STATUS_SUCCESS)
+            {
+                p_->diag += " | [GPU] cuDSS context create failed; CPU lane used";
+                p_->gpuReady = false;
+            } else if (cudaMalloc(&p_->d_rowOff, sizeof(int) * (n + 1)) != cudaSuccess ||
+                       cudaMalloc(&p_->d_colIdx, sizeof(int) * nnz)     != cudaSuccess ||
+                       cudaMalloc(&p_->d_val,    sizeof(double) * nnz)  != cudaSuccess ||
+                       cudaMalloc(&p_->d_b,      sizeof(double) * n)    != cudaSuccess ||
+                       cudaMalloc(&p_->d_x,      sizeof(double) * n)    != cudaSuccess)
+            {
+                p_->diag += " | [GPU] cudaMalloc failed; CPU lane used";
+                p_->gpuReady = false;
+            } else {
+                cudaMemcpy(p_->d_rowOff, Kff_csr.outerIndexPtr(), sizeof(int) * (n + 1), cudaMemcpyHostToDevice);
+                cudaMemcpy(p_->d_colIdx, Kff_csr.innerIndexPtr(), sizeof(int) * nnz,     cudaMemcpyHostToDevice);
+                cudaMemcpy(p_->d_val,    Kff_csr.valuePtr(),      sizeof(double) * nnz,  cudaMemcpyHostToDevice);
+
+                cudssMatrixCreateCsr(&p_->cuK, n, n, nnz,
+                                     p_->d_rowOff, nullptr, p_->d_colIdx, p_->d_val,
+                                     CUDSS_R_32I, CUDSS_R_32I, CUDSS_R_64F,
+                                     CUDSS_MTYPE_SPD, CUDSS_MVIEW_FULL, CUDSS_BASE_ZERO);
+                cudssMatrixCreateDn(&p_->cuB, n, 1, n, p_->d_b, CUDSS_R_64F, CUDSS_LAYOUT_COL_MAJOR);
+                cudssMatrixCreateDn(&p_->cuX, n, 1, n, p_->d_x, CUDSS_R_64F, CUDSS_LAYOUT_COL_MAJOR);
+
+                const cudssStatus_t sA = cudssExecute(p_->cudssHandle, CUDSS_PHASE_ANALYSIS,
+                                                       p_->cudssCfg, p_->cudssDataS,
+                                                       p_->cuK, p_->cuX, p_->cuB);
+                const cudssStatus_t sF = (sA == CUDSS_STATUS_SUCCESS)
+                    ? cudssExecute(p_->cudssHandle, CUDSS_PHASE_FACTORIZATION,
+                                   p_->cudssCfg, p_->cudssDataS, p_->cuK, p_->cuX, p_->cuB)
+                    : sA;
+                cudaDeviceSynchronize();
+                if (sA == CUDSS_STATUS_SUCCESS && sF == CUDSS_STATUS_SUCCESS) {
+                    p_->gpuReady = true;
+                    p_->gpuNf    = n;
+                    p_->gpuNnz   = nnz;
+                    p_->diag += " | [GPU] cuDSS factor ready (nf=" + std::to_string(n) +
+                                ", nnz=" + std::to_string(nnz) + ")";
+                } else {
+                    p_->gpuReady = false;
+                    p_->diag += " | [GPU] cuDSS analysis/factor failed (analysis=" +
+                                std::to_string((int)sA) + ", factor=" + std::to_string((int)sF) +
+                                "); CPU lane used";
+                }
+            }
+        } catch (...) {
+            p_->gpuReady = false;
+            p_->diag += " | [GPU] cuDSS setup threw; CPU lane used";
+        }
+    }
+#else
+    if (opts.useGpuBacksub) {
+        p_->diag += " | [GPU] FRAMECORE_CUDA not compiled; CPU lane used";
+    }
+#endif
 }
 
-SnSession::~SnSession() = default;
+SnSession::~SnSession() {
+#if defined(FRAMECORE_CUDA) && FRAMECORE_CUDA
+    if (p_) {
+        if (p_->cuK)         cudssMatrixDestroy(p_->cuK);
+        if (p_->cuB)         cudssMatrixDestroy(p_->cuB);
+        if (p_->cuX)         cudssMatrixDestroy(p_->cuX);
+        if (p_->cudssDataS)  cudssDataDestroy(p_->cudssHandle, p_->cudssDataS);
+        if (p_->cudssCfg)    cudssConfigDestroy(p_->cudssCfg);
+        if (p_->cudssHandle) cudssDestroy(p_->cudssHandle);
+        if (p_->d_rowOff)    cudaFree(p_->d_rowOff);
+        if (p_->d_colIdx)    cudaFree(p_->d_colIdx);
+        if (p_->d_val)       cudaFree(p_->d_val);
+        if (p_->d_b)         cudaFree(p_->d_b);
+        if (p_->d_x)         cudaFree(p_->d_x);
+    }
+#endif
+}
 SnSession::SnSession(SnSession&&) noexcept = default;
 SnSession& SnSession::operator=(SnSession&&) noexcept = default;
 
@@ -242,7 +362,28 @@ SolveResult SnSession::solveFrame(const FrameModel& model) {
         std::vector<double> b((size_t)n), x((size_t)n);
         for (int i = 0; i < n; ++i) b[(size_t)i] = static_cast<double>(Ff(i));
         SN_TIME_BEGIN(bsub);
+#if defined(FRAMECORE_CUDA) && FRAMECORE_CUDA
+        bool gpuSolved = false;
+        if (p_->gpuReady && p_->gpuNf == n) {
+            // Upload b, run PHASE_SOLVE on GPU, download x.
+            if (cudaMemcpy(p_->d_b, b.data(), sizeof(double) * n, cudaMemcpyHostToDevice) == cudaSuccess) {
+                const cudssStatus_t sS = cudssExecute(p_->cudssHandle, CUDSS_PHASE_SOLVE,
+                                                       p_->cudssCfg, p_->cudssDataS,
+                                                       p_->cuK, p_->cuX, p_->cuB);
+                if (sS == CUDSS_STATUS_SUCCESS &&
+                    cudaMemcpy(x.data(), p_->d_x, sizeof(double) * n, cudaMemcpyDeviceToHost) == cudaSuccess &&
+                    cudaDeviceSynchronize() == cudaSuccess)
+                {
+                    gpuSolved = true;
+                }
+            }
+        }
+        if (!gpuSolved) {
+            sn::solveSuper(fac, sym, b.data(), x.data());   // CPU fallback
+        }
+#else
         sn::solveSuper(fac, sym, b.data(), x.data());   // forward/back subst on the reused factor
+#endif
         SN_TIME_END(bsub, p_->lastT.backsubMs);
 
         // R2: Neumaier-compensated IR. Cache populated only when opts.irSteps>0 at ctor, so the

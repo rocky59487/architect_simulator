@@ -33,6 +33,21 @@ struct SnSessionOptions {
     // per-element recover pass at ~50-80 ms on a 90k frame tower, dominating the user-
     // facing solveFrame() time. Default false: bit-identical to v2.8.x SnSession behaviour.
     bool skipForceRecovery = false;
+
+    // R2.3 GPU lane (v2.10 candidate): when true AND the engine was compiled with
+    // -DFRAMECORE_CUDA=1, route solveFrame's backsub through NVIDIA cuDSS on a CUDA-capable
+    // GPU. Research/R2_realtime_150k/RESULTS_round3_gpu_success.md measured this lane on a
+    // RTX 5070 Ti laptop: per-frame upload+solve+download stays under 7 ms up to 200k DOF —
+    // 60 fps reachable through the entire 150k-200k range. Default false because:
+    //   (a) FRAMECORE_CUDA=0 builds (no conda cuDSS env / no NVIDIA GPU) need to compile
+    //       this flag as a no-op rather than fail-to-link.
+    //   (b) An NVIDIA-equipped client should opt in explicitly; the CPU sn_chol.h supernodal
+    //       lane stays the cross-vendor default for the educational-game deployment target.
+    // When CUDA is not compiled in, this flag is silently ignored (the CPU supernodal path
+    // is used as if it were false). When the GPU factor itself fails (e.g. cuDSS reports
+    // CUDSS_STATUS_NOT_POSITIVE_DEFINITE), the session falls back to LDLT (mirroring the
+    // existing snReady fallback chain).
+    bool useGpuBacksub = false;
 };
 
 // R2.2 sub-stage timings of the LAST solveFrame() call. ALWAYS-ZERO unless the engine
