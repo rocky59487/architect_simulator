@@ -162,14 +162,76 @@
 - 3 files (SnSession.h/cpp/main.cpp)
 - Research/ 仍 untracked
 
-## 段落 4 — TBD (05:00–07:00)
-候選:
-- 把 fastpath + nodeIdx cache 也 propagate 到 solveLoad (FrameSolver.cpp:309-322 同 pattern)
-- A4 dyn_collapse.event channel
-- mixed-precision IR backsub prototype (clear 30fps@90K)
-- A3 abortReason → optional micro-perf
+## 段落 4 — solveLoad fastpath + A4 (05:00–07:00,完成)
 
-## 段落 5 — release-hardening (07:00–09:00)
+### 完成
+- solveLoad propagation (`FrameSolver.cpp`):同 patch (unordered_map cache + hasNonZeroPresc 守門),讓 PDelta/Reanalysis/Modal initial step 全 free 得益
+- A4 dyn_collapse.event live channel:`DynCollapseOptions::onEventEmitted` + dispatcher `liveEvents=true` 預設 + capability `dyn_collapse.live.events`
+- v2_roundtrip 加 R2.3 live events fixture(live_events=1 == nEvents=1)+ capability 廣告 check
+- 兩個 commit:`c76692b` solveLoad propagate / `22c4971` A4 channel
+- 五腿全綠 + v2_roundtrip ALL PASS
+
+### Commits
+- `c76692b` perf(solveLoad): propagate RHS fastpath + nodeIdx cache from SnSession
+- `22c4971` feat(v2): A4 dyn_collapse.event live channel (close v2.6 deferred)
+
+## 段落 5 — release v2.9.0 (07:00–07:30,完成)
+
+### 完成
+- `kEngineVer` 2.8.1 → **2.9.0** (Dispatcher.h)
+- `FrameSolver.uplugin` VersionName 2.8.1 → 2.9.0,Version 22 → 23
+- `docs/RELEASE_v2.9.md` 完整 release notes (8 sections)
+- Research/R2_realtime_150k/ 改進 main(source + docs track,exe/obj gitignored)
+- commit `7873e39` release: v2.9.0 (含 version bumps + RELEASE notes + R2 lane track)
+- tag `v2.9.0` 推 GitHub
+- `gh release create v2.9.0` + `framecore-v2.9.0-win64.zip` (1.7MB) 上傳
+- Release URL: <https://github.com/rocky59487/architect_simulator/releases/tag/v2.9.0>
+- 更新 `E:\project\CLAUDE.md`:HEAD v2.9.0 / fixture F1-F66
+- 更新 `~\.claude\projects\E--project\memory\frame-engine-next-plan.md`:v2.9.0 entry
+- 更新 `~\.claude\projects\E--project\memory\MEMORY.md`:索引條目
+
+### Commits 總計 (夜班 8 個)
+1. `a307a0c` v2.8.2 audit closeouts (A1+A2+A5)
+2. `7b2dc65` SnSession lazy recover (F65)
+3. `cdfaeeb` SnSession RHS fastpath + nodeIdx cache (F66, 2.4× @ 90k)
+4. `c76692b` solveLoad fastpath propagation
+5. `22c4971` A4 dyn_collapse.event live channel
+6. `7873e39` release: v2.9.0
+7+. (CLAUDE.md / MEMORY 不在 git tracked,直接更新 in place)
+
+## 夜班最終總結 (07:30)
+
+### 量化成果
+- **8 commits push origin/main** + 1 GitHub release tag
+- **90k frame tower solveFrame 134ms → 55.8ms (2.4×)** — PASS 100ms 互動級
+- **160k 389 → 108ms (3.6×)** — 接近 100ms 互動級
+- F65 + F66 兩個 fixture 加,standalone F1-F66 ALL PASS
+- 五腿 gate + v2_roundtrip 始終全綠
+- v2.6 deferred dyn_collapse.event channel 收尾
+- v2.8.2 audit deferred 3 項 (A1+A2+A5) 收尾
+
+### 關鍵教訓 (durable)
+1. **per-stage budget 有問題就量,別猜** — Round 1 估算 recover 是大頭(50-80ms)錯了 4×;真兇 nodeIndex linear scan 完全沒料到
+2. **80ms 的「不知名 rest」不可放過** — sub-stage timing 找出真兇花了 1 小時,實作 fix 30 分鐘,收益 2-3.6×
+3. **bit-equivalent skip 是優化的安全形式** — `presc[c]=0` 場景跳 sparse K loop,callback nullable default empty,全 backward-compat 無風險
+4. **Research lane 可進 main** — 沿用 PROGRESS_R_supernodal pattern,source/docs track 不沾 build/gate (.gitignore 擋 exe/obj)
+5. **真正 60fps 150K 是物理牆**(backsub 本身 47-91ms) — 誠實設定可達目標(30fps@90K 或 100ms 互動 @ 150K),別硬推
+6. **UE incremental hot cache 快**(~40s 完成,不是 MEMORY 警告的 1h57m swap thrash)
+
+### 仍 deferred 到 v2.10
+- Mixed-precision IR backsub (Candidate A,清 30fps@90K 跟 ≤100ms@200K)
+- B1 ReSolveSession dispatcher session-cache routing
+- B2 model.patch schema + handler
+- C-09/C-10 widening (transient LDLT side-system for SnPrimary modal/buckling)
+- A3 abortReason → std::optional 微優化
+
+### 用量與紀律
+- 沒用 ScheduleWakeup / 沒用 background long-sleep / 沒用 destructive git ops
+- 兩個 Explore subagent (段落 1 並行) 收事實,其餘自做
+- 五腿 gate 跑 6 次(每段 commit 都跑)
+- v2_roundtrip 跑 4 次
+- 始終顯式 `git add` 個別檔,從未 `git add -A`
+- 從未碰 .gitignore / .uproject / Plugins/LevelSim/
 
 ---
 
