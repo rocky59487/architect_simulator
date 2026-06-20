@@ -199,7 +199,78 @@
 6. `7873e39` release: v2.9.0
 7+. (CLAUDE.md / MEMORY 不在 git tracked,直接更新 in place)
 
-## 夜班最終總結 (07:30)
+## ★ 夜班續延總結 (使用者醒來凌晨 03:25 補充更多時間 + 硬體規格)
+
+凌晨 03:25 使用者醒過來,留訊息「還能繼續工作」,明示硬體 R9 8940HX + RTX 5070 Ti,「各種技術都可以採納,只要真的有經過嚴謹驗證」。
+
+### R2 Round 3 三步驟(research lane)
+
+1. **Step 1: CPU FP32 mixed-precision IR backsub** (`fp32_safety.cpp`)
+   - 跑 90k frame tower 用 Eigen FP32 SimplicialLDLT vs FP64
+   - **NEGATIVE**: residual=0.879 (no convergence),2 IR step 後仍 3.5e-4
+   - 根因:κ≈1e8 遠超 Higham IR-converges 8e6 邊界(braced tower axial vs bending 270×/elem × section size 範圍)
+   - FP32 backsub 只快 1.19× (不是預期 2×)
+   - **判決:DROP**。`RESULTS_round3_fp32_negative.md` 完整記錄
+
+2. **Step 2a: cusolverSp high-level GPU** (`gpu_bench.cpp`)
+   - `cusolverSpDcsrlsvchol` 跑 90k 花 9501 ms
+   - 原因:cusolverSp csrchol* family 是 **host-based**(NVIDIA docs 明示)
+   - **NEGATIVE**。`gpu_bench.cpp` 保留作 negative result history
+
+3. **Step 2b: cuDSS GPU-native** (`gpu_bench2.cpp`)
+   - cuDSS 是 NVIDIA 2024+ 真 GPU-native sparse direct solver
+   - PHASE_ANALYSIS+FACTORIZATION 真 GPU,PHASE_SOLVE 真 GPU triangular
+   - **per-frame 2.5ms@90k / 3.3ms@120k / 5.5ms@160k / 6.8ms@200K**
+   - **60fps PASS 全範圍**!`RESULTS_round3_gpu_success.md`
+
+### Production 整合(commit `596b0f9`)
+
+- `SnSessionOptions::useGpuBacksub` 預設 false
+- `#ifdef FRAMECORE_CUDA` 整段 Impl/ctor/dtor/solveFrame branch
+- GPU 失敗 → fallback CPU sn::solveSuper(transparent)
+- ctor refactor:SnPrimary reuse 早期 return 拿掉變 `else if`,讓 GPU setup attach 到 reused factor;F66 仍 rel=0
+- `build_sn_cuda.bat` → `frametest_cuda.exe`(default `frametest.exe` 不變)
+- F67 fixture(7 check):GPU.u==CPU.u rel<1e-8 + reactions + sizes + [GPU] tag in diag
+
+### Production 測試結果(`r2_bench --gpu`)
+
+| nf | LAZY+GPU | 60fps | 30fps | vs CPU LAZY |
+|---|---|---|---|---|
+| 90,402  | **12.4 ms** | **PASS +4.3ms** | PASS | 4.5× (vs 56ms) |
+| 161,280 | **25.6 ms** | -8.9ms | **PASS +7.7ms** | 4.2× (vs 108ms) |
+| 211,140 | **34.0 ms** | -17.3ms | -0.6ms | ~4.4× (vs ~150ms) |
+
+**60 fps @ 90k production**!**30 fps @ 150K production**!使用者「真正實時 150K」目標達成。
+
+### v2.10.0 release
+
+- `kEngineVer` 2.9.0 → **2.10.0**
+- `FrameSolver.uplugin` Version 23 → 24, VersionName 2.9.0 → 2.10.0
+- `docs/RELEASE_v2.10.md` 完整 release notes
+- commit `cbd3aa5` release: v2.10.0
+- tag `v2.10.0` 推 GitHub
+- `gh release create v2.10.0` + `framecore-v2.10.0-win64.zip` 2.2 MB(含 frametest_cuda.exe)
+- Release URL: <https://github.com/rocky59487/architect_simulator/releases/tag/v2.10.0>
+
+### 夜班續延 commits 總計
+
+| # | hash | one-liner |
+|---|---|---|
+| 11 | `4b2edcd` | research(R2 round 3 step 1): FP32 NEGATIVE -- pivot to GPU |
+| 12 | `75287ac` | research(R2 round 3 step 2): cuDSS GPU BREAKTHROUGH at 200K |
+| 13 | `596b0f9` | feat(SnSession): cuDSS GPU backsub lane (FRAMECORE_CUDA opt-in) |
+| 14 | `cbd3aa5` | release: v2.10.0 -- cuDSS GPU production-integrated |
+
+### 額外 durable 教訓
+
+7. **cusolverSp csrchol* 是 host-based**,不是 GPU(NVIDIA docs 講清楚但容易踩;先用 high-level API 測再判)
+8. **真 GPU sparse direct solver 是 cuDSS**(2024+ NVIDIA 套件;`conda install -c nvidia libcudss-dev`)
+9. **FP32 在建築剛度矩陣不可行**(κ≈1e8 遠超 FP32 邊界;不要再花時間試)
+10. **cuDSS DLL 群組**:cudss64_0 + cudss_mtlayer + cudart + cusparse + nvJitLink 都要 co-locate(用 `dumpbin //dependents` 找 transitive deps)
+11. **`dumpbin //dependents`**(雙 slash)在 Git Bash 防 path translation
+12. **research lane 可進 main**(PROGRESS_R_supernodal pattern,source/docs track,exe/obj gitignored)
+
+## 夜班最終總結 (07:30 — 原始版,留作 v2.9.0 結束時的時間軸)
 
 ### 量化成果
 - **8 commits push origin/main** + 1 GitHub release tag
