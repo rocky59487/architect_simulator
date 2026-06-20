@@ -68,7 +68,7 @@ namespace FrameCore.Gh.Components.Analyze
         // FrameSession -> "unknown session" errors downstream. We pin the cache to the
         // FrameSession AND its profile/buildSha so any of those changes triggers a fresh
         // OpenEngineSession + model.set instead of a cache hit.
-        private FrameSession?           _cachedFs;
+        private volatile FrameSession?  _cachedFs;
         private string                  _cachedFsBuildSha = "";
         private BridgeProfile           _cachedFsProfile  = BridgeProfile.Simple;
         private long                    _assembleGeneration = 0;

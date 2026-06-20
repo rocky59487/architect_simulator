@@ -47,6 +47,7 @@ namespace FrameCore.Gh.Components.Display
             if (!da.GetData(0, ref gr) || gr?.Value is null) return;
             var curves = new List<Curve>(); da.GetDataList(1, curves);
             double cap = 235; da.GetData(2, ref cap);
+            _ = cap; // legacy input retained for file compatibility; native D/C drives the fringe.
             string rampName = "Viridis"; da.GetData(3, ref rampName);
             double radius = 30; da.GetData(4, ref radius);
 
@@ -57,20 +58,27 @@ namespace FrameCore.Gh.Components.Display
             _drawCommands.Clear(); _bbox = BoundingBox.Empty;
 
             var r = gr.Value!;
+            bool warnedNoDc = false;
             for (int i = 0; i < curves.Count; ++i)
             {
-                if (!r.MemberForces.TryGetValue(i, out var mf))
+                if (!r.MemberForces.ContainsKey(i))
                 {
                     AddRuntimeMessage(GH_RuntimeMessageLevel.Warning, $"No force for member {i}.");
                     meshes.Add(new Mesh()); dcs.Add(0); continue;
                 }
-                // Coarse axial-only D/C — replace with full Mz+My+N in a later iteration.
-                // For showcase the linearity captures the visual story.
-                double sigmaI = Math.Abs(mf.Ni) / 1.0;   // /A would need section data; placeholder.
-                double sigmaJ = Math.Abs(mf.Nj) / 1.0;
-                double dcI = Math.Min(1.5, sigmaI / Math.Max(1e-9, cap));
-                double dcJ = Math.Min(1.5, sigmaJ / Math.Max(1e-9, cap));
-                double dcPeak = Math.Max(dcI, dcJ);
+                double dcI = double.NaN, dcJ = double.NaN, dcPeak = double.NaN;
+                if (r.MemberUtilization.TryGetValue(i, out var util))
+                {
+                    dcI = Math.Min(1.5, util.EndI);
+                    dcJ = Math.Min(1.5, util.EndJ);
+                    dcPeak = Math.Max(dcI, dcJ);
+                }
+                else if (!warnedNoDc)
+                {
+                    AddRuntimeMessage(GH_RuntimeMessageLevel.Warning,
+                        "Result has no native D/C data. Re-run Solve against a DLL that supports solve.linear wantDC.");
+                    warnedNoDc = true;
+                }
 
                 var c = curves[i];
                 var pipe = MakePipe(c, radius);
@@ -82,7 +90,8 @@ namespace FrameCore.Gh.Components.Display
             }
             da.SetDataList(0, meshes);
             da.SetDataList(1, dcs);
-            Message = $"max D/C {MaxD(dcs):F3}";
+            double maxD = MaxD(dcs);
+            Message = double.IsNaN(maxD) ? "D/C unavailable" : $"max D/C {maxD:F3}";
         }
 
         private static Mesh MakePipe(Curve c, double r)
@@ -103,10 +112,16 @@ namespace FrameCore.Gh.Components.Display
                 var p = pipe.Vertices[i];
                 double t = (p.X - bb.Min.X) / Math.Max(1e-9, bb.Max.X - bb.Min.X);
                 double dc = dcI * (1 - t) + dcJ * t;
-                pipe.VertexColors.Add(ramp(Math.Min(1.0, dc)));
+                pipe.VertexColors.Add(double.IsNaN(dc) ? Color.Gray : ramp(Math.Min(1.0, dc)));
             }
         }
 
-        private static double MaxD(List<double> v) { double m = 0; foreach (var x in v) if (x > m) m = x; return m; }
+        private static double MaxD(List<double> v)
+        {
+            double m = double.NaN;
+            foreach (var x in v)
+                if (!double.IsNaN(x) && (double.IsNaN(m) || x > m)) m = x;
+            return m;
+        }
     }
 }

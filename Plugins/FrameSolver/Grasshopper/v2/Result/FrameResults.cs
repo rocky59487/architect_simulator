@@ -60,6 +60,15 @@ public readonly record struct ShellForce(
     double Mxx, double Myy, double Mxy, double Qx, double Qy,
     double Nxx, double Nyy, double Nxy);
 
+/// <summary>Native elastic-screen D/C for a member, as emitted by solve.linear wantDC.</summary>
+public readonly record struct MemberUtilization(
+    double EndI, string ModeI,
+    double EndJ, string ModeJ,
+    double Peak, string GoverningEnd, string GoverningMode);
+
+/// <summary>Native shell surface-stress D/C for one shell facet.</summary>
+public readonly record struct ShellUtilization(double DC, int Corner, bool Top);
+
 /// <summary>Linear static result (also the base shape of P-Delta, ReSolve, Corotational outputs).</summary>
 public sealed class LinearResult : FrameResultBase
 {
@@ -71,6 +80,12 @@ public sealed class LinearResult : FrameResultBase
     public required IReadOnlyDictionary<int, MemberEndPair> MemberForces { get; init; }
     /// <summary>Shell forces keyed by shell id (centre, local frame).</summary>
     public required IReadOnlyDictionary<int, ShellForce> ShellForces { get; init; }
+    /// <summary>Member D/C keyed by member id. Empty when the server did not emit wantDC data.</summary>
+    public IReadOnlyDictionary<int, MemberUtilization> MemberUtilization { get; init; }
+        = new Dictionary<int, MemberUtilization>();
+    /// <summary>Shell D/C keyed by shell id. Empty when the server did not emit wantDC data.</summary>
+    public IReadOnlyDictionary<int, ShellUtilization> ShellUtilization { get; init; }
+        = new Dictionary<int, ShellUtilization>();
 }
 
 public sealed class TensionOnlyResult : FrameResultBase

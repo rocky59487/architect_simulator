@@ -5,17 +5,10 @@
 // itself is single-DLL-per-transport: each CApiV2Transport instance allocates its own ctx,
 // so multiple FrameSessions in the same process do not interfere.
 //
-// CONCURRENCY MODE (v2.4 + B3 follow-up: SYNCHRONOUS dispatch)
-//   The native dispatcher runs the handler on the caller's thread, so SendAsync below blocks
-//   until the handler returns. For short calls (solve.linear / inspect.* / analysis.*) that is
-//   sub-millisecond and the GH UI thread is fine. For long calls (solve.size_opt with many
-//   iterations, solve.dyn_collapse with many frames) the caller MUST drive SendAsync from a
-//   worker thread (this is what the AsyncFrameComponent pattern already does in our GH
-//   components -- see AssembleModelComponent's `_assembling = AssembleAsync(...)`).
-//
-//   The server advertises this contract via the `transport.sync` capability in hello. When
-//   the B4 redesign (HANDOFF_v2.4.md § 4 C-06 / C-07) lands, the capability flips to
-//   `transport.async` and clients can stop their own worker-thread off-loading.
+// CONCURRENCY MODE (B4: ASYNCHRONOUS dispatch)
+//   frame_v2_send parses and queues a request, then returns. A native per-context worker
+//   executes the dispatcher, and ReceiveFrameAsync drains response/event frames. The server
+//   advertises this via the `transport.async` capability in hello.
 //
 // LIFETIME -- the ctx is freed in DisposeAsync. If the host process forgets to dispose, the
 // DLL leaks the ctx; the finalizer pattern is intentionally NOT used because P/Invoke into a
@@ -133,6 +126,8 @@ internal sealed class CApiV2Transport : ITransport
                     throw new InvalidOperationException($"frame_v2_recv probe failed ({rc})");
 
                 var size = (int)(needed != UIntPtr.Zero ? needed : outLen);
+                if (size == 0)
+                    return new ValueTask<ReadOnlyMemory<byte>>(ReadOnlyMemory<byte>.Empty);
                 var buf = new byte[size];
                 fixed (byte* p = buf)
                 {
@@ -164,9 +159,9 @@ internal sealed class CApiV2Transport : ITransport
         return ValueTask.CompletedTask;
     }
 
-    public async ValueTask DisposeAsync()
+    public ValueTask DisposeAsync()
     {
-        if (_disposed) return;
+        if (_disposed) return ValueTask.CompletedTask;
         _disposed = true;
         if (_ctx != IntPtr.Zero)
         {
@@ -181,7 +176,7 @@ internal sealed class CApiV2Transport : ITransport
             try { NativeLibrary.Free(_libHandle); } catch { /* ignore */ }
             _libHandle = IntPtr.Zero;
         }
-        await Task.CompletedTask;
+        return ValueTask.CompletedTask;
     }
 
     // ----- P/Invoke delegates -----

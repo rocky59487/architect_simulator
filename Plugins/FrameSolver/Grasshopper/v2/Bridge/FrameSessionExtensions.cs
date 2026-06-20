@@ -7,6 +7,7 @@
 // arrive only as ADDITIONS.
 
 using System.Text.Json;
+using System.Linq;
 using FrameCore.Bridge.Model;
 using FrameCore.Bridge.Result;
 
@@ -130,11 +131,18 @@ public static class FrameSessionExtensions
     public static async Task<LinearResult> SolveLinearAsync(this FrameSession s, string sessionId,
                                                              bool wantReactions = true,
                                                              CancellationToken ct = default)
+        => await SolveLinearAsync(s, sessionId, wantReactions, wantDC: true, ct).ConfigureAwait(false);
+
+    /// <summary>Linear static solve with optional native demand/capacity output.</summary>
+    public static async Task<LinearResult> SolveLinearAsync(this FrameSession s, string sessionId,
+                                                             bool wantReactions,
+                                                             bool wantDC,
+                                                             CancellationToken ct = default)
     {
         if (!s.HasCapability("solve.linear"))
             throw new NotSupportedException("engine does not advertise 'solve.linear'");
         var id = s.NextId();
-        var body = new { session = sessionId, wantReactions, binaryDisp = false };
+        var body = new { session = sessionId, wantReactions, wantDC, binaryDisp = false };
         using var rsp = await s.SendAndAwaitSingleAsync("solve.linear", id, body, ct).ConfigureAwait(false);
         return ParseLinearResult(id, rsp);
     }
@@ -153,13 +161,13 @@ public static class FrameSessionExtensions
         using var rsp = await s.SendAndAwaitSingleAsync("solve.tension_only", id, body, ct).ConfigureAwait(false);
         var b = rsp.Header.RootElement.GetProperty("body");
 
-        var inner = ParseLinearResult(id, rsp);
+        var inner = ParseLinearResultBody(id, rsp, b.GetProperty("finalState"));
         return new TensionOnlyResult
         {
             ReqId        = id,
             RawHeader    = rsp.Header.RootElement.Clone(),
-            Singular     = b.GetProperty("singular").GetBoolean(),
-            Diagnostic   = TryGetString(b, "diagnostic") ?? "",
+            Singular     = inner.Singular,
+            Diagnostic   = inner.Diagnostic,
             PivotMargin  = inner.PivotMargin,
             Converged    = b.GetProperty("converged").GetBoolean(),
             Cycled       = b.GetProperty("cycled").GetBoolean(),
@@ -177,12 +185,25 @@ public static class FrameSessionExtensions
         if (!s.HasCapability("solve.size_opt"))
             throw new NotSupportedException("engine does not advertise 'solve.size_opt'");
         var id = s.NextId();
-        var body = new { session = sessionId, aMin, maxIter, dcTol };
+        var body = new { session = sessionId, Amin = aMin, maxIter, dcTol };
         using var rsp = await s.SendAndAwaitSingleAsync("solve.size_opt", id, body, ct).ConfigureAwait(false);
         var b = rsp.Header.RootElement.GetProperty("body");
         var areas = new Dictionary<int, (double Area, double DC)>();
-        foreach (var e in b.GetProperty("areas").EnumerateObject())
-            areas[int.Parse(e.Name)] = (e.Value[0].GetDouble(), e.Value[1].GetDouble());
+        if (b.TryGetProperty("areas", out var areaObj) && areaObj.ValueKind == JsonValueKind.Object)
+        {
+            foreach (var e in areaObj.EnumerateObject())
+                areas[int.Parse(e.Name)] = (e.Value[0].GetDouble(), e.Value[1].GetDouble());
+        }
+        else if (b.TryGetProperty("finalAreas", out var areaArr)
+                 && b.TryGetProperty("finalDC", out var dcArr)
+                 && areaArr.ValueKind == JsonValueKind.Array
+                 && dcArr.ValueKind == JsonValueKind.Array)
+        {
+            var a = areaArr.EnumerateArray().Select(x => x.GetDouble()).ToArray();
+            var d = dcArr.EnumerateArray().Select(x => x.GetDouble()).ToArray();
+            for (int i = 0; i < Math.Min(a.Length, d.Length); ++i)
+                areas[i] = (a[i], d[i]);
+        }
         return new SizeOptResult
         {
             ReqId          = id,
@@ -193,7 +214,7 @@ public static class FrameSessionExtensions
             Iterations     = b.GetProperty("iterations").GetInt32(),
             SizeOptSingular= b.TryGetProperty("sizeOptSingular", out var so) && so.GetBoolean(),
             Areas          = areas,
-            WeightVolume   = b.GetProperty("weightVolume").GetDouble()
+            WeightVolume   = b.TryGetProperty("weightVolume", out var wv) ? wv.GetDouble() : 0.0
         };
     }
 
@@ -249,8 +270,10 @@ public static class FrameSessionExtensions
     // ----- helpers ----------------------------------------------------------------------------
 
     private static LinearResult ParseLinearResult(string id, WireFrame rsp)
+        => ParseLinearResultBody(id, rsp, rsp.Header.RootElement.GetProperty("body"));
+
+    private static LinearResult ParseLinearResultBody(string id, WireFrame rsp, JsonElement b)
     {
-        var b = rsp.Header.RootElement.GetProperty("body");
         if (b.TryGetProperty("_stub", out var stub) && stub.ValueKind == JsonValueKind.True)
             throw new RemoteException("NOT_IMPLEMENTED",
                 "solve.linear returned a B2 stub payload; engine-backed solve.linear is not wired in this DLL.");
@@ -258,6 +281,8 @@ public static class FrameSessionExtensions
         var reactions = new Dictionary<int, double[]>();
         var mf        = new Dictionary<int, MemberEndPair>();
         var sf        = new Dictionary<int, ShellForce>();
+        var mu        = new Dictionary<int, MemberUtilization>();
+        var su        = new Dictionary<int, ShellUtilization>();
 
         if (b.TryGetProperty("disp", out var dispObj) && dispObj.ValueKind == JsonValueKind.Object)
         {
@@ -273,7 +298,19 @@ public static class FrameSessionExtensions
         {
             foreach (var e in mfObj.EnumerateObject())
             {
-                var a = ReadDoubleArray(e.Value);
+                double[] a;
+                if (e.Value.ValueKind == JsonValueKind.Object)
+                {
+                    var i = ReadDoubleArray(e.Value.GetProperty("endI"));
+                    var j = ReadDoubleArray(e.Value.GetProperty("endJ"));
+                    a = i.Concat(j).ToArray();
+                }
+                else
+                {
+                    a = ReadDoubleArray(e.Value);
+                }
+                if (a.Length < 12)
+                    throw new JsonException($"memberForces[{e.Name}] must contain 12 values");
                 mf[int.Parse(e.Name)] = new MemberEndPair(
                     a[0], a[1], a[2], a[3], a[4], a[5],
                     a[6], a[7], a[8], a[9], a[10], a[11]);
@@ -283,8 +320,52 @@ public static class FrameSessionExtensions
         {
             foreach (var e in sfObj.EnumerateObject())
             {
-                var a = ReadDoubleArray(e.Value);
+                double[] a;
+                if (e.Value.ValueKind == JsonValueKind.Object)
+                {
+                    a = new[]
+                    {
+                        e.Value.GetProperty("Mxx").GetDouble(),
+                        e.Value.GetProperty("Myy").GetDouble(),
+                        e.Value.GetProperty("Mxy").GetDouble(),
+                        e.Value.GetProperty("Qx").GetDouble(),
+                        e.Value.GetProperty("Qy").GetDouble(),
+                        e.Value.GetProperty("Nxx").GetDouble(),
+                        e.Value.GetProperty("Nyy").GetDouble(),
+                        e.Value.GetProperty("Nxy").GetDouble()
+                    };
+                }
+                else
+                {
+                    a = ReadDoubleArray(e.Value);
+                }
+                if (a.Length < 8)
+                    throw new JsonException($"shellForces[{e.Name}] must contain 8 values");
                 sf[int.Parse(e.Name)] = new ShellForce(a[0], a[1], a[2], a[3], a[4], a[5], a[6], a[7]);
+            }
+        }
+        if (b.TryGetProperty("memberUtilization", out var muObj) && muObj.ValueKind == JsonValueKind.Object)
+        {
+            foreach (var e in muObj.EnumerateObject())
+            {
+                var endI = e.Value.GetProperty("endI");
+                var endJ = e.Value.GetProperty("endJ");
+                mu[int.Parse(e.Name)] = new MemberUtilization(
+                    endI.GetProperty("dc").GetDouble(), TryGetString(endI, "mode") ?? "",
+                    endJ.GetProperty("dc").GetDouble(), TryGetString(endJ, "mode") ?? "",
+                    e.Value.GetProperty("peak").GetDouble(),
+                    TryGetString(e.Value, "governingEnd") ?? "",
+                    TryGetString(e.Value, "governingMode") ?? "");
+            }
+        }
+        if (b.TryGetProperty("shellUtilization", out var suObj) && suObj.ValueKind == JsonValueKind.Object)
+        {
+            foreach (var e in suObj.EnumerateObject())
+            {
+                su[int.Parse(e.Name)] = new ShellUtilization(
+                    e.Value.GetProperty("dc").GetDouble(),
+                    e.Value.GetProperty("corner").GetInt32(),
+                    e.Value.GetProperty("top").GetBoolean());
             }
         }
 
@@ -300,6 +381,8 @@ public static class FrameSessionExtensions
             Reactions           = reactions,
             MemberForces        = mf,
             ShellForces         = sf,
+            MemberUtilization   = mu,
+            ShellUtilization    = su,
             AdvancedDiagnostics = ParseAdvancedDiagnostics(b),
             DefaultsApplied     = ParseDefaultsApplied(b)
         };
@@ -399,22 +482,22 @@ public static class FrameSessionExtensions
             {
                 id = mem.Id, i = mem.I.Id, j = mem.J.Id,
                 mat = mem.Material.Index, sec = mem.Section.Index,
-                refVec = new[] { mem.RefVec.X, mem.RefVec.Y, mem.RefVec.Z },
+                @ref = new[] { mem.RefVec.X, mem.RefVec.Y, mem.RefVec.Z },
                 active = mem.Active, tensionOnly = mem.TensionOnly,
                 release = mem.Release
             }).ToArray(),
             shells = m.Shells.Select(s => new
             {
                 id = s.Id,
-                n = new[] { s.N0.Id, s.N1.Id, s.N2.Id, s.N3.Id },
+                nodes = new[] { s.N0.Id, s.N1.Id, s.N2.Id, s.N3.Id },
                 mat = s.Material.Index,
                 t = s.Thickness,
                 active = s.Active
             }).ToArray(),
             nodalLoads = m.NodalLoads.Select(l => new { node = l.Node.Id, comp = l.Components }).ToArray(),
-            memberUdls = m.MemberUdls.Select(u => new { member = u.Member.Id, w = new[] { u.Local.Wx, u.Local.Wy, u.Local.Wz } }).ToArray(),
+            memberUDLs = m.MemberUdls.Select(u => new { member = u.Member.Id, w = new[] { u.Local.Wx, u.Local.Wy, u.Local.Wz } }).ToArray(),
             shellPressures = m.ShellPressures.Select(s => new { shell = s.Shell.Id, p = s.P }).ToArray(),
-            hinges = m.Hinges.Select(h => new { member = h.Member.Id, dof = h.Dof, mp = h.Mp }).ToArray()
+            hinges = m.Hinges.Select(h => new { member = h.Member.Id, dof = h.Dof, Mp = h.Mp }).ToArray()
         };
     }
 }

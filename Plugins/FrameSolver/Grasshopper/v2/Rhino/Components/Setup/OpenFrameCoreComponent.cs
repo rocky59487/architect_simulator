@@ -158,6 +158,7 @@ namespace FrameCore.Gh.Components.Setup
                     _info    = nextInfo;
                     _error   = nextError;
                     _sessionDllKey = created is not null ? dllKey : "";
+                    _opening = null;
                     committed = true;
                 }
             }
@@ -169,7 +170,6 @@ namespace FrameCore.Gh.Components.Setup
             if (!committed)
                 return;
 
-            _opening = null;
             // Hop to the GH UI thread to re-trigger SolveInstance with the cached value.
             Grasshopper.Instances.DocumentEditor?.BeginInvoke((Action)(() =>
             {
