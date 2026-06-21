@@ -17,6 +17,7 @@
 | Phase 3 — Slate editor utility panel | ✅ PASS | ~15 min code + 10 s build + 5 s automation | 62/62 UE tests; Slate panel constructs + OnComputeClicked drives path without crash |
 | Phase 4 — 五腿 gate + bump ExpectedUeTests | ✅ PASS | ~7 min | 五腿 62/62 + v2_roundtrip CPU ALL PASS (kEngineVer still 3.1.0) |
 | Phase 5 — release-hardening + tag v3.2.0 | ✅ PASS | ~60 min | All 4 in-place audit fixes applied + 1 deferred to v3.3 U-07; post-fix 五腿 still green; tag v3.2.0 pushed; binary bundle (9.2 MB) attached to GitHub release |
+| Phase 6 — post-release strengthening | ✅ PASS | ~150 min | 62 → 70 UE tests (8 new); **U-04 closed early**; 3x stability stress clean (drift 0.7%); packaged build verified; 6 doc topology cleanups; quick-start guide; final 5-leg + v2_roundtrip at 70/70 GATE: PASS |
 
 **狀態圖例:** ⏸️ not started · 🚧 in progress · ✅ PASS · ❌ NEGATIVE · ⏭️ DEFERRED · ⏳ pending sign-off
 
