@@ -119,6 +119,12 @@ struct SnSession::Impl {
     // path: upload u (full N), upload F (full N, in-place reused as y for SpMV), call
     // cusparseSpMV with beta=-1.0 so d_F = K*u - F = reactions, download. Falls back to CPU
     // SPMV if any of the setup steps fail.
+    // Phase 2 (v2.11): one CUDA stream shared by cuDSS + cuSPARSE. Replaces the implicit
+    // default-stream + cudaDeviceSynchronize pattern with cudaMemcpyAsync + a single
+    // cudaStreamSynchronize. Eliminates one round of cross-context sync per frame and lets
+    // future Phase 2b CUDA Graph capture hang off the same stream.
+    cudaStream_t        cudaStream     = nullptr;
+
     bool                gpuReactionsReady = false;
     cusparseHandle_t    cusparseHdl    = nullptr;
     cusparseSpMatDescr_t cuKFull       = nullptr;
@@ -218,6 +224,11 @@ SnSession::SnSession(const PreparedSystem& prepared, const SnSessionOptions& opt
             Kff_csr.makeCompressed();
             const int nnz = static_cast<int>(Kff_csr.nonZeros());
 
+            // Phase 2 (v2.11): create a dedicated stream up front; both cuDSS and cuSPARSE
+            // will be bound to it. Failure is non-fatal -- a null stream means cuDSS / cuSPARSE
+            // fall back to the default stream (the v2.10.0 behaviour).
+            cudaStreamCreate(&p_->cudaStream);
+
             if (cudssCreate(&p_->cudssHandle) != CUDSS_STATUS_SUCCESS ||
                 cudssConfigCreate(&p_->cudssCfg) != CUDSS_STATUS_SUCCESS ||
                 cudssDataCreate(p_->cudssHandle, &p_->cudssDataS) != CUDSS_STATUS_SUCCESS)
@@ -233,6 +244,10 @@ SnSession::SnSession(const PreparedSystem& prepared, const SnSessionOptions& opt
                 p_->diag += " | [GPU] cudaMalloc failed; CPU lane used";
                 p_->gpuReady = false;
             } else {
+                // Bind cuDSS to our dedicated stream BEFORE PHASE_ANALYSIS / PHASE_FACTORIZATION
+                // so the factor build itself overlaps with anything else queued on the device.
+                if (p_->cudaStream) cudssSetStream(p_->cudssHandle, p_->cudaStream);
+
                 cudaMemcpy(p_->d_rowOff, Kff_csr.outerIndexPtr(), sizeof(int) * (n + 1), cudaMemcpyHostToDevice);
                 cudaMemcpy(p_->d_colIdx, Kff_csr.innerIndexPtr(), sizeof(int) * nnz,     cudaMemcpyHostToDevice);
                 cudaMemcpy(p_->d_val,    Kff_csr.valuePtr(),      sizeof(double) * nnz,  cudaMemcpyHostToDevice);
@@ -268,6 +283,7 @@ SnSession::SnSession(const PreparedSystem& prepared, const SnSessionOptions& opt
                     const int Nfull   = static_cast<int>(Kfull.rows());
                     const int Knnz    = static_cast<int>(Kfull.nonZeros());
                     bool spmvOk = (cusparseCreate(&p_->cusparseHdl) == CUSPARSE_STATUS_SUCCESS);
+                    if (spmvOk && p_->cudaStream) cusparseSetStream(p_->cusparseHdl, p_->cudaStream);
                     spmvOk = spmvOk && (cudaMalloc(&p_->d_Krow_full, sizeof(int) * (Nfull + 1)) == cudaSuccess);
                     spmvOk = spmvOk && (cudaMalloc(&p_->d_Kcol_full, sizeof(int) * Knnz)        == cudaSuccess);
                     spmvOk = spmvOk && (cudaMalloc(&p_->d_Kval_full, sizeof(double) * Knnz)     == cudaSuccess);
@@ -354,6 +370,7 @@ SnSession::~SnSession() {
         if (p_->d_u_full)    cudaFree(p_->d_u_full);
         if (p_->d_F_full)    cudaFree(p_->d_F_full);
         if (p_->d_spmvWork)  cudaFree(p_->d_spmvWork);
+        if (p_->cudaStream)  cudaStreamDestroy(p_->cudaStream);
     }
 #endif
 }
@@ -501,15 +518,24 @@ SolveResult SnSession::solveFrame(const FrameModel& model) {
 #if defined(FRAMECORE_CUDA) && FRAMECORE_CUDA
         bool gpuSolved = false;
         if (p_->gpuReady && p_->gpuNf == n) {
-            // Upload b, run PHASE_SOLVE on GPU, download x.
-            if (cudaMemcpy(p_->d_b, b.data(), sizeof(double) * n, cudaMemcpyHostToDevice) == cudaSuccess) {
+            // Phase 2: async memcpy + dedicated stream + single stream sync at the end.
+            // The cudssExecute call runs on p_->cudaStream because we cudssSetStream'd it at ctor.
+            const cudaStream_t st = p_->cudaStream;
+            const bool useAsync = (st != nullptr);
+            cudaError_t cup = useAsync
+                ? cudaMemcpyAsync(p_->d_b, b.data(), sizeof(double) * n, cudaMemcpyHostToDevice, st)
+                : cudaMemcpy     (p_->d_b, b.data(), sizeof(double) * n, cudaMemcpyHostToDevice);
+            if (cup == cudaSuccess) {
                 const cudssStatus_t sS = cudssExecute(p_->cudssHandle, CUDSS_PHASE_SOLVE,
                                                        p_->cudssCfg, p_->cudssDataS,
                                                        p_->cuK, p_->cuX, p_->cuB);
-                if (sS == CUDSS_STATUS_SUCCESS &&
-                    cudaMemcpy(x.data(), p_->d_x, sizeof(double) * n, cudaMemcpyDeviceToHost) == cudaSuccess &&
-                    cudaDeviceSynchronize() == cudaSuccess)
-                {
+                cudaError_t cdn = (sS == CUDSS_STATUS_SUCCESS)
+                    ? (useAsync
+                        ? cudaMemcpyAsync(x.data(), p_->d_x, sizeof(double) * n, cudaMemcpyDeviceToHost, st)
+                        : cudaMemcpy     (x.data(), p_->d_x, sizeof(double) * n, cudaMemcpyDeviceToHost))
+                    : cudaErrorUnknown;
+                const cudaError_t cys = useAsync ? cudaStreamSynchronize(st) : cudaDeviceSynchronize();
+                if (sS == CUDSS_STATUS_SUCCESS && cdn == cudaSuccess && cys == cudaSuccess) {
                     gpuSolved = true;
                 }
             }
@@ -591,23 +617,29 @@ SolveResult SnSession::solveFrame(const FrameModel& model) {
 #if defined(FRAMECORE_CUDA) && FRAMECORE_CUDA
     bool gpuSpmvDone = false;
     if (p_->gpuReactionsReady && p_->gpuFullN == N) {
-        // Upload u (full N) + F (full N, will be overwritten with K*u - F = reactions).
-        // SpMV uses beta=-1.0 + the existing F vector buffer so y_out = K*u - F in place.
         std::vector<double> u_h((size_t)N);
         std::vector<double> F_h((size_t)N);
         for (int g = 0; g < N; ++g) { u_h[(size_t)g] = (double)u(g); F_h[(size_t)g] = (double)F(g); }
-        if (cudaMemcpy(p_->d_u_full, u_h.data(), sizeof(double) * N, cudaMemcpyHostToDevice) == cudaSuccess &&
-            cudaMemcpy(p_->d_F_full, F_h.data(), sizeof(double) * N, cudaMemcpyHostToDevice) == cudaSuccess)
-        {
+        const cudaStream_t st = p_->cudaStream;
+        const bool useAsync = (st != nullptr);
+        cudaError_t cu1 = useAsync
+            ? cudaMemcpyAsync(p_->d_u_full, u_h.data(), sizeof(double) * N, cudaMemcpyHostToDevice, st)
+            : cudaMemcpy     (p_->d_u_full, u_h.data(), sizeof(double) * N, cudaMemcpyHostToDevice);
+        cudaError_t cu2 = useAsync
+            ? cudaMemcpyAsync(p_->d_F_full, F_h.data(), sizeof(double) * N, cudaMemcpyHostToDevice, st)
+            : cudaMemcpy     (p_->d_F_full, F_h.data(), sizeof(double) * N, cudaMemcpyHostToDevice);
+        if (cu1 == cudaSuccess && cu2 == cudaSuccess) {
             const double alpha = 1.0, beta = -1.0;
-            const cusparseStatus_t st = cusparseSpMV(p_->cusparseHdl, CUSPARSE_OPERATION_NON_TRANSPOSE,
+            const cusparseStatus_t status = cusparseSpMV(p_->cusparseHdl, CUSPARSE_OPERATION_NON_TRANSPOSE,
                                                       &alpha, p_->cuKFull, p_->cuVecU, &beta, p_->cuVecR,
                                                       CUDA_R_64F, CUSPARSE_SPMV_ALG_DEFAULT, p_->d_spmvWork);
-            if (st == CUSPARSE_STATUS_SUCCESS) {
+            if (status == CUSPARSE_STATUS_SUCCESS) {
                 std::vector<double> r_h((size_t)N);
-                if (cudaMemcpy(r_h.data(), p_->d_F_full, sizeof(double) * N, cudaMemcpyDeviceToHost) == cudaSuccess &&
-                    cudaDeviceSynchronize() == cudaSuccess)
-                {
+                cudaError_t cd = useAsync
+                    ? cudaMemcpyAsync(r_h.data(), p_->d_F_full, sizeof(double) * N, cudaMemcpyDeviceToHost, st)
+                    : cudaMemcpy     (r_h.data(), p_->d_F_full, sizeof(double) * N, cudaMemcpyDeviceToHost);
+                const cudaError_t cys = useAsync ? cudaStreamSynchronize(st) : cudaDeviceSynchronize();
+                if (cd == cudaSuccess && cys == cudaSuccess) {
                     for (int g = 0; g < N; ++g) R.reactions[(size_t)g] = (real)r_h[(size_t)g];
                     gpuSpmvDone = true;
                 }
