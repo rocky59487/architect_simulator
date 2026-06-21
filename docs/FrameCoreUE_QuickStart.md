@@ -132,8 +132,9 @@ The following are deferred to v3.3 or later (see
 host**.
 
 - Standalone F1..F70 ALL PASS
-- **UE 69/69 tests** (60 base + S11 + 2 GPU smoke + 2 v3.2 Phase 2/3 + 3 Phase 6a
-  marshal + 2 Phase 6e spawner+robustness + 2 Phase 6f theta+zero-load = 69)
+- **UE 70/70 tests** (60 base + S11 + 2 GPU smoke + 2 v3.2 Phase 2/3 + 3 Phase 6a
+  marshal + 2 Phase 6e spawner+robustness + 2 Phase 6f theta+zero-load + 1 Phase 6
+  closeout axial column = 70)
 - OpenSees PASS
 - linear deep audit 104 checks PASS
 - CLI roundtrip 13 checks PASS
