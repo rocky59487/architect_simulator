@@ -82,7 +82,7 @@ cl /nologo /EHsc /std:c++17 /O2 /MD /utf-8 /DEIGEN_MPL2_ONLY /DFRAMECORE_SUPERNO
    Plugins\FrameSolver\Source\FrameCore\Private\SnSolver.cpp ^
    Plugins\FrameSolver\Source\FrameCore\Private\SnSession.cpp ^
    Research\R2_realtime_150k\r2_bench.cpp ^
-   /link /LIBPATH:"%CONDA_SS%\lib" /LIBPATH:"%CUDA_ROOT%\lib\x64" openblas.lib metis.lib cudart.lib cudss.lib
+   /link /LIBPATH:"%CONDA_SS%\lib" /LIBPATH:"%CUDA_ROOT%\lib\x64" openblas.lib metis.lib cudart.lib cudss.lib cusparse.lib
 if errorlevel 1 ( echo [build_r2] COMPILE FAILED & popd & exit /b 1 )
 
 echo [build_r2] OK -^> Research\R2_realtime_150k\r2_bench.exe

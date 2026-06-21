@@ -86,7 +86,7 @@ cl /nologo /LD /EHsc /std:c++17 /O2 /MD /utf-8 /DEIGEN_MPL2_ONLY /DFRAMECORE_SUP
    Source\FrameCore\Private\SnSession.cpp ^
    Standalone\v2\Dispatcher.cpp ^
    Standalone\frame_capi_v2.cpp ^
-   /link /LIBPATH:"%CONDA_SS%\lib" /LIBPATH:"%CUDA_ROOT%\lib\x64" openblas.lib metis.lib cudart.lib cudss.lib
+   /link /LIBPATH:"%CONDA_SS%\lib" /LIBPATH:"%CUDA_ROOT%\lib\x64" openblas.lib metis.lib cudart.lib cudss.lib cusparse.lib
 if errorlevel 1 ( echo [build_capi_v2_cuda] COMPILE FAILED & popd & exit /b 1 )
 
 echo [build_capi_v2_cuda] OK -^> Standalone\frame_capi_v2_cuda.dll (FRAMECORE_SUPERNODAL=1, FRAMECORE_CUDA=1)

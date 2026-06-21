@@ -30,6 +30,7 @@
 #if defined(FRAMECORE_CUDA) && FRAMECORE_CUDA
   #include <cuda_runtime.h>
   #include <cudss.h>
+  #include <cusparse.h>      // Phase 1 (v2.11): GPU SPMV for reactions = K * u - F
 #endif
 
 // R2.2 sub-stage timing helpers: zero-cost when SN_SESSION_TIMING is not defined.
@@ -94,6 +95,27 @@ struct SnSession::Impl {
     int                 gpuNnz         = 0;
     // Permutation from full-DOF (S.K column order) to free-DOF (nf) order for fast Ff scatter
     std::vector<int>    csrRowOff;     // host-side CSR rowOffsets, cached for re-upload checks
+
+    // Phase 1 (v2.11) -- GPU SPMV for reactions = K * u - F. Reuses the cuDSS handle's CUDA
+    // context but maintains its own cuSPARSE handle + descriptors. The full N x N stiffness
+    // S.K is uploaded once at ctor (same fingerprint guard as the cuDSS factor). per-frame
+    // path: upload u (full N), upload F (full N, in-place reused as y for SpMV), call
+    // cusparseSpMV with beta=-1.0 so d_F = K*u - F = reactions, download. Falls back to CPU
+    // SPMV if any of the setup steps fail.
+    bool                gpuReactionsReady = false;
+    cusparseHandle_t    cusparseHdl    = nullptr;
+    cusparseSpMatDescr_t cuKFull       = nullptr;
+    cusparseDnVecDescr_t cuVecU        = nullptr;   // d_u_full
+    cusparseDnVecDescr_t cuVecR        = nullptr;   // d_F_full, reused as r = K*u - F
+    int                 gpuFullN       = 0;
+    int                 gpuFullNnz     = 0;
+    int*                d_Krow_full    = nullptr;
+    int*                d_Kcol_full    = nullptr;
+    double*             d_Kval_full    = nullptr;
+    double*             d_u_full       = nullptr;
+    double*             d_F_full       = nullptr;   // reused as the SpMV output (= reactions)
+    void*               d_spmvWork     = nullptr;
+    size_t              spmvWorkSize   = 0;
 #endif
 };
 
@@ -219,6 +241,58 @@ SnSession::SnSession(const PreparedSystem& prepared, const SnSessionOptions& opt
                     p_->gpuNnz   = nnz;
                     p_->diag += " | [GPU] cuDSS factor ready (nf=" + std::to_string(n) +
                                 ", nnz=" + std::to_string(nnz) + ")";
+
+                    // Phase 1 (v2.11): GPU SPMV for reactions = K * u - F. Reuses the same
+                    // CUDA context. Uploads the FULL N x N S.K (not the reduced K_ff) so the
+                    // SpMV mirrors the CPU expression `S.K * u - F` exactly. Failure here is
+                    // non-fatal: reactions falls back to CPU SPMV in solveFrame.
+                    Eigen::SparseMatrix<double, Eigen::RowMajor> Kfull(S.K);
+                    Kfull.makeCompressed();
+                    const int Nfull   = static_cast<int>(Kfull.rows());
+                    const int Knnz    = static_cast<int>(Kfull.nonZeros());
+                    bool spmvOk = (cusparseCreate(&p_->cusparseHdl) == CUSPARSE_STATUS_SUCCESS);
+                    spmvOk = spmvOk && (cudaMalloc(&p_->d_Krow_full, sizeof(int) * (Nfull + 1)) == cudaSuccess);
+                    spmvOk = spmvOk && (cudaMalloc(&p_->d_Kcol_full, sizeof(int) * Knnz)        == cudaSuccess);
+                    spmvOk = spmvOk && (cudaMalloc(&p_->d_Kval_full, sizeof(double) * Knnz)     == cudaSuccess);
+                    spmvOk = spmvOk && (cudaMalloc(&p_->d_u_full,    sizeof(double) * Nfull)    == cudaSuccess);
+                    spmvOk = spmvOk && (cudaMalloc(&p_->d_F_full,    sizeof(double) * Nfull)    == cudaSuccess);
+                    if (spmvOk) {
+                        cudaMemcpy(p_->d_Krow_full, Kfull.outerIndexPtr(), sizeof(int) * (Nfull + 1), cudaMemcpyHostToDevice);
+                        cudaMemcpy(p_->d_Kcol_full, Kfull.innerIndexPtr(), sizeof(int) * Knnz,        cudaMemcpyHostToDevice);
+                        cudaMemcpy(p_->d_Kval_full, Kfull.valuePtr(),      sizeof(double) * Knnz,     cudaMemcpyHostToDevice);
+
+                        const cusparseStatus_t smk = cusparseCreateCsr(&p_->cuKFull, Nfull, Nfull, Knnz,
+                            p_->d_Krow_full, p_->d_Kcol_full, p_->d_Kval_full,
+                            CUSPARSE_INDEX_32I, CUSPARSE_INDEX_32I,
+                            CUSPARSE_INDEX_BASE_ZERO, CUDA_R_64F);
+                        const cusparseStatus_t smu = cusparseCreateDnVec(&p_->cuVecU, Nfull, p_->d_u_full, CUDA_R_64F);
+                        const cusparseStatus_t smr = cusparseCreateDnVec(&p_->cuVecR, Nfull, p_->d_F_full, CUDA_R_64F);
+
+                        // Query workspace for the SpMV we will actually run: y = alpha*A*x + beta*y
+                        // with alpha=1, beta=-1, A=K, x=u, y=F (in-place reused for reactions).
+                        const double alpha = 1.0, beta = -1.0;
+                        cusparseStatus_t smsz = CUSPARSE_STATUS_INTERNAL_ERROR;
+                        size_t bufSize = 0;
+                        if (smk == CUSPARSE_STATUS_SUCCESS && smu == CUSPARSE_STATUS_SUCCESS && smr == CUSPARSE_STATUS_SUCCESS) {
+                            smsz = cusparseSpMV_bufferSize(p_->cusparseHdl, CUSPARSE_OPERATION_NON_TRANSPOSE,
+                                                           &alpha, p_->cuKFull, p_->cuVecU, &beta, p_->cuVecR,
+                                                           CUDA_R_64F, CUSPARSE_SPMV_ALG_DEFAULT, &bufSize);
+                        }
+                        if (smsz == CUSPARSE_STATUS_SUCCESS && cudaMalloc(&p_->d_spmvWork, bufSize) == cudaSuccess) {
+                            p_->spmvWorkSize      = bufSize;
+                            p_->gpuFullN          = Nfull;
+                            p_->gpuFullNnz        = Knnz;
+                            p_->gpuReactionsReady = true;
+                            p_->diag += " + [GPU] cuSPARSE SpMV reactions ready (N=" + std::to_string(Nfull) +
+                                        ", nnz=" + std::to_string(Knnz) + ")";
+                        } else {
+                            p_->gpuReactionsReady = false;
+                            p_->diag += " | [GPU] cuSPARSE SpMV setup failed; reactions on CPU";
+                        }
+                    } else {
+                        p_->gpuReactionsReady = false;
+                        p_->diag += " | [GPU] cuSPARSE allocation failed; reactions on CPU";
+                    }
                 } else {
                     p_->gpuReady = false;
                     p_->diag += " | [GPU] cuDSS analysis/factor failed (analysis=" +
@@ -252,6 +326,17 @@ SnSession::~SnSession() {
         if (p_->d_val)       cudaFree(p_->d_val);
         if (p_->d_b)         cudaFree(p_->d_b);
         if (p_->d_x)         cudaFree(p_->d_x);
+        // Phase 1 (v2.11) cuSPARSE SpMV cleanup
+        if (p_->cuVecU)      cusparseDestroyDnVec(p_->cuVecU);
+        if (p_->cuVecR)      cusparseDestroyDnVec(p_->cuVecR);
+        if (p_->cuKFull)     cusparseDestroySpMat(p_->cuKFull);
+        if (p_->cusparseHdl) cusparseDestroy(p_->cusparseHdl);
+        if (p_->d_Krow_full) cudaFree(p_->d_Krow_full);
+        if (p_->d_Kcol_full) cudaFree(p_->d_Kcol_full);
+        if (p_->d_Kval_full) cudaFree(p_->d_Kval_full);
+        if (p_->d_u_full)    cudaFree(p_->d_u_full);
+        if (p_->d_F_full)    cudaFree(p_->d_F_full);
+        if (p_->d_spmvWork)  cudaFree(p_->d_spmvWork);
     }
 #endif
 }
@@ -452,8 +537,40 @@ SolveResult SnSession::solveFrame(const FrameModel& model) {
     SN_TIME_END(scat, p_->lastT.scatterMs);
 
     SN_TIME_BEGIN(spmv);
+#if defined(FRAMECORE_CUDA) && FRAMECORE_CUDA
+    bool gpuSpmvDone = false;
+    if (p_->gpuReactionsReady && p_->gpuFullN == N) {
+        // Upload u (full N) + F (full N, will be overwritten with K*u - F = reactions).
+        // SpMV uses beta=-1.0 + the existing F vector buffer so y_out = K*u - F in place.
+        std::vector<double> u_h((size_t)N);
+        std::vector<double> F_h((size_t)N);
+        for (int g = 0; g < N; ++g) { u_h[(size_t)g] = (double)u(g); F_h[(size_t)g] = (double)F(g); }
+        if (cudaMemcpy(p_->d_u_full, u_h.data(), sizeof(double) * N, cudaMemcpyHostToDevice) == cudaSuccess &&
+            cudaMemcpy(p_->d_F_full, F_h.data(), sizeof(double) * N, cudaMemcpyHostToDevice) == cudaSuccess)
+        {
+            const double alpha = 1.0, beta = -1.0;
+            const cusparseStatus_t st = cusparseSpMV(p_->cusparseHdl, CUSPARSE_OPERATION_NON_TRANSPOSE,
+                                                      &alpha, p_->cuKFull, p_->cuVecU, &beta, p_->cuVecR,
+                                                      CUDA_R_64F, CUSPARSE_SPMV_ALG_DEFAULT, p_->d_spmvWork);
+            if (st == CUSPARSE_STATUS_SUCCESS) {
+                std::vector<double> r_h((size_t)N);
+                if (cudaMemcpy(r_h.data(), p_->d_F_full, sizeof(double) * N, cudaMemcpyDeviceToHost) == cudaSuccess &&
+                    cudaDeviceSynchronize() == cudaSuccess)
+                {
+                    for (int g = 0; g < N; ++g) R.reactions[(size_t)g] = (real)r_h[(size_t)g];
+                    gpuSpmvDone = true;
+                }
+            }
+        }
+    }
+    if (!gpuSpmvDone) {
+        const VecX Rv = S.K * u - F;
+        for (int g = 0; g < N; ++g) R.reactions[(size_t)g] = Rv(g);
+    }
+#else
     const VecX Rv = S.K * u - F;
     for (int g = 0; g < N; ++g) R.reactions[(size_t)g] = Rv(g);
+#endif
     SN_TIME_END(spmv, p_->lastT.spmvMs);
 
     SN_TIME_BEGIN(rec);
