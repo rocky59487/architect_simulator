@@ -16,7 +16,7 @@
 | Phase 2 — Blueprint node + smoke test | ✅ PASS | ~10 min code + 5 s build + 5 s automation | 61/61 UE tests; BP marshal rel<1e-5 vs POD oracle; analytic rel<1e-4 |
 | Phase 3 — Slate editor utility panel | ✅ PASS | ~15 min code + 10 s build + 5 s automation | 62/62 UE tests; Slate panel constructs + OnComputeClicked drives path without crash |
 | Phase 4 — 五腿 gate + bump ExpectedUeTests | ✅ PASS | ~7 min | 五腿 62/62 + v2_roundtrip CPU ALL PASS (kEngineVer still 3.1.0) |
-| Phase 5 — release-hardening + tag v3.2.0 | 🚧 in progress | — | version bumps + RELEASE/HANDOFF drafted; 3-agent audit returned 8 findings; closeout in progress |
+| Phase 5 — release-hardening + tag v3.2.0 | ✅ PASS | ~60 min | All 4 in-place audit fixes applied + 1 deferred to v3.3 U-07; post-fix 五腿 still green; tag v3.2.0 pushed; binary bundle (9.2 MB) attached to GitHub release |
 
 **狀態圖例:** ⏸️ not started · 🚧 in progress · ✅ PASS · ❌ NEGATIVE · ⏭️ DEFERRED · ⏳ pending sign-off
 
@@ -213,4 +213,49 @@
 
 > 夜班撞到的 durable 教訓。下次 session HANDOFF 會吸收。
 
-(空 — 目前無)
+1. **`framecore-direct` conda env 不含 Python.** 它是 build-time native libs-only env
+   (OpenBLAS / METIS / cuDSS DLLs)。`Get-Command python` resolves to Windows Store 3.12
+   binary which has `openseespy` installed there. For five-leg gate: just prepend
+   `$envRoot\Library\bin` to PATH; no `conda activate`. Plan §0 risk「OpenSees env
+   切換失敗」實際不存在。Update HANDOFF for future contributors.
+
+2. **`run_gate.ps1` 並不 build UE** — `$ExpectedUeTests` count guard 是漏編 test 的最後一道
+   防線。v3.2.0 加 2 個 UE test → bump 60→62。任何加新 UE test commit 前必先 incremental
+   rebuild,否則 gate `-ge` count guard 會 short-fall。
+
+3. **UE adaptive non-unity build 在加新 .cpp 時自動工作** — `[Adaptive Build] Excluded from
+   FrameCoreUE unity file: ...` 是好現象,新 .cpp 各自 TU 編譯,匿名 namespace 不衝突。
+   v3.2 加了 8 個 .cpp 全跑 adaptive,沒問題。但未來若大量加 .cpp,unity 變得很小可能
+   影響 build time;v3.3 加 renderer / actor / component 時要監控。
+
+4. **3-agent audit cross-confirmation 對「真信號」與「false positive」非常清晰** — 跨 A/B/C 三
+   agent 都飆同 finding(stale UE count = B-LOW + C-HIGH)就是高信心 — 我直接 apply。
+   單一 agent flag 的 finding(C-HIGH HANDOFF cross-link)我先用 `Glob` 驗證實證 — 結果
+   FALSE POSITIVE,doc 是存在的。Cross-check finding 是 release-hardening 核心,別跳。
+
+5. **rule #1 對 v3.2 是真實 binding** — A-1 BLOCKER (sentinel mismatch 引擎 0 vs USTRUCT -1)
+   真實但 fix 需要動 `StressField.h`。違反鐵則 #1 比帶一個 edge-case bug 更嚴重 — defer 是
+   正確選擇,並加 durable comment 在 `FrameCoreUETypes.h` + HANDOFF U-07 first-action。
+   未來 release-hardening 看到「BLOCKER 須動 engine source」時也應同樣 defer 而非硬修。
+
+6. **plan 預估 11.5-17.5 hr 實際 ~3-4 hr 完成** — 整個夜班(Phase 0 預檢 6 min + Phase 1 11 min
+   + Phase 2 11 min + Phase 3 16 min + Phase 4 14 min + Phase 5 ~60 min including audit + fix
+   + rebuild + tag + release)= ~120 min from sign-off。Plan 預估含「最壞 case Phase 3 卡住」
+   risk budget;實際 Slate 沒卡。教訓:plan budget 不要砍太細,實際 throughput 在 thin slice
+   UE 改動上比想像快。
+
+### Phase 5 — release-hardening + tag v3.2.0 (final entry)
+
+- **2026-06-22 00:00-01:00** — 上述 §3 Phase 5 開始記錄,本附錄為 closeout summary:
+  - Audit closeouts: 4 in-place fixes + 1 defer (A-1 sentinel) + 2 rejects (false positives)
+  - Post-audit-fix rebuild: incremental 6.32 s (only smoke test .cpp recompile due to
+    assertion change; other audit fixes are doc / comment only)
+  - Post-audit-fix gate: **GATE: PASS** five-leg + UE 62/62 + audit 104 + CLI 13 +
+    OpenSees PASS
+  - Commit: `5e5a68f` (21 files changed, +1495 / -53)
+  - Tag: `v3.2.0` annotated, pushed to origin
+  - Binary bundle: `dist/framecore-v3.2.0-win64.zip` 9.2 MB (frame_capi.dll + frame_capi_v2.dll +
+    frame_cli.exe + frametest.exe + openblas.dll + README.txt)
+  - **GitHub release**: <https://github.com/rocky59487/architect_simulator/releases/tag/v3.2.0>
+    --latest, --notes-file docs/RELEASE_v3.2.0.md
+- All 6 plan phases ✅ PASS. v3.2.0 ready for user review.
