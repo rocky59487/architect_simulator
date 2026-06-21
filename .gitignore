@@ -36,9 +36,12 @@ obj_linear_audit/
 __pycache__/
 *.pyc
 
-# Local agent / audit transcripts
+# Local agent / audit transcripts + scratch
 *.transcript
 *.jsonl
+output/
+_audit*.log
+_scratch*.log
 
 # OS cruft
 Desktop.ini

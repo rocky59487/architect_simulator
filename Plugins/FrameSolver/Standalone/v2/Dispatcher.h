@@ -31,6 +31,9 @@
 //   * solve.linear — wired; assembleAndFactor + solveLoad (or SnSession::solveFrame in
 //                    supernodal mode); bit-exact vs v1 frame_capi.dll on cantilever (rel<1e-11)
 //   * inspect.{disp,reactions,member_forces,shell_forces} — wired; read cached SolveResult
+//   * inspect.stress_field — v3.1.0 (S11); wired; post-process sampling on the cached
+//                            SolveResult (sigma along every member + per-corner vM on shells).
+//                            Bit-exact against ElasticAllowable D/C via shared StressKernel.h.
 //   * solve.pdelta / solve.tension_only / solve.size_opt / solve.dyn_collapse /
 //     solve.corotational / solve.arclength / analysis.modal / analysis.buckling /
 //     analysis.reanalysis_solve are wired; each calls the engine,
@@ -76,7 +79,12 @@ inline constexpr uint32_t kAbiVersion   = 2;
 // constant was never bumped for v2.6 or v2.7 -- hello.response.version reported "2.5.0"
 // for two full releases. Wire ABI is still 2 (unchanged); kEngineVer is the human-facing
 // engine string clients use for capability/version negotiation.
-inline constexpr const char* kEngineVer = "3.0.1";
+// v3.1.0 (S11): added inspect.stress_field capability + per-fiber / per-shell-corner
+// stress sampling. Engine numerics are unchanged vs 3.0.1 (StressKernel.h is the
+// single source of truth shared with ElasticAllowable, F70 D/C interlock bit-exact);
+// the bump reflects a new advertised capability so clients can capability-gate the
+// new inspect verb.
+inline constexpr const char* kEngineVer = "3.1.0";
 inline constexpr const char* kSchemaVer = "2026.06";
 
 enum class Profile { Simple, Advanced };
@@ -159,6 +167,11 @@ inline std::vector<std::string> Capabilities() {
         "inspect.reactions",
         "inspect.member_forces",
         "inspect.shell_forces",
+        // S11 (v3.1.0): post-process stress field — 11 samples / member (top/bot/+z/-z fiber
+        // sigmas + sigmaCompMax/sigmaTensMax + tau), shell top + bot layers (5 points each
+        // = centre + 4 corners) with sigma_xx/yy/tau_xy/sigma1/sigma2/vM/theta. Bit-exact
+        // against ElasticAllowable D/C at the governing element (F70 interlock).
+        "inspect.stress_field",
         // B4 transport signal: frame_v2_send queues parsed frames and returns; a per-context
         // worker thread drives handlers and frame_v2_recv drains responses/events.
         "transport.async",
@@ -295,6 +308,7 @@ private:
     static Frame HandleInspectMF    (Dispatcher&, Context&, const Frame&);
     static Frame HandleInspectRF    (Dispatcher&, Context&, const Frame&);
     static Frame HandleInspectSF    (Dispatcher&, Context&, const Frame&);
+    static Frame HandleInspectStressField(Dispatcher&, Context&, const Frame&);
     static Frame HandleModelPatch   (Dispatcher&, Context&, const Frame&);
 
     std::unordered_map<std::string, Handler> handlers_;

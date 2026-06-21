@@ -19,22 +19,24 @@ C++17-compatible; the UE module target is compiled as C++20 because of the curre
 > `v2.2+1` release packaged them together (FrameCore v2.2 + LevelSim v1.0.0). Every release
 > from `v2.3` onwards is FrameCore-only — LevelSim has not changed since `v2.2+1`.
 
-> **Status (2026-06-21, v3.0.0 STABLE — V3 anchor, 9/9 legs verified in one session):**
-> the v2.11.1 release-hardening pass + 5 follow-up items + 7-agent audit fixes land the
-> V3 stability anchor. On the integrator's host (RTX 5070 Ti Laptop + cuDSS 0.8) **all 9
-> verification legs run green against the rebuilt v3.0.0 source** in a single session:
-> standalone F1..F66 ALL PASS, **UE 59/59 ALL PASS** (incl. new
-> `FFrameCoreGpuBacksubStrictTest`), **OpenSees strict PASS**, deep audit 104 PASS,
-> CLI round-trip 13 ALL PASS, v2_roundtrip CPU ALL PASS, **frametest_cuda F1..F67 + F67s
-> strict ALL PASS** (cuDSS truly attached on device — diagnostic carries `[GPU] cuDSS
-> factor ready` and `reactions on CPU` reverse-asserted absent), v2_roundtrip CUDA ALL
-> PASS, and r2_bench --gpu 90k **PASS** with margin **+11.939 ms** under the 16.67 ms /
-> frame 60-fps budget. V3 STABLE flip conditions all met; UE rebuild was incremental
-> (~62 s wall-clock) and openseespy was already present (the earlier "not in system
-> python" claim was stale per release-hardening Rule #4). See
-> [docs/HANDOFF_v2.11.1.md §2](docs/HANDOFF_v2.11.1.md#2-gates-what-ran-what-didnt) for
-> the full 9/9 reproduction matrix and [docs/RELEASE_v3.0.0.md](docs/RELEASE_v3.0.0.md)
-> for the release narrative.
+> **Status (2026-06-21, v3.1.0 — S11 stress field post-process):** the v3.0.0 STABLE anchor
+> + v3.0.1 hardening + v3.1.0's S11 visualisation numerical layer. v3.1.0 adds the new
+> `StressKernel.h` single source of truth shared between `ElasticAllowable` (D/C screen) and
+> the new `StressField` (visualisation post-process), three new standalone fixtures
+> (F68 cantilever member field, F69 clamped-plate shell layer recovery + 30° z-rotation
+> invariance, F70 D/C interlock — all bit-exact through the shared kernel), and the
+> `inspect.stress_field` v2 dispatcher capability. **Engine source delta v3.0.1..v3.1.0 = 5
+> files / ~350 lines**; `ElasticAllowable.cpp` was refactored to delegate to `StressKernel.h`
+> with bit-identical F1..F66 behaviour. On the integrator's host the **6 CPU-only legs
+> all run green against the rebuilt v3.1.0 source**: standalone F1..F70 ALL PASS,
+> **UE 60/60 ALL PASS** (incl. new `FFrameCoreStressFieldTest`), **OpenSees strict PASS**,
+> deep audit 104 PASS, CLI round-trip 13 ALL PASS, v2_roundtrip CPU ALL PASS (incl. 11
+> new `inspect.stress_field` checks). The 3 CUDA legs (`run_gpu_gate.ps1 -Strict`) are
+> reachable but were not exercised in this release session — v3.1.0 has zero source delta
+> in the CUDA path, so the v3.0.0 GPU evidence (`r2_bench --gpu 90k margin +11.939 ms`,
+> `F67s STRICT_EXECUTED` fingerprint) carries forward unchanged. See
+> [docs/RELEASE_v3.1.0.md](docs/RELEASE_v3.1.0.md) for the full reproduction matrix and
+> [docs/HANDOFF_v3.1.0.md](docs/HANDOFF_v3.1.0.md) for the next-cycle pickup guide.
 >
 > v3.0.0 STABLE folded five hardening items + 7-agent audit fixes on top of v2.11.1
 > (`f09a197`); v3.0.1 patches the six follow-up findings from the post-release
@@ -69,12 +71,13 @@ C++17-compatible; the UE module target is compiled as C++20 because of the curre
 > fingerprints + perf regression threshold:
 >
 > 1. `Scripts\run_gate.ps1 -RequireOpenSees` exits 0
->    (standalone F1..F66 default / F1..F67 + F67s CUDA + UE **59/59** with cuDSS,
->    **57/57** without — pass `-ExpectedUeTests 57` in the latter case; OpenSees
+>    (standalone F1..F70 default / F1..F70 + F67s CUDA + UE **60/60** with cuDSS,
+>    **58/58** without — pass `-ExpectedUeTests 58` in the latter case; OpenSees
 >    strict; deep audit 104; CLI round-trip 13). Under `FRAMECORE_GPU_STRICT=1`
 >    additionally requires `[F67s_UE] STRICT_EXECUTED` fingerprint in the UE log.
 > 2. `Plugins\FrameSolver\Standalone\build_capi_v2.bat` + `python Tools\v2_roundtrip.py`
->    exits 0 (CPU dispatcher round-trip; `kEngineVer="3.0.1"` pinned).
+>    exits 0 (CPU dispatcher round-trip; `kEngineVer="3.1.0"` pinned; `inspect.stress_field`
+>    shape + range guards exercised).
 > 3. `Scripts\run_gpu_gate.ps1 -Strict` exits 0 on a box with cuDSS installed
 >    (frametest_cuda F1..F67 + F67s strict with STRICT_EXECUTED fingerprint,
 >    v2_roundtrip CUDA, r2_bench --gpu 90k margin ≥ +8 ms hard regression gate).
@@ -322,10 +325,11 @@ Engine\Binaries\Win64\UnrealEditor-Cmd.exe ...\ArchSim.uproject -ExecCmds="Autom
 
 > `run_gate.ps1` runs the UE automation but does **not** rebuild the UE module — rebuild
 > first (command above) after touching engine code, or the automation runs a stale binary.
-> The `$ExpectedUeTests = 59` guard catches a silently-missing test (v2.11.1-RC bumped
-> 58→59 when `FFrameCoreGpuBacksubStrictTest` was added; v2.11 Phase 7 bumped 57→58 for
+> The `$ExpectedUeTests = 60` guard catches a silently-missing test (v3.1.0 bumped
+> 59→60 when `FFrameCoreStressFieldTest` was added; v2.11.1-RC bumped 58→59 with
+> `FFrameCoreGpuBacksubStrictTest`; v2.11 Phase 7 bumped 57→58 for
 > `FFrameCoreGpuBacksubTest`, the UE mirror of standalone F67). On a box without cuDSS
-> the two GPU tests compile out via `#if FRAMECORE_CUDA` — pass `-ExpectedUeTests 57`.
+> the two GPU tests compile out via `#if FRAMECORE_CUDA` — pass `-ExpectedUeTests 58`.
 
 **Try the engine without writing C++** — the text bridge solves a model from stdin:
 
@@ -390,7 +394,7 @@ Plugins/FrameSolver/
                                         collapse, reanalysis, corotational, optimization)
     Private/*.cpp                       implementation (+ Private/FrameEigen.h: the single
                                         Eigen include site, dual-build guarded)
-    Private/Tests/*.cpp                 59 UE automation tests w/ cuDSS, 57 without (UE-side oracle mirrors)
+    Private/Tests/*.cpp                 60 UE automation tests w/ cuDSS, 58 without (UE-side oracle mirrors)
   Standalone/                           console gates + CLI/C-API drivers (see its README)
   Grasshopper/                          C# reference client for the text bridge
 Scripts/run_gate.ps1                    the one-click five-leg gate

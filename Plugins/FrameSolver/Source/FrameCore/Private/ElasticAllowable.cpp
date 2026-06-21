@@ -1,4 +1,5 @@
 #include "FrameCore/ElasticAllowable.h"
+#include "FrameCore/StressKernel.h"
 #include <algorithm>
 #include <cmath>
 #include <limits>
@@ -6,32 +7,15 @@
 namespace frame {
 
 // Elastic / allowable-stress combined-stress screen.  NOT RC ultimate strength.
+// Formulas live in StressKernel.h (single source of truth shared with StressField).
 DemandResult ElasticAllowable::checkSection(const MemberEndForces& f, const Section& s, const Capacity& c) const {
-    const real A  = std::max(s.A,   real(1e-12));
-    const real Wy = std::max(s.Wy(), real(1e-12));
-    const real Wz = std::max(s.Wz(), real(1e-12));
-    const real Jt = std::max(s.J,   real(1e-12));
-
-    const real sN    = f.N / A;                                      // compression-positive
-    // Biaxial bending stress. A round section has no worst corner, so the resultant
-    // moment sqrt(My^2+Mz^2)/W is exact; a rectangle uses the conservative corner sum
-    // |My|/Wy + |Mz|/Wz.
-    const real sM    = (s.shape == Section::Shape::Circular)
-                       ? std::sqrt(f.My * f.My + f.Mz * f.Mz) / Wz   // Wy == Wz for a circle
-                       : std::abs(f.My) / Wy + std::abs(f.Mz) / Wz;
-    const real sComp = std::max(sM + sN, real(0));
-    const real sTens = std::max(sM - sN, real(0));
-    // Transverse shear stress. V/A is the cross-section AVERAGE; the peak (at the neutral
-    // axis) is k*V/A with k = 1.5 for a rectangle and 4/3 for a circle. We screen on the
-    // peak so a shear-controlled member is not under-checked.
-    const real shearPeak = (s.shape == Section::Shape::Circular) ? real(4.0 / 3.0) : real(1.5);
-    const real tau   = shearPeak * std::sqrt(f.Vy * f.Vy + f.Vz * f.Vz) / A;
-    // Torsional shear ~ T*c/J  (c = extreme-fibre distance). Units N*mm*mm/mm^4 = MPa,
-    // comparable to the shear capacity. For a CIRCLE this is the exact max shear T*r/J at
-    // the surface (c = r); for a RECTANGLE we use the diagonal corner hypot(cy,cz) as a
-    // conservative heuristic (true St-Venant rectangular torsion needs warping, deferred).
-    const real cTor  = (s.shape == Section::Shape::Circular) ? s.cy : std::hypot(s.cy, s.cz);
-    const real sTor  = std::abs(f.T) * cTor / Jt;
+    const CornerSigmaPair sig = memberCornerSigmaMax(f.N, s.A, f.My, f.Mz,
+                                                     s.Wy(), s.Wz(), s.shape);
+    const real sM    = sig.sBend;
+    const real sComp = sig.sComp;
+    const real sTens = sig.sTens;
+    const real tau   = memberShearPeak(f.Vy, f.Vz, s.A, s.shape);
+    const real sTor  = memberTorsionTau(f.T, s.J, s.cy, s.cz, s.shape);
 
     auto ratio = [](real demand, real cap) -> real {
         if (cap > 0) return demand / cap;
@@ -54,29 +38,26 @@ DemandResult ElasticAllowable::checkSection(const MemberEndForces& f, const Sect
 // Stage 3d: shell surface von Mises screen. Membrane stress from the centre resultants
 // (element-constant approximation), bending stress from the centre AND per-corner moments,
 // both faces; the worst sample governs. Mirrors checkSection's ratio() semantics, including
-// "zero capacity under demand = infinite D/C".
+// "zero capacity under demand = infinite D/C". Sigma formula lives in StressKernel.h.
 ShellDemandResult checkShellSurface(const ShellElementForces& f, real t, const Capacity& c) {
     ShellDemandResult out;
     if (!(t > 0)) return out;   // validate() rejects t <= 0; defensive zero here
 
-    auto vonMises = [](real sx, real sy, real txy) {
-        return std::sqrt(std::max(real(0), sx * sx - sx * sy + sy * sy + 3.0 * txy * txy));
-    };
     auto ratio = [](real demand, real cap) -> real {
         if (cap > 0) return demand / cap;
         return demand > 0 ? std::numeric_limits<real>::infinity() : real(0);
     };
 
-    const real bend = 6.0 / (t * t);              // sigma_bend = 6*M/t^2 per unit moment
-    const real mx = f.Nxx / t, my = f.Nyy / t, mxy = f.Nxy / t;   // membrane (centre)
-
     for (int kc = -1; kc < 4; ++kc) {             // -1 = centre, 0..3 = corners
         const real Mx  = (kc < 0) ? f.Mxx : f.MxxC[kc];
         const real My  = (kc < 0) ? f.Myy : f.MyyC[kc];
         const real Mxy = (kc < 0) ? f.Mxy : f.MxyC[kc];
-        for (int face = 0; face < 2; ++face) {    // 0 = top (+bending), 1 = bottom (-bending)
-            const real s = (face == 0) ? real(1) : real(-1);
-            const real r = ratio(vonMises(mx + s * bend * Mx, my + s * bend * My, mxy + s * bend * Mxy), c.vm);
+        for (int face = 0; face < 2; ++face) {
+            const ShellLayer layer = (face == 0) ? ShellLayer::Top : ShellLayer::Bot;
+            real sx = 0, sy = 0, txy = 0;
+            shellLayerSigma(f.Nxx, f.Nyy, f.Nxy, Mx, My, Mxy, t, layer, sx, sy, txy);
+            const PrincipalStress ps = principalStress(sx, sy, txy);
+            const real r = ratio(ps.vonMises, c.vm);
             if (r > out.risk) { out.risk = r; out.corner = kc; out.top = (face == 0); }
         }
     }

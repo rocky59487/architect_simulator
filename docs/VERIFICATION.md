@@ -23,13 +23,13 @@ Plugins\FrameSolver\Standalone\build.bat
 
 | Leg | What runs | Count | What it proves |
 |---|---|---|---|
-| 1. Standalone | `frametest.exe` (fixtures **F1..F66** default / **F1..F67 + F67s** in CUDA build, built UE-free) | `ALL PASS (failures=0)` | every capability against analytic / literature / invariance oracles, on the pure-C++ build. F67 is a smoke fixture (tolerates silent CPU fallback for dev-box compile tests); F67s is strict (FAILS on silent fallback) and runs only when `FRAMECORE_GPU_STRICT=1` is set in the env — `Scripts\run_gpu_gate.ps1` sets it automatically when the cuDSS DLL resolves. |
-| 2. UE automation | headless `FrameCore.*` tests | **59** tests w/ cuDSS, **57** without | UE-side mirrors of the standalone oracles across the same subsystems — the dual-build contract holds (v2.11.1-RC bumped 58→59 with `FFrameCoreGpuBacksubStrictTest`; v2.11 Phase 7 bumped 57→58 for `FFrameCoreGpuBacksubTest`, the UE mirror of standalone F67. Both GPU tests are `#if FRAMECORE_CUDA` gated so a non-cuDSS build emits 57.) |
+| 1. Standalone | `frametest.exe` (fixtures **F1..F70** default / **F1..F70 + F67s** in CUDA build, built UE-free) | `ALL PASS (failures=0)` | every capability against analytic / literature / invariance oracles, on the pure-C++ build. F67 is a smoke fixture (tolerates silent CPU fallback for dev-box compile tests); F67s is strict (FAILS on silent fallback) and runs only when `FRAMECORE_GPU_STRICT=1` is set in the env — `Scripts\run_gpu_gate.ps1` sets it automatically when the cuDSS DLL resolves. v3.1.0 added **F68/F69/F70** (S11 stress-field oracle ladder). |
+| 2. UE automation | headless `FrameCore.*` tests | **60** tests w/ cuDSS, **58** without | UE-side mirrors of the standalone oracles across the same subsystems — the dual-build contract holds (v3.1.0 bumped 59→60 with `FFrameCoreStressFieldTest`; v2.11.1-RC bumped 58→59 with `FFrameCoreGpuBacksubStrictTest`; v2.11 Phase 7 bumped 57→58 for `FFrameCoreGpuBacksubTest`. Both GPU tests are `#if FRAMECORE_CUDA` gated so a non-cuDSS build emits 58.) |
 | 3. OpenSees | `Tools/opensees_compare.py` + `pdelta_compare.py` | strict `1e-8` default | agreement with an independent, widely-used FEM code (validation only; never linked) |
 | 4. Deep audit | `linear_deep_audit.exe` | **104** checks | independent re-derivations (sympy/numpy-sourced constants), bit-identity no-op proofs, element-spectrum oracles |
 | 5. CLI round-trip | `Tools/cli_roundtrip.py` | **13** checks | the text/daemon/C-API bridge reproduces engine results bit-for-bit and surfaces modal/dynamic precondition failures |
 
-Guard rails: `run_gate.ps1` hard-fails if fewer than `$ExpectedUeTests = 59` UE tests run (v2.11.1-RC bump; 57 on non-cuDSS builds — pass `-ExpectedUeTests 57`)
+Guard rails: `run_gate.ps1` hard-fails if fewer than `$ExpectedUeTests = 60` UE tests run (v3.1.0 bump for `FFrameCoreStressFieldTest`; 58 on non-cuDSS builds — pass `-ExpectedUeTests 58`)
 (catches "new test silently not compiled"); the audit prints its own check count rather than
 a hard-coded number; `-RequireOpenSees` turns a missing OpenSeesPy into a failure instead of
 a soft skip. Fixture numbering is append-only; **F41 and F60 are unassigned** (F41: S3 ended
@@ -67,6 +67,24 @@ GH bridge + C-09/C-10), [`RELEASE_v2.7.md`](RELEASE_v2.7.md) (live frames + canc
 `docs/POST_V2_5_HARDENING.md` was never authored; the v2.8.1 audit pass replaces both
 dead-link sites with the canonical release trail.
 
+## 1.6. v3.1.0 — S11 stress field post-process
+
+**v3.1.0 shipped 2026-06-21 with the 6 CPU-only legs all green on the integrator host.**
+Engine source delta v3.0.1..v3.1.0 = 5 files / ~350 lines; `ElasticAllowable.cpp` refactored
+to call `StressKernel.h` shared math (F1..F66 bit-identical). New oracle ladder:
+
+| Fixture | Capability | Oracle → measured |
+|---|---|---|
+| **F68** | StressField member stress field (cantilever oracle) | analytic `sigma(x) = \|P\|·(L-x)/Wz` at 11 samples worstRel=0; bit-exact vs `ElasticAllowable(endI/endJ)` rel=0 (shared `StressKernel`); tip sigma vanishes; root TopY/BotY \|sigma\| == sComp |
+| **F69** | StressField shell layer recovery + rotation invariance | `(top+bot)/2 == Nxx/t` worstRel=0; `(top-bot)/2 == 6·Mxx/t²` worstRel=0; 30° z-rotation `globalMaxVonMises` invariance rel=0 |
+| **F70** | StressField ↔ ElasticAllowable D/C interlock | `governingMemberId` match (fld=0 ea=0); `governingShellId` match (fld=59 ea=59); max fiber sigma == max ElasticAllowable end sigma rel=0; `globalMaxVonMises` == `ds.maxDC * cap.vm` rel=0 |
+| **UE FFrameCoreStressFieldTest** | UE-build mirror of F68 (member side) | interlock + analytic, same tolerances as standalone F68 |
+
+`inspect.stress_field` v2 dispatcher capability covered by `Tools/v2_roundtrip.py` (11 new
+shape + range-guard checks); the gate's `=== summary: ALL PASS ===` confirms wire-level
+schema integrity (samplesPerSpan=11, members list, governing-element sentinels, and
+range guards reject `samplesPerSpan=1` / `=2048`).
+
 ## 1.5. v3.0.0 STABLE gate suites (and the v3.0.1 patch hardening on top)
 
 **v3.0.0 STABLE shipped 2026-06-21 with all 9 legs green in one integrator session,
@@ -85,7 +103,7 @@ matching the bat resolver, CI workflow). The same three gate suites stay green:
 
 | Gate | Command | What it covers |
 |---|---|---|
-| **a.** 5-leg | `Scripts\run_gate.ps1 -RequireOpenSees` | standalone + UE (`-ExpectedUeTests 59` with cuDSS, `57` without) + OpenSees + deep audit + CLI |
+| **a.** 5-leg | `Scripts\run_gate.ps1 -RequireOpenSees` | standalone + UE (default 60 with cuDSS — pass `-ExpectedUeTests 58` without) + OpenSees + deep audit + CLI |
 | **b.** v2 CPU | `build_capi_v2.bat` + `python Tools\v2_roundtrip.py` | dispatcher round-trip without GPU |
 | **c.** GPU 6th | `Scripts\run_gpu_gate.ps1 -Strict` (use `-CondaEnv <path>` to override the auto-probe) | frametest_cuda F1..F67 + F67s strict + v2_roundtrip CUDA + r2_bench --gpu 90k ≤ 16.67 ms. Requires cuDSS DLLs on PATH for `-Strict`; soft-skips otherwise. |
 

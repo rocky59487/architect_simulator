@@ -238,6 +238,21 @@ implicitly — it only matches `wL²/8` (F18) and `ωₙ=(nπ/L)²√(EI/ρA)` (
 
 This is an **elastic / allowable-stress screen**, not RC ultimate strength.
 
+### 5b. Visualisation stress field (S11, v3.1.0) — `computeStressField`
+
+`Public/FrameCore/StressField.h` exposes `computeStressField(model, sr, samplesPerSpan=11)`:
+a pure POD post-process that converts a solved `(FrameModel, SolveResult)` into a per-member
+fiber-stress trace (11 samples along each member's axis with `sigmaFiberTopY/BotY/PlusZ/MinusZ`
++ `sigmaCompMax/Tens` + `tauShear/Torsion`) and a per-shell-corner field
+(`sigmaXX/YY/tauXY` + Mohr principal `sigma1/sigma2/vonMises/theta`).
+
+The numerical kernel lives in `StressKernel.h` (`memberFiberSigma`, `memberCornerSigmaMax`,
+`memberShearPeak`, `memberTorsionTau`, `shellLayerSigma`, `principalStress`) and is the
+**single source of truth** for both `ElasticAllowable` and `StressField` — F70 oracle asserts
+their D/C governing element matches bit-exact, so the design-check and the visualisation
+cannot drift. No Eigen, no UE coupling; the renderer (UE5 spline mesh / Niagara colour band /
+Rhino GH / a CLI dump) is consumer-side. Spec: [`docs/specs/S11_stress_field.md`](specs/S11_stress_field.md).
+
 ---
 
 ## 6. Grillage idealization (`Grillage.h`) — the continuous-surface approximation

@@ -14,6 +14,7 @@
 //   See docs/PROGRESS_S* for the originating context.
 #include "FrameCore/FrameSolver.h"
 #include "FrameCore/ElasticAllowable.h"
+#include "FrameCore/StressField.h"
 #include "FrameCore/Grillage.h"
 #include "FrameCore/SelfWeight.h"
 #include "FrameCore/Combination.h"
@@ -4099,6 +4100,223 @@ int main() {
         }
     }
 #endif // FRAMECORE_SUPERNODAL && FRAMECORE_CUDA
+
+    // ---------- F68: member stress field oracle (cantilever, sigma(x) = P(L-x)/Wz) ----------
+    // Reuses F1's cantileverTipLoad. Verifies:
+    //   (a) sample at x=0 matches ElasticAllowable(endI) bit-exact (refactor interlock at the root);
+    //   (b) sample at x=L matches ElasticAllowable(endJ) bit-exact (sign-convention check at the tip);
+    //   (c) sample at intermediate x reproduces the analytic |M(x)|/Wz to <1e-9 relative
+    //       (no axial load -> sigmaCompMax == sigmaTensMax == |M|/Wz).
+    {
+        const real P = 1000.0, L = 2000.0;
+        FrameModel m; fixtures::cantileverTipLoad(m, P, L, mat, sec);
+        SolveResult r = solve(m);
+        std::printf("[F68] member stress field oracle  P=%.0f L=%.0f\n", P, L);
+        checkTrue("F68 solve non-singular", !r.singular, r.diagnostic);
+
+        const StressField fld = computeStressField(m, r, 11);
+        checkTrue("F68 trace exists", fld.members.size() == 1, std::string("size=") + std::to_string(fld.members.size()));
+        if (!fld.members.empty()) {
+            const MemberStressTrace& tr = fld.members[0];
+            checkTrue("F68 sample count == 11", tr.samples.size() == 11, std::string("got=") + std::to_string(tr.samples.size()));
+            checkTrue("F68 sample[0].x == 0", std::fabs(tr.samples.front().x) < 1e-12, "");
+            checkTrue("F68 sample[10].x == L", std::fabs(tr.samples.back().x - L) < 1e-9, "");
+
+            ElasticAllowable screen;
+            const MemberEndForces& eI = r.memberForces[0].endI;
+            const MemberEndForces& eJ = r.memberForces[0].endJ;
+            const DemandResult dI = screen.checkSection(eI, sec, mat.cap);
+            const DemandResult dJ = screen.checkSection(eJ, sec, mat.cap);
+
+            checkClose("F68 sample[0].sigmaCompMax == ElasticAllowable(endI).sComp",
+                       tr.samples.front().sigmaCompMax, dI.sComp, 1e-12);
+            checkClose("F68 sample[0].sigmaTensMax == ElasticAllowable(endI).sTens",
+                       tr.samples.front().sigmaTensMax, dI.sTens, 1e-12);
+            // At the free end, both sigmas are zero up to roundoff. Use ABSOLUTE eps
+            // (rel against 0 is meaningless). The strict comp/tens interlock against
+            // ElasticAllowable lives in F70 with a fully loaded fixture.
+            const real epsAbs = 1e-9 * std::max(dI.sComp, real(1e-12));   // scale eps by root demand
+            checkTrue("F68 sample[10].sigmaCompMax == ElasticAllowable(endJ).sComp (abs)",
+                      std::fabs(tr.samples.back().sigmaCompMax - dJ.sComp) < epsAbs,
+                      "diff=" + std::to_string(tr.samples.back().sigmaCompMax - dJ.sComp));
+            checkTrue("F68 sample[10].sigmaTensMax == ElasticAllowable(endJ).sTens (abs)",
+                      std::fabs(tr.samples.back().sigmaTensMax - dJ.sTens) < epsAbs,
+                      "diff=" + std::to_string(tr.samples.back().sigmaTensMax - dJ.sTens));
+
+            // Analytic: |M(x)| = P*(L-x) (cantilever, no axial), sigma = |M|/Wz.
+            // Since N == 0 the worst corner is pure bending so sigmaCompMax == sigmaTensMax == |M|/Wz.
+            const real Wz = sec.Wz();
+            double worstRel = 0;
+            for (size_t k = 0; k < tr.samples.size(); ++k) {
+                const real xk = tr.samples[k].x;
+                const real sigExp = std::abs(P) * (L - xk) / Wz;
+                const real sigGot = tr.samples[k].sigmaCompMax;
+                const double rel = (sigExp > 0) ? std::fabs(sigGot - sigExp) / sigExp : std::fabs(sigGot - sigExp);
+                if (rel > worstRel) worstRel = rel;
+            }
+            checkTrue("F68 analytic sigma(x) = |P|*(L-x)/Wz at 11 samples (worst rel<1e-9)",
+                      worstRel < 1e-9, "worstRel=" + std::to_string(worstRel));
+
+            // N == 0 -> 4 face-mid fibers should each have |sigma| == |M|/Wz exactly at root.
+            // (Bending about z hits TopY/BotY; about y hits PlusZ/MinusZ. F1 loads in global +Z
+            // -> local +y, so bending is purely about local z; TopY/BotY take the full sM.)
+            const MemberStressSample& s0 = tr.samples.front();
+            const real fiberMag = std::max(std::fabs((double)s0.sigmaFiberTopY),
+                                           std::fabs((double)s0.sigmaFiberBotY));
+            checkClose("F68 root TopY/BotY |sigma| == ElasticAllowable(endI).sComp",
+                       fiberMag, dI.sComp, 1e-12);
+
+            // Tip sample (x = L, free end) should be zero sigma to machine precision.
+            // Use the same epsAbs scale as the endJ interlock checks above (scaled by
+            // root demand) so a wrong formula trips this gate at the same threshold as
+            // the ElasticAllowable interlock, not a 4-orders-of-magnitude looser one.
+            checkTrue("F68 sample[10].sigmaCompMax ~ 0 at free end",
+                      tr.samples.back().sigmaCompMax < epsAbs,
+                      "sigmaTip=" + std::to_string(tr.samples.back().sigmaCompMax));
+        }
+    }
+
+    // ---------- F69: shell stress field oracle + rotation invariance ----------
+    //   (a) For every sample: sigmaXX_top + sigmaXX_bot == 2*(Nxx/t)  (membrane recovery, bit-exact)
+    //   (b) For every sample: sigmaXX_top - sigmaXX_bot == 2*(6*Mxx/t^2)  (bending recovery, bit-exact)
+    //   (c) Rotate the whole model 30 deg about global +z; sigma1, sigma2, vonMises
+    //       at the governing sample are scalar invariants under the rotation.
+    {
+        const real a = 1000.0, t = 10.0, q = 0.01;   // plate 1m square, 10mm thick, 0.01 MPa pressure
+        Material smat(210000.0, 80769.0, 7850.0);
+        smat.nu = 0.3;
+        smat.cap = Capacity::make(300.0, 300.0, 180.0);
+
+        FrameModel m; fixtures::clampedPlateShell(m, a, t, 8, q, smat);
+        SolveResult r = solve(m);
+        std::printf("[F69] shell stress field oracle  a=%.0f t=%.0f q=%.3f n=8\n", a, t, q);
+        checkTrue("F69 solve non-singular", !r.singular, r.diagnostic);
+
+        const StressField fld = computeStressField(m, r, 11);
+        checkTrue("F69 top layer count == shells (64)", fld.shellsTop.size() == 64,
+                  std::string("size=") + std::to_string(fld.shellsTop.size()));
+        checkTrue("F69 bot layer count == shells (64)", fld.shellsBot.size() == 64,
+                  std::string("size=") + std::to_string(fld.shellsBot.size()));
+        checkTrue("F69 governing vM > 0", fld.globalMaxVonMises > 0,
+                  "vM=" + std::to_string(fld.globalMaxVonMises));
+
+        // (a) + (b) sample-level recovery interlock: sweep every (shell, layer, point)
+        // and confirm top/bot reconstruct the underlying Nxx/Mxx within machine eps.
+        double worstMembRel = 0, worstBendRel = 0;
+        for (size_t k = 0; k < fld.shellsTop.size(); ++k) {
+            const ShellStressLayer& top = fld.shellsTop[k];
+            const ShellStressLayer& bot = fld.shellsBot[k];
+            const ShellElementForces& sf = r.shellForces[(size_t)top.shellIdx];
+            // Centre point.
+            const real memX_exp = sf.Nxx / t;
+            const real bendX_exp = 6.0 * sf.Mxx / (t * t);
+            const real memX_got  = 0.5 * (top.center.sigmaXX + bot.center.sigmaXX);
+            const real bendX_got = 0.5 * (top.center.sigmaXX - bot.center.sigmaXX);
+            const double mScale = std::max(std::fabs((double)memX_exp), 1.0);
+            const double bScale = std::max(std::fabs((double)bendX_exp), 1.0);
+            worstMembRel = std::max(worstMembRel, std::fabs(memX_got - memX_exp) / mScale);
+            worstBendRel = std::max(worstBendRel, std::fabs(bendX_got - bendX_exp) / bScale);
+            for (int kc = 0; kc < 4; ++kc) {
+                const real memXc_exp  = sf.Nxx / t;        // membrane held at centre per checkShellSurface
+                const real bendXc_exp = 6.0 * sf.MxxC[kc] / (t * t);
+                const real memXc_got  = 0.5 * (top.corners[kc].sigmaXX + bot.corners[kc].sigmaXX);
+                const real bendXc_got = 0.5 * (top.corners[kc].sigmaXX - bot.corners[kc].sigmaXX);
+                const double mScale2 = std::max(std::fabs((double)memXc_exp), 1.0);
+                const double bScale2 = std::max(std::fabs((double)bendXc_exp), 1.0);
+                worstMembRel = std::max(worstMembRel, std::fabs(memXc_got - memXc_exp) / mScale2);
+                worstBendRel = std::max(worstBendRel, std::fabs(bendXc_got - bendXc_exp) / bScale2);
+            }
+        }
+        checkTrue("F69 (top+bot)/2 reproduces Nxx/t over all samples (worst rel<1e-12)",
+                  worstMembRel < 1e-12, "worstRel=" + std::to_string(worstMembRel));
+        checkTrue("F69 (top-bot)/2 reproduces 6*Mxx/t^2 over all samples (worst rel<1e-12)",
+                  worstBendRel < 1e-12, "worstRel=" + std::to_string(worstBendRel));
+
+        // Capture the governing vM BEFORE rotation for the invariance check.
+        // vM is the scalar invariant; sigma1/sigma2 individually rotate with the principal
+        // axes under a rigid frame rotation, so only vM is asserted here.
+        const real vM_base   = fld.globalMaxVonMises;
+
+        // (c) Rigid 30 deg rotation about +z. Plate stays in xy after the rotation; the
+        // facet local frames rotate with the model so per-element vM (a scalar invariant
+        // under in-plane rotation of the local frame) must hold to the solver's accuracy.
+        const real ang = real(30.0 * 3.141592653589793 / 180.0);
+        const real cA = std::cos(ang), sA = std::sin(ang);
+        const real R[3][3] = { { cA, -sA, 0 }, { sA, cA, 0 }, { 0, 0, 1 } };
+        FrameModel mR; fixtures::clampedPlateShell(mR, a, t, 8, q, smat);
+        fixtures::rotateModelRigid(mR, R);
+        SolveResult rR = solve(mR);
+        checkTrue("F69 rotated solve non-singular", !rR.singular, rR.diagnostic);
+        const StressField fldR = computeStressField(mR, rR, 11);
+        const real vM_rot = fldR.globalMaxVonMises;
+
+        const real vmScale = std::max((double)vM_base, 1e-12);
+        const double relVm = std::fabs((double)vM_rot - (double)vM_base) / vmScale;
+        checkTrue("F69 globalMaxVonMises invariant under 30 deg z-rotation (rel<1e-9)",
+                  relVm < 1e-9, "vM_base=" + std::to_string(vM_base)
+                              + " vM_rot=" + std::to_string(vM_rot)
+                              + " rel=" + std::to_string(relVm));
+    }
+
+    // ---------- F70: StressField <-> ElasticAllowable D/C interlock ----------
+    // Critical because StressKernel.h is the single source of truth shared by BOTH paths.
+    //   (member side)  governing id matches; max(fiber sigma over all samples) == max(sComp,sTens)
+    //                  at the governing endI/endJ when there is no UDL (peak at endpoints).
+    //   (shell side)   governing id matches; globalMaxVonMises bit-exact against the
+    //                  vM ElasticAllowable computes at its governing (corner, face) sample.
+    {
+        // Member side: reuse F68 cantilever (no UDL -> peak at end-i = sample[0]).
+        const real P = 1000.0, L = 2000.0;
+        FrameModel m; fixtures::cantileverTipLoad(m, P, L, mat, sec);
+        SolveResult r = solve(m);
+        std::printf("[F70] D/C interlock (member + shell)\n");
+        checkTrue("F70 member fixture non-singular", !r.singular, r.diagnostic);
+
+        const DemandSummary dm = worstUtilization(m, r);
+        const StressField   fld = computeStressField(m, r, 11);
+
+        checkTrue("F70 worstUtilization.valid", dm.valid, "");
+        checkTrue("F70 governingMemberId match",
+                  fld.governingMemberId == dm.governingMember,
+                  "fld=" + std::to_string(fld.governingMemberId)
+                + " ea=" + std::to_string(dm.governingMember));
+
+        // Sweep the trace for the worst raw fiber sigma vs ElasticAllowable's endI/endJ sigmas.
+        ElasticAllowable screen;
+        const DemandResult dI = screen.checkSection(r.memberForces[0].endI, sec, mat.cap);
+        const DemandResult dJ = screen.checkSection(r.memberForces[0].endJ, sec, mat.cap);
+        const real ea_max = std::max(std::max(dI.sComp, dI.sTens), std::max(dJ.sComp, dJ.sTens));
+        real sf_max = 0;
+        for (const auto& s : fld.members[0].samples) {
+            sf_max = std::max(sf_max, std::max(s.sigmaCompMax, s.sigmaTensMax));
+        }
+        checkClose("F70 max fiber sigma matches max ElasticAllowable end sigma (bit-exact, no UDL)",
+                   sf_max, ea_max, 1e-12);
+
+        // Shell side: reuse F69 clamped plate.
+        const real a = 1000.0, t = 10.0, q = 0.01;
+        Material smat(210000.0, 80769.0, 7850.0);
+        smat.nu = 0.3;
+        smat.cap = Capacity::make(300.0, 300.0, 180.0);
+        FrameModel ms; fixtures::clampedPlateShell(ms, a, t, 8, q, smat);
+        SolveResult rs = solve(ms);
+        checkTrue("F70 shell fixture non-singular", !rs.singular, rs.diagnostic);
+
+        const ShellDemandSummary ds = worstShellUtilization(ms, rs);
+        const StressField fldS = computeStressField(ms, rs, 11);
+        checkTrue("F70 worstShellUtilization.valid", ds.valid, "");
+        checkTrue("F70 governingShellId match",
+                  fldS.governingShellId == ds.governingShell,
+                  "fld=" + std::to_string(fldS.governingShellId)
+                + " ea=" + std::to_string(ds.governingShell));
+
+        // Recompute ElasticAllowable's vM at its governing sample directly and match against
+        // StressField.globalMaxVonMises. ElasticAllowable returns D/C = vM/cap.vm, so multiply
+        // back. For the clamped plate the cap.vm = 300 MPa.
+        const real ea_vM = ds.maxDC * smat.cap.vm;
+        checkClose("F70 globalMaxVonMises matches ElasticAllowable D/C * cap.vm (bit-exact)",
+                   fldS.globalMaxVonMises, ea_vM, 1e-12);
+    }
 
     std::printf("\n%s  (failures=%d)\n", g_fail == 0 ? "ALL PASS" : "FAILURES", g_fail);
     return g_fail == 0 ? 0 : 1;

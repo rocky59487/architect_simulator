@@ -63,6 +63,7 @@ cl /nologo /EHsc /std:c++17 /O2 /MD /utf-8 /openmp /DEIGEN_MPL2_ONLY /DFRAMECORE
    Source\FrameCore\Private\MITC4ShellElement.cpp ^
    Source\FrameCore\Private\FrameSolver.cpp ^
    Source\FrameCore\Private\ElasticAllowable.cpp ^
+   Source\FrameCore\Private\StressField.cpp ^
    Source\FrameCore\Private\Grillage.cpp ^
    Source\FrameCore\Private\SelfWeight.cpp ^
    Source\FrameCore\Private\Combination.cpp ^
@@ -102,6 +103,7 @@ cl /nologo /EHsc /std:c++17 /O2 /MD /utf-8 /openmp /DEIGEN_MPL2_ONLY /DFRAMECORE
    Source\FrameCore\Private\MITC4ShellElement.cpp ^
    Source\FrameCore\Private\FrameSolver.cpp ^
    Source\FrameCore\Private\ElasticAllowable.cpp ^
+   Source\FrameCore\Private\StressField.cpp ^
    Source\FrameCore\Private\Grillage.cpp ^
    Source\FrameCore\Private\SelfWeight.cpp ^
    Source\FrameCore\Private\Combination.cpp ^

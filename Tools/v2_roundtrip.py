@@ -307,7 +307,11 @@ def main() -> int:
             caps = set(body.get("capabilities", []))
             wanted = {"session", "model.set", "solve.linear", "solve.dyn_collapse",
                        "analysis.reanalysis_solve", "profile.simple", "profile.advanced",
-                       "cancel", "transport.async", "dyn_collapse.live"}
+                       "cancel", "transport.async", "dyn_collapse.live",
+                       # v3.1.0 (S11): stress-field post-process. Advertised regression guard
+                       # so a future refactor that drops the capability string from
+                       # Capabilities() fails this gate.
+                       "inspect.stress_field"}
             missing = wanted - caps
             if not check("hello.capabilities includes core set", not missing,
                           f"missing={sorted(missing)}"): failures += 1
@@ -454,6 +458,60 @@ def main() -> int:
                           f"diff at key {key}"); failures += 1
                 else:
                     check(f"{method} == solve.linear.{key} (bit-exact)", True)
+
+            # v3.1.0 (S11): inspect.stress_field shape check. No bit-exact partner in
+            # solve.linear (the field is a derived post-process); verify the JSON schema
+            # documented in docs/specs/S11_stress_field.md and the no-shell sentinel.
+            body, why = _post("ri5", "inspect.stress_field")
+            if body is None:
+                check("inspect.stress_field returns OK", False, why); failures += 1
+            else:
+                sf = body.get("stressField")
+                if not check("inspect.stress_field has stressField key",
+                              isinstance(sf, dict), f"body keys={sorted(body.keys())}"):
+                    failures += 1
+                else:
+                    if not check("stress_field.samplesPerSpan == 11",
+                                  sf.get("samplesPerSpan") == 11,
+                                  f"got={sf.get('samplesPerSpan')}"): failures += 1
+                    mems = sf.get("members")
+                    if not check("stress_field.members is a 1-element list (cantilever)",
+                                  isinstance(mems, list) and len(mems) == 1,
+                                  f"got={type(mems).__name__} len={len(mems) if isinstance(mems,list) else 'n/a'}"):
+                        failures += 1
+                    elif True:
+                        samples = mems[0].get("samples")
+                        if not check("stress_field.members[0].samples len == 11",
+                                      isinstance(samples, list) and len(samples) == 11,
+                                      f"got={len(samples) if isinstance(samples,list) else type(samples).__name__}"):
+                            failures += 1
+                        if not check("stress_field.members[0].memberId == 0",
+                                      mems[0].get("memberId") == 0,
+                                      f"got={mems[0].get('memberId')}"): failures += 1
+                    if not check("stress_field.governingMemberId == 0 (cantilever id)",
+                                  sf.get("governingMemberId") == 0,
+                                  f"got={sf.get('governingMemberId')}"): failures += 1
+                    if not check("stress_field.governingShellId == -1 (no-shell sentinel)",
+                                  sf.get("governingShellId") == -1,
+                                  f"got={sf.get('governingShellId')}"): failures += 1
+                    if not check("stress_field.shellsTop/shellsBot are empty (no shells)",
+                                  sf.get("shellsTop") == [] and sf.get("shellsBot") == [],
+                                  f"top={len(sf.get('shellsTop',[]))} bot={len(sf.get('shellsBot',[]))}"):
+                        failures += 1
+                    sigma = sf.get("globalMaxFiberSigma")
+                    if not check("stress_field.globalMaxFiberSigma > 0",
+                                  isinstance(sigma, (int, float)) and sigma > 0,
+                                  f"got={sigma}"): failures += 1
+
+            # samplesPerSpan range guard: < 2 and > 1024 must be VALIDATION_FAILED.
+            body, why = _post("ri5_bad_low", "inspect.stress_field", {"samplesPerSpan": 1})
+            if not check("inspect.stress_field samplesPerSpan=1 -> error",
+                          body is None and "VALIDATION_FAILED" in why,
+                          f"body={body} why={why}"): failures += 1
+            body, why = _post("ri5_bad_high", "inspect.stress_field", {"samplesPerSpan": 2048})
+            if not check("inspect.stress_field samplesPerSpan=2048 -> error",
+                          body is None and "VALIDATION_FAILED" in why,
+                          f"body={body} why={why}"): failures += 1
 
         # --- B3/B5: analysis methods -- shape-level check (no more NOT_IMPLEMENTED) ---
         if sid:

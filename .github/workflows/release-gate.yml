@@ -67,7 +67,7 @@ jobs:
           tar -xzf eigen.tar.gz
           echo "EIGEN_DIR=$pwd\eigen-3.4.0" | Out-File -FilePath $env:GITHUB_ENV -Append
 
-      - name: Leg 1 - standalone F1..F66
+      - name: Leg 1 - standalone F1..F70 (v3.1.0: + F68/F69/F70 S11 stress field)
         id: standalone
         shell: cmd
         run: |
@@ -115,7 +115,10 @@ jobs:
         shell: pwsh
         run: |
           cmd /c "call Plugins\FrameSolver\Standalone\build_capi_v2.bat" *>&1 | Tee-Object -FilePath gate-capi-build.log
-          $env:FRAMECORE_EXPECTED_ENGINE_VER = '3.0.1'
+          # v3.1.0: bumped from '3.0.1' alongside Dispatcher.h kEngineVer + uplugin Version
+          # for the S11 inspect.stress_field capability. This pin moves with every
+          # kEngineVer bump (rule established v3.0.0 audit BLOCKER 1).
+          $env:FRAMECORE_EXPECTED_ENGINE_VER = '3.1.0'
           python Tools\v2_roundtrip.py *>&1 | Tee-Object -FilePath gate-v2roundtrip.log
           if (-not (Select-String -Path gate-v2roundtrip.log -Pattern '=== summary: ALL PASS')) {
             Get-Content gate-v2roundtrip.log

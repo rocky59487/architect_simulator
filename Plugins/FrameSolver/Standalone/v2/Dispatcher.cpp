@@ -1,8 +1,9 @@
 // Dispatcher.cpp -- handler implementations.
 //
-// CURRENT STATE (v2.5: B3 dispatcher engine-wired)
+// CURRENT STATE (v3.1.0 / S11)
 //   Connection-mgmt methods (hello, session.open/close/status, cancel) and model.set were
-//   wired since B2 / v2.4. v2.5 (B3) wires the analysis verbs to FrameCore:
+//   wired since B2 / v2.4. v2.5 (B3) wired the analysis verbs to FrameCore. v3.1.0 adds the
+//   S11 stress-field inspect verb (sigma sampling along members + per-corner vM on shells).
 //
 //   [WIRED B3] solve.linear -- assembleAndFactor + solveLoad (or SnSession::solveFrame when
 //              session.open mode=supernodal). Bit-exact vs v1 frame_capi.dll on cantilever
@@ -13,14 +14,15 @@
 //              solve.arclength / analysis.modal / analysis.buckling -- each calls the
 //              matching engine entry point, traps exceptions into structured INTERNAL frames,
 //              and caches finalState into session.lastSolve for inspect.* re-reads.
-//
 //   [WIRED B4] solve.dyn_collapse -- calls runDynamicCollapse and emits optional binary
 //              u/v replay frames before the final summary response.
 //   [WIRED B5.2] analysis.reanalysis_solve -- calls ReSolveSession for same-topology
 //              element active toggles and returns tier/rank diagnostics.
-//   [schema TBD] model.patch -- diff-format unsettled.
+//   [WIRED S11] inspect.stress_field -- calls computeStressField (pure post-process; reads
+//               sess.lastSolve, no engine recall). JSON shape pinned by S11_stress_field.md.
+//   [schema TBD] model.patch -- diff-format unsettled (carry-over from v2.5).
 //
-//   Engine link: build_capi_v2.bat now links FrameCore + SnSolver/SnSession objects
+//   Engine link: build_capi_v2.bat links FrameCore + SnSolver/SnSession objects
 //   (~600 KB DLL up from B2's ~105 KB stub).
 
 #include "Dispatcher.h"
@@ -42,6 +44,7 @@
 #include "FrameCore/DynamicCollapse.h"
 #include "FrameCore/Reanalysis.h"
 #include "FrameCore/ElasticAllowable.h"
+#include "FrameCore/StressField.h"
 
 #include <algorithm>
 #include <cmath>
@@ -74,6 +77,7 @@ Dispatcher::Dispatcher() {
     Register("inspect.member_forces", &Dispatcher::HandleInspectMF);
     Register("inspect.reactions",     &Dispatcher::HandleInspectRF);
     Register("inspect.shell_forces",  &Dispatcher::HandleInspectSF);
+    Register("inspect.stress_field",  &Dispatcher::HandleInspectStressField);
 
     // Analysis family.
     Register("solve.pdelta",         &Dispatcher::HandlePDelta);
@@ -854,6 +858,163 @@ Frame Dispatcher::HandleInspectSF(Dispatcher&, Context& ctx, const Frame& in) {
     JsonObject sfs = packShellForces(*sess->lastSolve, nfWhere);
     if (!nfWhere.empty()) return MakeError(id, "NON_FINITE_RESULT", nfWhere);
     JsonObject out; out.emplace("shellForces", Json(std::move(sfs)));
+    return MakeResponse(id, std::move(out));
+}
+
+// S11 (v3.1.0): inspect.stress_field -- packs computeStressField output as JSON.
+//
+//   Request body:  { sessionId: "...", samplesPerSpan?: 11 }   // samplesPerSpan optional
+//   Response body: { stressField: { ... } }                     // see packStressField below
+//
+// The numerical layer is FrameCore::computeStressField; this handler is pure I/O glue.
+// Bit-exact against ElasticAllowable D/C at the governing element by F70 interlock
+// (no numerics duplicated here -- StressKernel.h is the single source of truth).
+namespace {
+inline Json packStressSample(const frame::MemberStressSample& s) {
+    JsonObject o;
+    o.emplace("x",                 Json(static_cast<double>(s.x)));
+    o.emplace("sigmaFiberTopY",    Json(static_cast<double>(s.sigmaFiberTopY)));
+    o.emplace("sigmaFiberBotY",    Json(static_cast<double>(s.sigmaFiberBotY)));
+    o.emplace("sigmaFiberPlusZ",   Json(static_cast<double>(s.sigmaFiberPlusZ)));
+    o.emplace("sigmaFiberMinusZ",  Json(static_cast<double>(s.sigmaFiberMinusZ)));
+    o.emplace("sigmaCompMax",      Json(static_cast<double>(s.sigmaCompMax)));
+    o.emplace("sigmaTensMax",      Json(static_cast<double>(s.sigmaTensMax)));
+    o.emplace("tauShear",          Json(static_cast<double>(s.tauShear)));
+    o.emplace("tauTorsion",        Json(static_cast<double>(s.tauTorsion)));
+    o.emplace("N",  Json(static_cast<double>(s.N)));
+    o.emplace("Vy", Json(static_cast<double>(s.Vy)));
+    o.emplace("Vz", Json(static_cast<double>(s.Vz)));
+    o.emplace("T",  Json(static_cast<double>(s.T)));
+    o.emplace("My", Json(static_cast<double>(s.My)));
+    o.emplace("Mz", Json(static_cast<double>(s.Mz)));
+    return Json(std::move(o));
+}
+
+inline Json packShellStressPoint(const frame::ShellStressPoint& p) {
+    JsonObject o;
+    o.emplace("cornerIdx", Json(static_cast<int64_t>(p.cornerIdx)));
+    o.emplace("sigmaXX",   Json(static_cast<double>(p.sigmaXX)));
+    o.emplace("sigmaYY",   Json(static_cast<double>(p.sigmaYY)));
+    o.emplace("tauXY",     Json(static_cast<double>(p.tauXY)));
+    o.emplace("sigma1",    Json(static_cast<double>(p.sigma1)));
+    o.emplace("sigma2",    Json(static_cast<double>(p.sigma2)));
+    o.emplace("vonMises",  Json(static_cast<double>(p.vonMises)));
+    o.emplace("thetaRad",  Json(static_cast<double>(p.thetaRad)));
+    return Json(std::move(o));
+}
+
+inline Json packShellLayer(const frame::ShellStressLayer& sl) {
+    JsonObject o;
+    o.emplace("shellId",  Json(static_cast<int64_t>(sl.shellId)));
+    o.emplace("shellIdx", Json(static_cast<int64_t>(sl.shellIdx)));
+    o.emplace("layer",    Json(std::string(sl.layer == frame::ShellLayer::Top ? "top" : "bot")));
+    o.emplace("center",   packShellStressPoint(sl.center));
+    JsonArray corners;
+    corners.reserve(4);
+    for (int k = 0; k < 4; ++k) corners.push_back(packShellStressPoint(sl.corners[k]));
+    o.emplace("corners",  Json(std::move(corners)));
+    return Json(std::move(o));
+}
+
+inline bool packStressField(const frame::StressField& fld, int samplesPerSpan,
+                            JsonObject& dest, std::string& nfWhere) {
+    auto finite = [&](double v, const char* where) -> bool {
+        if (std::isfinite(v)) return true;
+        if (nfWhere.empty()) nfWhere = where;
+        return false;
+    };
+    if (!finite(static_cast<double>(fld.globalMaxFiberSigma), "globalMaxFiberSigma")) return false;
+    if (!finite(static_cast<double>(fld.globalMaxVonMises),   "globalMaxVonMises"))   return false;
+
+    // Per-sample NaN sweep (v3.1.0 audit C-05): the two global maxes alone miss
+    // partial-NaN where only a subset of fibers / corners is degenerate (a member with
+    // healthy bending but a NaN torsion path, a shell with one corner moment NaN, etc).
+    // validate() should have rejected the underlying model -- this is the defence in
+    // depth for internal-bug propagation. O(N) on member samples + shell points; the
+    // checks are std::isfinite scalar ops, negligible vs the JSON serialisation cost.
+    for (const auto& tr : fld.members) {
+        for (const auto& s : tr.samples) {
+            if (!finite(static_cast<double>(s.sigmaCompMax), "member.sample.sigmaCompMax")) return false;
+            if (!finite(static_cast<double>(s.sigmaTensMax), "member.sample.sigmaTensMax")) return false;
+            if (!finite(static_cast<double>(s.tauShear),     "member.sample.tauShear"))     return false;
+            if (!finite(static_cast<double>(s.tauTorsion),   "member.sample.tauTorsion"))   return false;
+        }
+    }
+    for (const auto& sl : fld.shellsTop) {
+        if (!finite(static_cast<double>(sl.center.vonMises), "shell.top.center.vonMises")) return false;
+        for (int kc = 0; kc < 4; ++kc)
+            if (!finite(static_cast<double>(sl.corners[kc].vonMises), "shell.top.corner.vonMises")) return false;
+    }
+    for (const auto& sl : fld.shellsBot) {
+        if (!finite(static_cast<double>(sl.center.vonMises), "shell.bot.center.vonMises")) return false;
+        for (int kc = 0; kc < 4; ++kc)
+            if (!finite(static_cast<double>(sl.corners[kc].vonMises), "shell.bot.corner.vonMises")) return false;
+    }
+
+    dest.emplace("samplesPerSpan",      Json(static_cast<int64_t>(samplesPerSpan)));
+    dest.emplace("globalMaxFiberSigma", Json(static_cast<double>(fld.globalMaxFiberSigma)));
+    dest.emplace("globalMaxVonMises",   Json(static_cast<double>(fld.globalMaxVonMises)));
+    dest.emplace("governingMemberId",   Json(static_cast<int64_t>(fld.governingMemberId)));
+    dest.emplace("governingShellId",    Json(static_cast<int64_t>(fld.governingShellId)));
+    dest.emplace("governingShellLayer",
+                 Json(std::string(fld.governingShellLayer == frame::ShellLayer::Top ? "top" : "bot")));
+    dest.emplace("governingShellCorner", Json(static_cast<int64_t>(fld.governingShellCorner)));
+
+    JsonArray members;
+    members.reserve(fld.members.size());
+    for (const auto& tr : fld.members) {
+        JsonObject mo;
+        mo.emplace("memberId",  Json(static_cast<int64_t>(tr.memberId)));
+        mo.emplace("memberIdx", Json(static_cast<int64_t>(tr.memberIdx)));
+        JsonArray samples;
+        samples.reserve(tr.samples.size());
+        for (const auto& s : tr.samples) samples.push_back(packStressSample(s));
+        mo.emplace("samples", Json(std::move(samples)));
+        members.push_back(Json(std::move(mo)));
+    }
+    dest.emplace("members", Json(std::move(members)));
+
+    JsonArray topArr, botArr;
+    topArr.reserve(fld.shellsTop.size());
+    botArr.reserve(fld.shellsBot.size());
+    for (const auto& sl : fld.shellsTop) topArr.push_back(packShellLayer(sl));
+    for (const auto& sl : fld.shellsBot) botArr.push_back(packShellLayer(sl));
+    dest.emplace("shellsTop", Json(std::move(topArr)));
+    dest.emplace("shellsBot", Json(std::move(botArr)));
+    return true;
+}
+} // namespace
+
+Frame Dispatcher::HandleInspectStressField(Dispatcher&, Context& ctx, const Frame& in) {
+    const std::string id = in.header.getString("id", "?");
+    const Json* body = in.header.get("body");
+    std::string err;
+    auto sess = inspectSession(ctx, body, err);
+    if (!sess) return MakeError(id, "VALIDATION_FAILED", err);
+
+    int samplesPerSpan = 11;
+    if (body) {
+        const int64_t requested = body->getInt("samplesPerSpan", 11);
+        if (requested < 2 || requested > 1024) {
+            return MakeError(id, "VALIDATION_FAILED",
+                             "samplesPerSpan must be in [2, 1024]");
+        }
+        samplesPerSpan = static_cast<int>(requested);
+    }
+
+    frame::StressField fld;
+    try { fld = frame::computeStressField(*sess->model, *sess->lastSolve, samplesPerSpan); }
+    catch (const std::exception& e) {
+        return MakeError(id, "INTERNAL", std::string("stress_field: ") + e.what());
+    }
+
+    JsonObject sf;
+    std::string nfWhere;
+    if (!packStressField(fld, samplesPerSpan, sf, nfWhere)) {
+        return MakeError(id, "NON_FINITE_RESULT", nfWhere);
+    }
+    JsonObject out;
+    out.emplace("stressField", Json(std::move(sf)));
     return MakeResponse(id, std::move(out));
 }
 
