@@ -76,7 +76,7 @@ inline constexpr uint32_t kAbiVersion   = 2;
 // constant was never bumped for v2.6 or v2.7 -- hello.response.version reported "2.5.0"
 // for two full releases. Wire ABI is still 2 (unchanged); kEngineVer is the human-facing
 // engine string clients use for capability/version negotiation.
-inline constexpr const char* kEngineVer = "2.10.0";
+inline constexpr const char* kEngineVer = "2.11.0";
 inline constexpr const char* kSchemaVer = "2026.06";
 
 enum class Profile { Simple, Advanced };

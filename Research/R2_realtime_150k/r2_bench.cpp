@@ -188,6 +188,9 @@ void applyPreset(const std::string& p, BenchSpec& s) {
     else if (p == "120k") { s = BenchSpec{18, 12, 80, s.repeat, s.warmup, sr, cm, gp, "~120k-frame-tower"}; }
     else if (p == "150k") { s = BenchSpec{20, 15, 80, s.repeat, s.warmup, sr, cm, gp, "~160k-frame-tower"}; }
     else if (p == "200k") { s = BenchSpec{22, 16, 90, s.repeat, s.warmup, sr, cm, gp, "~200k-frame-tower"}; }
+    else if (p == "300k") { s = BenchSpec{24, 18, 100, s.repeat, s.warmup, sr, cm, gp, "~300k-frame-tower"}; }
+    else if (p == "400k") { s = BenchSpec{26, 20, 110, s.repeat, s.warmup, sr, cm, gp, "~400k-frame-tower"}; }
+    else if (p == "600k") { s = BenchSpec{30, 22, 130, s.repeat, s.warmup, sr, cm, gp, "~600k-frame-tower"}; }
 }
 
 BenchSpec parseArgs(int argc, char** argv) {
