@@ -229,11 +229,11 @@ See [`docs/HANDOFF_v3.1.0.md` §3](HANDOFF_v3.1.0.md) for first-actions on each.
   visualisation layer beyond "USTRUCT data + sample table" is v3.3+ scope. First
   action: a separate `FrameCoreUEViewport` actor that owns a `UProceduralMeshComponent`
   + paints colour bands based on `Field.Members[i].Samples[j].SigmaCompMax`.
-- **U-04** — No live-coding test for the `WorkspaceMenu::GetMenuStructure()` dependency.
-  If the WorkspaceMenuStructure module ever moves (UE engine version bump), the panel
-  registration in `FFrameCoreUEModule::StartupModule` may fail silently. First
-  action: add an editor-only assertion that `FGlobalTabmanager::Get()->HasTabSpawner("FrameCoreStressFieldPanel")`
-  is true after StartupModule.
+- **U-04** — **✅ CLOSED in Phase 6e (post-tag strengthening)**: added
+  `FFrameCoreUEEditorTabSpawnerTest` (`FrameCore.UE.EditorTabSpawnerTest`) which asserts
+  `FGlobalTabmanager::Get()->HasTabSpawner("FrameCoreStressFieldPanel")` is true after
+  `StartupModule`. Future UE engine WorkspaceMenuStructure API drift surfaces as a failing
+  automation test instead of a silently-missing editor menu.
 - **U-05** — `float`-only USTRUCT loses precision for very-small load cases (P << 1 N).
   Engine doubles → BP floats is fine for visualisation but not for downstream BP math
   that re-uses the values. First action: decide whether to add `double`-precision

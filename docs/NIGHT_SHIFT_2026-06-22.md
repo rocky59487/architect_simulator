@@ -296,6 +296,39 @@ paths / `E:/project/CLAUDE.md` out-of-tree anchor / gate-logs policy / run_gate.
 echo / 2 NITs / U-07 engine BLOCKER) — all need user triage or are engine-source rule #1
 blocked.
 
+#### Phase 6e — U-04 closeout + robustness test (65 → 67 UE tests)
+
+Two more tests added to deepen coverage:
+
+1. **`FFrameCoreUEEditorTabSpawnerTest`** (`FrameCore.UE.EditorTabSpawnerTest`) — closes
+   v3.2.0 deferred **U-04**. Asserts
+   `FGlobalTabmanager::Get()->HasTabSpawner("FrameCoreStressFieldPanel")` is true after
+   StartupModule. UE 5.7 build PASS. Future WorkspaceMenuStructure API drift surfaces as a
+   failing automation test instead of a silent missing menu. `HANDOFF_v3.2.0.md` §3.2 U-04
+   and `RELEASE_v3.2.0.md` §5.2 U-04 both marked CLOSED.
+2. **`FFrameCoreUERobustnessTest`** (`FrameCore.UE.RobustnessTest`) — three sub-assertions:
+   - (a) Negative-input contract — `ComputeCantileverFixture` with
+     `SamplesPerSpan` = -3 / 0 / 1 silently clamps to 11 (the Phase 5 C-MEDIUM audit fix
+     in `FrameCoreUELibrary.cpp`); `SamplesPerSpan = 21` passes through.
+   - (b) Marshal scaling — 20-segment cantilever produces 20 USTRUCT traces, each
+     11-sample, MemberId preserved 0..19, governingMemberId = 0 (root).
+   - (c) Memory stability — 100 `ComputeCantileverFixture` repeat calls produce
+     bit-exact USTRUCT every iteration (caught a state-leak between calls if it existed).
+
+Rebuild incremental 6.64s; automation **67/67 EXIT 0**; both new tests `Result={成功}`.
+
+`$ExpectedUeTests` bumped 65 → 67; non-cuDSS recommendation bumped 63 → 65.
+
+### Net Phase 6 outcome
+
+UE test count: v3.2.0 tag shipped at 62 → +Phase 6a (3 marshal scenarios) → 65 → +Phase 6e
+(spawner sanity + robustness) → **67 UE tests**, all green. Plus the v3.2 deferred **U-04**
+moved from "deferred to v3.3" to "closed in v3.2 post-tag". Coverage extends to:
+single/multi-member traces, shell layers, user-set member IDs, negative-input contracts,
+20-member scaling, 100x repeat memory stability, packaged-build compile path, nomad tab
+spawner registration. Stability stress 3x clean (drift 0.7%). 6 doc topology cleanups
+applied from the broader idle-time sweep.
+
 ### Repo-wide light hygiene sweep (1 general-purpose agent)
 
 Plan §6 沒事做時優先序 #5 "release-hardening skill 做 deep audit"。Spawn 1 general-purpose

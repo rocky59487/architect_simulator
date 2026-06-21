@@ -143,10 +143,13 @@ naming, C-12 cancel poll, F-02 findUdl hash map, F-03 clamps invariant doc。
    ingest `FFrameStressField` 並 emit 沿桿 colour-band mesh(根據 `Samples[i].SigmaCompMax`
    normalised to `Field.GlobalMaxFiberSigma`)。
 
-4. **U-04 nomad tab spawner sanity-check** — `WorkspaceMenu::GetMenuStructure().GetToolsCategory()`
-   若 UE engine 升版改 API,panel registration 會 silent fail。first action: 在
-   `StartupModule` 結尾加 `check(FGlobalTabmanager::Get()->HasTabSpawner("FrameCoreStressFieldPanel"))`
-   或寫 editor automation test 驗證。
+4. **U-04 nomad tab spawner sanity-check** — **✅ CLOSED in Phase 6e (commit pending)**:
+   added `FFrameCoreUEEditorTabSpawnerTest` in
+   `Plugins/FrameSolver/Source/FrameCoreUE/Private/Tests/FrameCoreUEEditorTabSpawnerTest.cpp`
+   which asserts `FGlobalTabmanager::Get()->HasTabSpawner("FrameCoreStressFieldPanel")` is
+   true after `StartupModule`. UE 5.7 build today: PASS. If WorkspaceMenuStructure ever
+   moves API in a future UE version, this test will fail instead of the menu silently
+   disappearing.
 
 5. **U-05 float-only USTRUCT 精度** — 對 P << 1 N 場景失精。first action: 決定是否
    加 `FFrameStressFieldSampleD`(double 版本);或在 RELEASE notes 明示 lossy budget
