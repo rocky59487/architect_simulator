@@ -205,7 +205,62 @@
 
 > Phase 結束剩餘 budget 時做的 research / docs / stability 工作。每項 1-2 句,連結到產出檔。
 
-(空 — 目前無)
+### Repo-wide light hygiene sweep (1 general-purpose agent)
+
+Plan §6 沒事做時優先序 #5 "release-hardening skill 做 deep audit"。Spawn 1 general-purpose
+subagent doing light repo-wide hygiene sweep on the **non-v3.2 areas** (engine source / docs /
+build / CI / scripts / scratch hygiene), since v3.2 source delta was already audited in Phase 5.
+Agent returned **17 findings** across 8 categories (0 BLOCKER for v3.2.0 itself; all are
+follow-up hygiene for the next contributor).
+
+**Findings by category:**
+
+| Severity | Cat | File:Line | Title |
+|---|---|---|---|
+| HIGH | stale_version | `docs/ARCHITECTURE.md:297,310` | UE test count frozen at 57 → 62 (v3.2.0); $ExpectedUeTests = 57 → 62 |
+| HIGH | stale_version | `.github/workflows/release-gate.yml:6` | header references `docs/HANDOFF_v2.11.1.md` → should be `docs/HANDOFF_v3.2.0.md` |
+| HIGH | tech_debt | `Plugins/FrameSolver/Source/FrameCore/Public/FrameCore/StressField.h:78` | U-07 sentinel mismatch carry-forward (engine 0 vs USTRUCT -1) — already documented in HANDOFF_v3.2.0 §3.2 |
+| MED | scratch_contamination | `docs/gate-logs/v3.0.1/` | Orphan v3.0.1 gate logs in repo; no v3.1.0/v3.2.0 dirs (CI artifacts only; 90-day retention) |
+| MED | doc_topology | `docs/README.md:33` | Stage table missing S11 + FrameCoreUE rows |
+| MED | doc_topology | `docs/README.md:65` | "Rhino bridge v2 status" stale at v2.8.1 (16 caps); v3.1+ added inspect.stress_field |
+| MED | doc_topology | `docs/ARCHITECTURE.md:241` | §5b describes computeStressField but no FrameCoreUE consumer cross-ref |
+| MED | ci_hygiene | `.github/workflows/release-gate.yml:3` | "9-leg verification matrix" comment misleads — CI runs 5 CPU legs only |
+| MED | hardcoded_path | `Plugins/FrameSolver/Standalone/build*.bat:7` | All 8 .bat files have hardcoded UE_5.7 fallback path (3rd tier); UE 5.8+ would silent-fail |
+| MED | hardcoded_path | `docs/HANDOFF_v3.2.0.md:80` | "E:\project\UE_5.7\..." absolute path in Build.bat command sample; should be parameterised |
+| LOW | stale_version | `docs/VERIFICATION.md:296` | "3 of the 57-test gate count" → 62 |
+| LOW | doc_topology | `docs/README.md:65` | Release-notes table ends at v2.8.1; v2.9-v3.2.0 missing |
+| LOW | claude_md | `E:/project/CLAUDE.md:4` | Project CLAUDE.md HEAD anchor stale at v2.11.1 (parent-of-repo file; out-of-tree) |
+| LOW | checkout_hygiene | `docs/gate-logs/` | No v3.1.0 / v3.2.0 subdirs — CI artifact-only evidence |
+| LOW | ci_hygiene | `Scripts/run_gate.ps1:109` | OpenSees FAIL arm doesn't echo $OsOut tail for context (only -RequireOpenSees path does) |
+| NIT | stale_version | `Plugins/FrameSolver/Standalone/build_capi_v2.bat:2` | "B2 stub / B3 links" historical migration comment — now stable v3.x |
+| NIT | doc_topology | `docs/README.md:45` | `specs/S5_S11_skeletons.md` note says "S11 仍是骨架" — shipped v3.1.0 has formal spec |
+
+### Disposition
+
+**Applied (3 in-place fixes — doc-only, parallel to Phase 5 audit pattern):**
+
+- `docs/ARCHITECTURE.md:297,310` UE count 57 → 62 + add v3.2.0 FrameCoreUE test note
+- `.github/workflows/release-gate.yml:3-6` header comment HANDOFF v2.11.1 → v3.2.0 + "9-leg
+  verification matrix" → "standard 5-leg gate + v2 CPU dispatcher roundtrip"
+- `docs/VERIFICATION.md:296` "3 of the 57-test gate count" → "62-test gate count (v3.2.0)"
+
+These three are pure documentation drift introduced when v3.2 audit's scope was narrowed to
+the source delta. They follow the same pattern as the Phase 5 README/VERIFICATION §1 bumps
+already shipped in v3.2.0 (so applying them is "carry-along" not "out-of-scope").
+
+**Deferred (14 findings):**
+
+The remaining 14 findings would benefit from user triage before applying — they involve
+either (a) gate-logs policy decisions, (b) doc reorganisation choices, (c) build system
+backwards-compat trade-offs, or (d) the rule-#1-protected U-07 BLOCKER which was already
+documented in HANDOFF_v3.2.0.md §3.2. The disposition table above lists each finding's file
+and line for trivial location-by-location triage.
+
+The U-07 BLOCKER carry-forward note is the most important one: when v3.3 work begins, the
+engine source change (`StressField.h` default 0 → -1) should be one of the first items, and
+will require an engine-side smoke test addition (a fixture with no governing element, e.g.,
+all-zero loads) to verify the new sentinel propagates correctly through both the dispatcher
+JSON path and the FrameCoreUE USTRUCT marshal.
 
 ---
 

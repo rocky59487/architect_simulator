@@ -1,9 +1,10 @@
 name: release-gate
 
-# Self-validating release gate for FrameCore. Runs the CPU-only legs of the 9-leg
-# verification matrix on every push to main and every PR. The GPU legs (cuDSS) and
-# UE automation require GPU hardware + UE 5.7 install and are NOT in scope here --
-# those are run manually on the integrator's box per docs/HANDOFF_v2.11.1.md.
+# Self-validating release gate for FrameCore. Runs the CPU-only legs of the standard
+# 5-leg gate (+ v2 CPU dispatcher roundtrip) on every push to main and every PR. The
+# GPU legs (cuDSS) and UE automation require GPU hardware + UE 5.7 install and are
+# NOT in scope here -- those are run manually on the integrator's box per
+# docs/HANDOFF_v3.2.0.md (latest handoff in the chain).
 #
 # Reachable CPU legs on GitHub-hosted windows-latest:
 #   * standalone build.bat + frametest.exe (F1..F66 default)

@@ -294,8 +294,11 @@ plates/shells directly and converges to the exact solution.
 - **`Standalone/linear_deep_audit.cpp`** — **104** independent checks: sympy/numpy-derived
   references, bit-identity no-op proofs for every opt-in flag, the MITC4 element-spectrum
   oracle, and fresh-factorization references for every incremental method.
-- **`Private/Tests/*.cpp`** — UE automation mirrors (`FrameCore.*`), **57** tests across
-  the same oracle families as the standalone fixtures (the dual-build proof).
+- **`Private/Tests/*.cpp`** — UE automation mirrors (`FrameCore.*`), **62** tests across
+  the same oracle families as the standalone fixtures (the dual-build proof) — **60** when
+  the CUDA lane compiles out (the 2 GPU smoke tests are `#if FRAMECORE_CUDA`-gated).
+  v3.2.0 added 2 FrameCoreUE tests (`FFrameCoreUEBlueprintSmokeTest`, `FFrameCoreUEEditorSmokeTest`),
+  v3.1.0 added 1 (`FFrameCoreStressFieldTest`).
 - **`Tools/`** — `opensees_compare.py` (OpenSees cross-validation: beams strict 1e-8; prescribed
   settlement vs `sp()` to 0; the MITC4 shell vs OpenSees' own `ShellMITC4` to ~1e-10 on the
   flat/tilted plates gated here, ~1e-7–1e-8 on skewed/warped meshes in `shell_mitc4_deep_audit.py`;
@@ -307,9 +310,9 @@ plates/shells directly and converges to the exact solution.
   `complex_structure_benchmark.py`, `grillage_curve_audit.py` — all black-box the engine
   through `frame_cli.exe`.
 - **`Scripts/run_gate.ps1`** — runs all **five** legs (standalone, UE automation, OpenSees,
-  deep audit, CLI round-trip) and prints a combined verdict + exit code; `$ExpectedUeTests = 57`
-  guards against a silently-missing UE test; `-RequireOpenSees` makes a missing OpenSees a hard
-  failure for CI.
+  deep audit, CLI round-trip) and prints a combined verdict + exit code; `$ExpectedUeTests = 62`
+  guards against a silently-missing UE test (pass `-ExpectedUeTests 60` for non-cuDSS builds);
+  `-RequireOpenSees` makes a missing OpenSees a hard failure for CI.
 
 ---
 

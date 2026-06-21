@@ -293,7 +293,7 @@ default lane remains untouched. Full write-ups:
 
 UE mirrors: `FrameCore.Buckling.ShellGeometricStiffness` / `FrameCore.Buckling.ShellKnockdown`
 / `FrameCore.Validation.ShellCurvatureGuard` cover F57 / F64-knockdown / F64-curvature on the UE
-side, contributing 3 of the 57-test gate count.
+side, contributing 3 of the 62-test gate count (v3.2.0).
 
 Honest scope:
 - F62 standalone improvement is modest (~18 % at L/d=200, cond ~1e6 — close to the machine-precision
