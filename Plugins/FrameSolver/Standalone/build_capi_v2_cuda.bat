@@ -47,7 +47,7 @@ git -C "%GITROOT%" diff --quiet --ignore-submodules -- 2>nul || set "GITDIRTY=1"
 git -C "%GITROOT%" diff --cached --quiet --ignore-submodules -- 2>nul || set "GITDIRTY=1"
 if "!GITDIRTY!"=="1" set "GITSHA=!GITSHA!-dirty"
 
-cl /nologo /LD /EHsc /std:c++17 /O2 /MD /utf-8 /DEIGEN_MPL2_ONLY /DFRAMECORE_SUPERNODAL=1 /DFRAMECORE_CUDA=1 /DFRAMECORE_BUILD_SHA=\"!GITSHA!\" ^
+cl /nologo /LD /EHsc /std:c++17 /O2 /MD /utf-8 /openmp /DEIGEN_MPL2_ONLY /DFRAMECORE_SUPERNODAL=1 /DFRAMECORE_CUDA=1 /DFRAMECORE_BUILD_SHA=\"!GITSHA!\" ^
    /Fe:Standalone\frame_capi_v2_cuda.dll ^
    /Fo:Standalone\obj_capi_v2_cuda\ ^
    /I"%EIGEN%" ^

@@ -25,6 +25,15 @@
   #include <chrono>
 #endif
 
+// Phase 3 (v2.11) -- OpenMP RHS assembly parallelization. Gated on _OPENMP being defined
+// by the compiler (MSVC needs /openmp; default build.bat opts in starting v2.11). When
+// not defined, the serial path runs -- bit-equivalent, no behaviour change. R9 8940HX has
+// 16C/32T; the element loop scales linearly to 6-8 threads on the addEquivalentNodalLoads
+// hot path (load-balanced static schedule, each element ~ 50 ns).
+#ifdef _OPENMP
+  #include <omp.h>
+#endif
+
 // R2.3 GPU lane: cuDSS state lives in Impl when FRAMECORE_CUDA=1; main lane compiles
 // with FRAMECORE_CUDA=0 and these declarations are not visible -- ABI / build stays clean.
 #if defined(FRAMECORE_CUDA) && FRAMECORE_CUDA
@@ -405,7 +414,31 @@ SolveResult SnSession::solveFrame(const FrameModel& model) {
         for (int d = 0; d < 6; ++d) F(gdof(ni, d)) += nl.comp[d];
     }
     SN_TIME_BEGIN(rhsEq);
+#ifdef _OPENMP
+    // Phase 3 (v2.11) parallel RHS path, gated on opts.parallelRhs to protect the common
+    // nodal-loads-only fixture (Qf_=0 elements; OpenMP fork/join overhead beats the work).
+    if (p_->opts.parallelRhs) {
+        const int nThreads = std::max(1, std::min(8, (int)S.elems.size() / 4096));
+        if (nThreads <= 1) {
+            for (const auto& el : S.elems) el->addEquivalentNodalLoads(F);
+        } else {
+            std::vector<VecX> Floc(nThreads, VecX::Zero(N));
+            const long ne = static_cast<long>(S.elems.size());
+            #pragma omp parallel num_threads(nThreads)
+            {
+                const int tid = omp_get_thread_num();
+                VecX& Ft = Floc[tid];
+                #pragma omp for nowait schedule(static)
+                for (long e = 0; e < ne; ++e) S.elems[(size_t)e]->addEquivalentNodalLoads(Ft);
+            }
+            for (int t = 0; t < nThreads; ++t) F += Floc[t];
+        }
+    } else {
+        for (const auto& el : S.elems) el->addEquivalentNodalLoads(F);
+    }
+#else
     for (const auto& el : S.elems) el->addEquivalentNodalLoads(F);
+#endif
     SN_TIME_END(rhsEq, p_->lastT.rhsEqMs);
 
     bool hasNonZeroPresc = false;

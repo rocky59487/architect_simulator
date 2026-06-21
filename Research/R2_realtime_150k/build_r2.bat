@@ -45,7 +45,7 @@ pushd "%ROOT%"
 if not exist "Research\R2_realtime_150k\obj" mkdir "Research\R2_realtime_150k\obj"
 
 set "CUDA_ROOT=%USERPROFILE%\anaconda3\envs\framecore-direct"
-cl /nologo /EHsc /std:c++17 /O2 /MD /utf-8 /DEIGEN_MPL2_ONLY /DFRAMECORE_SUPERNODAL=1 /DFRAMECORE_CUDA=1 /DSN_SESSION_TIMING=1 ^
+cl /nologo /EHsc /std:c++17 /O2 /MD /utf-8 /openmp /DEIGEN_MPL2_ONLY /DFRAMECORE_SUPERNODAL=1 /DFRAMECORE_CUDA=1 /DSN_SESSION_TIMING=1 ^
    /Fe:Research\R2_realtime_150k\r2_bench.exe ^
    /Fo:Research\R2_realtime_150k\obj\ ^
    /I"%EIGEN%" ^

@@ -45,7 +45,7 @@ if not exist "Standalone\obj_cuda" mkdir "Standalone\obj_cuda"
 set "GITSHA=unknown"
 for /f "usebackq tokens=*" %%g in (`git -C "%ROOT%" rev-parse --short HEAD 2^>nul`) do set "GITSHA=%%g"
 
-cl /nologo /EHsc /std:c++17 /O2 /MD /utf-8 /DEIGEN_MPL2_ONLY /DFRAMECORE_SUPERNODAL=1 /DFRAMECORE_CUDA=1 /DFRAMECORE_BUILD_SHA=\"!GITSHA!\" ^
+cl /nologo /EHsc /std:c++17 /O2 /MD /utf-8 /openmp /DEIGEN_MPL2_ONLY /DFRAMECORE_SUPERNODAL=1 /DFRAMECORE_CUDA=1 /DFRAMECORE_BUILD_SHA=\"!GITSHA!\" ^
    /Fe:Standalone\frametest_cuda.exe ^
    /Fo:Standalone\obj_cuda\ ^
    /I"%EIGEN%" ^

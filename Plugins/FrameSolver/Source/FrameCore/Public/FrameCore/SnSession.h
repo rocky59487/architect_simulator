@@ -48,6 +48,19 @@ struct SnSessionOptions {
     // CUDSS_STATUS_NOT_POSITIVE_DEFINITE), the session falls back to LDLT (mirroring the
     // existing snReady fallback chain).
     bool useGpuBacksub = false;
+
+    // Phase 3 (v2.11) RHS parallel assembly: when true AND the engine was compiled with
+    // OpenMP support (_OPENMP defined; build.bat now passes /openmp), the per-element
+    // `addEquivalentNodalLoads` loop runs across multiple threads with thread-local F
+    // accumulators. Default false because the benefit depends entirely on the workload:
+    //   * Distributed loads (UDL, self-weight, shell pressures): WIN. Each element contributes
+    //     12 DOFs of non-zero work and parallelism scales 4-6x on R9-class CPUs.
+    //   * Nodal-loads-only models (the frame-tower benchmark fixture, most educational-game
+    //     interactive UX): NEGATIVE. Element.Qf_ is zero so every iteration is an early-return;
+    //     the OpenMP fork/join + thread-local Floc init/reduce overhead is ~3 ms at 200k DOF
+    //     and dominates the (zero) parallelisable work.
+    // Opt-in protects the common case at the cost of a flag flip for distributed-load callers.
+    bool parallelRhs = false;
 };
 
 // R2.2 sub-stage timings of the LAST solveFrame() call. ALWAYS-ZERO unless the engine

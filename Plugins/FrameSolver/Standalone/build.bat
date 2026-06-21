@@ -47,7 +47,7 @@ if "!SUPERNODAL!"=="1" goto :build_sn_on
 goto :build_sn_off
 
 :build_sn_on
-cl /nologo /EHsc /std:c++17 /O2 /MD /utf-8 /DEIGEN_MPL2_ONLY /DFRAMECORE_SUPERNODAL=1 /DFRAMECORE_BUILD_SHA=\"!GITSHA!\" ^
+cl /nologo /EHsc /std:c++17 /O2 /MD /utf-8 /openmp /DEIGEN_MPL2_ONLY /DFRAMECORE_SUPERNODAL=1 /DFRAMECORE_BUILD_SHA=\"!GITSHA!\" ^
    /Fe:Standalone\frametest.exe ^
    /Fo:Standalone\obj\ ^
    /I"%EIGEN%" ^
@@ -88,7 +88,7 @@ if errorlevel 1 ( echo [build] COMPILE FAILED & popd & exit /b 1 )
 goto :build_done
 
 :build_sn_off
-cl /nologo /EHsc /std:c++17 /O2 /MD /utf-8 /DEIGEN_MPL2_ONLY /DFRAMECORE_SUPERNODAL=0 /DFRAMECORE_BUILD_SHA=\"!GITSHA!\" ^
+cl /nologo /EHsc /std:c++17 /O2 /MD /utf-8 /openmp /DEIGEN_MPL2_ONLY /DFRAMECORE_SUPERNODAL=0 /DFRAMECORE_BUILD_SHA=\"!GITSHA!\" ^
    /Fe:Standalone\frametest.exe ^
    /Fo:Standalone\obj\ ^
    /I"%EIGEN%" ^
