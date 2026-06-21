@@ -26,7 +26,7 @@
 #     `-RequireOpenSees`, missing OpenSeesPy is a gate failure rather than a soft skip.
 param(
     [switch]$RequireOpenSees,       # CI: fail (not skip) when openseespy is absent
-    [int]$ExpectedUeTests = 57,      # guard against silently running only a subset (S10 +1; supernodal opt-in +1; SnSession +1; shell K_sigma buckling +1; shell CR rotation invariance +1; warped MITC4 admit +1; shell knockdown +1; shell curvature guard +1) -- v2.1 audit DHL-NEW-2/BLDG SLV-NEW-4 fix
+    [int]$ExpectedUeTests = 58,      # v2.11 Phase 7: +1 for FFrameCoreGpuBacksubTest (UE F67 mirror). Previously 57: S10 +1; supernodal opt-in +1; SnSession +1; shell K_sigma buckling +1; shell CR rotation invariance +1; warped MITC4 admit +1; shell knockdown +1; shell curvature guard +1.
     [string]$Root = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path,
     [string]$Engine = $env:UE_ENGINE_ROOT,
     [string]$UProject = ''
