@@ -1,5 +1,11 @@
 # S5–S11 階段骨架(研究結論依據;下輪逐階段升級為交接級 spec)
 
+> **⚠ 命名衝突 disambiguation (v3.1.0+):** 本檔的 §S11 仍指原始的 MITC9i 高階殼計畫(殿後)。
+> **v3.1.0 已把 S11 編號 reused 給 stress-field 視覺化後處理(`computeStressField`),正式
+> spec 在 [`S11_stress_field.md`](S11_stress_field.md)。** 兩者皆叫「S11」是歷史記法的延續;
+> 接手 owner 看到 README docs map / RELEASE notes 提及「S11」時預設指 stress-field;
+> 本檔的 MITC9i §S11 是研究階段的 placeholder,正式啟動時建議改名 S12(v3.1.0 audit E-13
+> 已 flagged 為 deferred)。
 > 完成等級:骨架 = 目標/路線已由研究輪定案、oracle 構想成形;動工前該階段須先補滿
 > S1–S4 同款十項規格。研究依據:`docs/research/WS_*.md` + `WS_R2_experiments.md`。
 

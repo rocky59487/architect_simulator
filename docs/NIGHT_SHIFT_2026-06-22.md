@@ -205,6 +205,97 @@
 
 > Phase 結束剩餘 budget 時做的 research / docs / stability 工作。每項 1-2 句,連結到產出檔。
 
+### Phase 6 post-release strengthening (user's pre-sleep reminder: don't end too early)
+
+User asked for continuous strengthening + scenario testing after v3.2.0 release. Spawned
+Phase 6a-6d as post-release work; all four passed cleanly.
+
+#### Phase 6a — 3 new BP marshal scenarios (62 → 65 UE tests)
+
+Added three marshal-layer tests in `Plugins/FrameSolver/Source/FrameCoreUE/Private/Tests/`,
+each builds the fixture inline (no FrameCore-private header dep) and verifies
+`FrameCoreUE::ToBlueprint` against the engine POD:
+
+1. **`FFrameCoreUEMarshalSSBeamTest`** — F2 simply-supported beam under UDL (2 members,
+   3 nodes). Verifies 2-member-trace USTRUCT shape; governing member id >= 0; BP
+   sigmaCompMax matches POD rel<1e-5 at worst sample; UDL-induced Vy field marshals
+   (non-zero internal force); `governingShellId == -1` for member-only model.
+2. **`FFrameCoreUEMarshalShellPlateTest`** — F69 clamped 2x2 plate (4 shells, n=2,
+   side=1000mm, t=10mm, q=0.01 MPa). Verifies `ShellsTop` + `ShellsBot` both
+   populate with 4 layers; each layer has Center + 4 Corners; `bIsTopLayer` differentiates
+   correctly; ShellId preserved from engine; VonMises marshal rel<1e-5; `governingShellId >= 0`;
+   `governingMemberId == -1` for shell-only model.
+3. **`FFrameCoreUEMarshalMultiMemberTest`** — 3-segment cantilever with USER-SET member
+   IDs 100/200/300 (instead of default 0/1/2). Verifies MemberId field carries user IDs
+   (NOT array index), MemberIdx tracks array index separately, `GoverningMemberId == 100`
+   (the root member, real user ID — proves the engine writes the real ID, not the
+   ambiguous-with-sentinel `0`).
+
+**Build + automation:** rebuild incremental 7.79s; UE automation 65/65 EXIT 0; all 3 new
+tests `Test Completed. Result={成功}`.
+
+**Lessons:** Marshal layer is well-covered now — single-member / multi-member / shell-only
+/ user-set IDs all verified. Test gap remaining: a model where NO member governs (engine
+0-sentinel scenario) is the U-07 BLOCKER fixture that needs the engine fix first.
+
+#### Phase 6b — Packaged build smoke (FrameCoreUE non-editor compile path)
+
+3-agent audit B-MEDIUM finding was "FrameCoreUE.uplugin Type should be 'Editor' not
+'Runtime'". I rejected as false positive because USTRUCT + UBlueprintFunctionLibrary need
+to be in packaged builds. **Phase 6b proves the rejection was correct.**
+
+Built `ArchSim` (non-editor) target with `Build.bat ArchSim Win64 Development -project=...`:
+**Build exit 0 in 57.74s; `ArchSim.exe` + `ArchSim.lib` + `ArchSim.exp` produced**.
+
+The packaged build links FrameCoreUE.dll cleanly, which means:
+- USTRUCT + library compile into packaged-game (BP runtime can use them)
+- `#if WITH_EDITOR` regions (Slate panel + tab spawner + WorkspaceMenuStructure dep) are
+  properly compile-elided
+- `Type="Runtime"` is the **correct** classification (the audit finding's premise — "code is
+  almost entirely #if WITH_EDITOR" — was wrong; only the panel + spawner are editor-only)
+
+Saved log: `Saved/Logs/phase6b_packaged_build.log`.
+
+#### Phase 6c — Stability stress (3x repeat 五腿 gate)
+
+Ran `Scripts/run_gate.ps1 -RequireOpenSees` three times back-to-back:
+
+| Iteration | Exit | Wall-clock (s) |
+|---|---|---|
+| 1 | 0 (PASS) | 353.9 |
+| 2 | 0 (PASS) | 352.0 |
+| 3 | 0 (PASS) | 351.4 |
+
+**All 3 iterations PASS** with **65/65 UE tests** every time. Timing drift = 2.5s = **0.7%**
+(very stable; no JIT/cache warm-up artifacts). No flaky tests detected.
+
+This is a strong end-state validation: v3.2.0 + Phase 6a strengthening is deterministic and
+production-stable.
+
+Saved logs: `Saved/Logs/phase6c_stress_{1,2,3}.log`.
+
+#### Phase 6d — Apply safer NIGHT_SHIFT §5 sweep findings (doc topology)
+
+Applied 6 doc-only changes from the 14 deferred idle-time sweep findings — the doc topology
+ones that don't touch build/CI/source:
+
+- `docs/README.md` stage table — added S11 (v3.1.0 stress field) + FrameCoreUE (v3.2.0)
+  rows; updated the `S5_S11_skeletons.md` history entry to note S11's reuse
+- `docs/README.md` external bridges section — updated "v2.8.1 audit confirmed 16 capabilities"
+  to "v3.2.0 audit confirmed 23 capabilities incl. inspect.stress_field"
+- `docs/ARCHITECTURE.md` §5b — added a paragraph cross-referencing v3.2.0 FrameCoreUE as the
+  consumer-side module; lists USTRUCT mirror + library + Slate panel + 5 marshal tests
+- `Plugins/FrameSolver/Standalone/build_capi_v2.bat` — modernised the comment block (B2 stub
+  → B3 wire migration historical, now stable; adds v3.2.0 dispatcher state)
+- `docs/specs/S5_S11_skeletons.md` — added 1-line disambiguation banner at top clarifying
+  that v3.1.0 reused "S11" for stress-field post-process, while this skeleton's §S11 is the
+  original MITC9i higher-order shell idea (deferred E-13 carry-forward)
+
+Remaining 8 sweep findings still deferred (build .bat UE_5.7 fallback / HANDOFF absolute
+paths / `E:/project/CLAUDE.md` out-of-tree anchor / gate-logs policy / run_gate.ps1 FAIL
+echo / 2 NITs / U-07 engine BLOCKER) — all need user triage or are engine-source rule #1
+blocked.
+
 ### Repo-wide light hygiene sweep (1 general-purpose agent)
 
 Plan §6 沒事做時優先序 #5 "release-hardening skill 做 deep audit"。Spawn 1 general-purpose

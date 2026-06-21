@@ -253,6 +253,20 @@ their D/C governing element matches bit-exact, so the design-check and the visua
 cannot drift. No Eigen, no UE coupling; the renderer (UE5 spline mesh / Niagara colour band /
 Rhino GH / a CLI dump) is consumer-side. Spec: [`docs/specs/S11_stress_field.md`](specs/S11_stress_field.md).
 
+**v3.2.0 consumer-side UE module (`FrameCoreUE`)**: The first UE-side reflection layer for
+`computeStressField` is shipped at `Plugins/FrameSolver/Source/FrameCoreUE/`. It exposes 5
+`USTRUCT(BlueprintType)` mirrors of the POD types (FFrameStressField / FFrameMemberStressTrace
+/ FFrameStressFieldSample / FFrameShellStressLayer / FFrameShellStressPoint, all
+BlueprintReadOnly, double→float lossy cast), a `UBlueprintFunctionLibrary`
+(`UFrameCoreStressFieldLibrary::ComputeCantileverFixture` + BP pure accessors), and an
+editor-only Slate panel (`SFrameCoreStressFieldPanel`, `#if WITH_EDITOR`) registered as a
+nomad tab under WorkspaceMenu/Tools. Engine source under `Plugins/FrameSolver/Source/FrameCore/`
+remains untouched (rule #1; `git diff v3.1.0..HEAD -- ...FrameCore/` is empty). 5 UE marshal
+tests (`FrameCore.UE.*`) cover the cantilever / SS beam UDL / clamped plate shell /
+multi-member governing scenarios. See [`docs/RELEASE_v3.2.0.md`](RELEASE_v3.2.0.md) and
+[`docs/HANDOFF_v3.2.0.md`](HANDOFF_v3.2.0.md) for details and the carry-forward U-07 BLOCKER
+(engine-0 vs USTRUCT--1 sentinel mismatch, requires engine source edit, deferred to v3.3).
+
 ---
 
 ## 6. Grillage idealization (`Grillage.h`) — the continuous-surface approximation

@@ -30,6 +30,8 @@
 | S9b 3D 通用 co-rotational | [`PROGRESS_S9b.md`](PROGRESS_S9b.md) | [`specs/S9b_corotational3d.md`](specs/S9b_corotational3d.md) |
 | S9c 弧長 snap-through 收尾 | [`PROGRESS_S9c.md`](PROGRESS_S9c.md) | [`specs/S9c_arclength.md`](specs/S9c_arclength.md) |
 | S10 N–M 互動塑鉸 | [`PROGRESS_S10.md`](PROGRESS_S10.md) | [`specs/S10_nm_interaction.md`](specs/S10_nm_interaction.md) |
+| S11 視覺化應力場後處理(v3.1.0;`computeStressField`) | (整入 `VERIFICATION.md` §1.6 + RELEASE notes) | [`specs/S11_stress_field.md`](specs/S11_stress_field.md) |
+| FrameCoreUE UE 反射層(v3.2.0;USTRUCT mirror + BP library + Slate panel) | (no PROGRESS — 整入 `RELEASE_v3.2.0.md` + `HANDOFF_v3.2.0.md`) | [`RELEASE_v3.2.0.md`](RELEASE_v3.2.0.md) |
 | R 線 自建 supernodal direct lane(opt-in;非 S 主線) | [`PROGRESS_R_supernodal.md`](PROGRESS_R_supernodal.md) | `VERIFICATION.md` §3.8 |
 
 S 系列之前的線性套件(8 段)與崩塌 C 線(6 階段)沒有獨立 PROGRESS 檔——其能力、oracle 與
@@ -42,7 +44,7 @@ S 系列之前的線性套件(8 段)與崩塌 C 線(6 階段)沒有獨立 PROGRE
 | [`IMPLEMENTATION_PLAN.md`](IMPLEMENTATION_PLAN.md) | 2026-06-10 研究輪收斂出的開發計畫(S1–S11 的原始目標/驗收定義);主線 S1–S10 已全部完成 |
 | [`KARAMBA3D_ROADMAP.md`](KARAMBA3D_ROADMAP.md) | 對標研究主報告(對標事實、novelty 先行技術定位、宣稱紀律) |
 | [`research/WS_*.md`](research/) | 研究輪文獻查證與可重跑實驗(`WS_R2_experiments.md`) |
-| [`specs/S5_S11_skeletons.md`](specs/S5_S11_skeletons.md) | S5–S11 規格骨架(S5–S10 已被正式 spec 取代;S11 仍是骨架) |
+| [`specs/S5_S11_skeletons.md`](specs/S5_S11_skeletons.md) | S5–S11 規格骨架(S5–S10 + S11 stress field 都已被正式 spec 取代:S11 走 `specs/S11_stress_field.md`,v3.1.0 落地) |
 | `AGENT_PROMPT_S2_S4.md` / `AGENT_PROMPT_S9.md` / `AGENT_PROMPT_S5_S11.md` | 各開發輪的 agent 工作提示詞(檔首已標歷史狀態) |
 
 > 慣例:史料**不回頭改寫內文**(保留當時的狀態數字與判斷),只在檔首加狀態 banner。
@@ -62,7 +64,10 @@ S 系列之前的線性套件(8 段)與崩塌 C 線(6 階段)沒有獨立 PROGRE
 > → **B3 (engine wire,v2.5,12 method handler 接 FrameCore)** → **B4 (async dispatcher,v2.6)** →
 > **B5 / B5.2 (factor reuse + reanalysis_solve,v2.5/v2.6 shape;session-cache routing 仍 deferred 至 v2.9)**
 > → **B6 placeholder (model.patch schema 待定)** → **B7 GHA dotnet build (環境依賴,deferred)**。
-> 當前 v2.8.1 audit 確認:**16 wired capabilities + `transport.async` + `dyn_collapse.live` + C-09/C-10 supernodal guard**。
+> 當前 v3.2.0 audit 確認:**23 advertised capabilities**(`hello.capabilities` 廣告含 `transport.async`、
+> `dyn_collapse.live`、`inspect.stress_field` (v3.1.0 加)、所有 analysis.* / solve.* / inspect.* /
+> session / cancel / model.set / profile.*)+ C-09/C-10 supernodal guard 仍生效;
+> `Tools/v2_roundtrip.py` 為 6th 個 CI gate leg。
 
 | 文件 | 性質 |
 |---|---|

@@ -1,15 +1,21 @@
 @echo off
-REM Builds frame_capi_v2.dll (S6b B2 dispatcher + S6b/B3 method handlers wired to FrameCore).
+REM Builds frame_capi_v2.dll (the v2 framed-JSON dispatcher + FrameCore engine for B3 wired
+REM method handlers). The CPU lane companion to build_capi_v2_cuda.bat (CUDA-enabled DLL).
 REM
-REM SCOPE (B3 wire level)
-REM   B2 stub level shipped without engine linkage; B3 links the full FrameCore translation-unit
-REM   set (mirrors build_capi.bat for v1) so dispatcher handlers can call frame::solve / SnSession /
-REM   etc. The build STAYS independent of build.bat / build_capi.bat -- only the SOURCE list overlaps.
+REM SCOPE (stable since v3.x; historical B2 stub -> B3 engine wire transition completed in v2.5)
+REM   Links the full FrameCore translation-unit set (mirrors build_capi.bat for v1) so the
+REM   dispatcher can call frame::solve / SnSession / computeStressField / etc. Stays
+REM   independent of build.bat / build_capi.bat -- only the SOURCE list overlaps.
 REM
-REM   SUPERNODAL lane is conditional (mirrors build.bat): when conda OpenBLAS/METIS env is present,
-REM   FRAMECORE_SUPERNODAL=1 and the v2 session.open `mode: "supernodal"` path (B5) can build. Without
-REM   conda, FRAMECORE_SUPERNODAL=0 and SnSolver/SnSession fall back to LDLT (still produces a v2 DLL
-REM   that links + dispatches; just no supernodal speedup).
+REM   SUPERNODAL lane is conditional (mirrors build.bat): when conda OpenBLAS/METIS env is
+REM   present, FRAMECORE_SUPERNODAL=1 and the v2 session.open `mode: "supernodal"` path can
+REM   build. Without conda, FRAMECORE_SUPERNODAL=0 and SnSolver/SnSession fall back to LDLT
+REM   (still produces a v2 DLL that links + dispatches; just no supernodal speedup).
+REM
+REM   As of v3.2.0 the v2 dispatcher advertises 23 capabilities (incl. inspect.stress_field
+REM   added in v3.1.0); `Tools/v2_roundtrip.py` is the 6th gate leg. v3.2 source delta did
+REM   NOT touch the dispatcher (engine source under Plugins/FrameSolver/Source/FrameCore/
+REM   was kept bit-identical to v3.1.0); only kEngineVer in Dispatcher.h moved 3.1.0 -> 3.2.0.
 
 setlocal enabledelayedexpansion
 set "ROOT=%~dp0.."
