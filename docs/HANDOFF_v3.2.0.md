@@ -238,6 +238,8 @@ naming, C-12 cancel poll, F-02 findUdl hash map, F-03 clamps invariant doc。
 ---
 
 接手有問題:
+- 5-min 入手指南: [`docs/FrameCoreUE_QuickStart.md`](FrameCoreUE_QuickStart.md)(v3.2.0 post-tag
+  Phase 6 寫的;適合新 contributor)
 - `docs/HANDOFF.md` → `docs/HANDOFF_v2.11.1.md` → `docs/HANDOFF_v3.1.0.md` → 本檔 →
   `docs/RELEASE_v3.2.0.md`
 - S11 / StressField 問題讀 [`docs/specs/S11_stress_field.md`](specs/S11_stress_field.md)

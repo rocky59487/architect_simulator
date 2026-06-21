@@ -359,6 +359,31 @@ This is the engine-native LDLT path (the supernodal lane fires on much larger DO
 v3.2.0 source delta in engine numerics is 0 lines vs v3.1.0; this baseline is therefore the
 same v3.1.0 number, recorded here for handoff completeness.
 
+#### Phase 6g — final 5-leg + v2_roundtrip combo (production-ready at 69/69)
+
+After all Phase 6 strengthening landed, ran one more full verification combo:
+
+- **5-leg gate** `GATE: PASS` — standalone F1..F70 / UE **69/69** / OpenSees / audit 104
+  / CLI 13 all green; saved `Saved/Logs/phase6_final_gate.log`
+- **v2_roundtrip CPU** `=== summary: ALL PASS ===` — capabilities list intact (still 23
+  including `inspect.stress_field`), `kEngineVer=3.2.0` pin enforced
+
+This is the post-Phase-6 production-ready snapshot: 69 UE tests + 5-leg + v2 dispatcher
+all green at HEAD `2e96104` (Phase 6f commit; Phase 6g is just verification).
+
+#### Phase 6h — FrameCoreUE Quick-Start doc for new contributors
+
+Wrote `docs/FrameCoreUE_QuickStart.md` covering:
+- What FrameCoreUE is (USTRUCT mirrors + library + editor panel)
+- 3 use cases (Blueprint graph / Editor panel / native C++ module)
+- Precision budget table (engine 1e-12 → USTRUCT 1e-5 cast → analytic 1e-4 → near-zero
+  abs diff)
+- What is NOT in v3.2.0 (U-01 / U-02 / U-03 / U-05 / U-07 deferred)
+- Verification matrix snapshot (69 UE tests + 5 legs + v2 roundtrip all green)
+
+Linked from `docs/README.md` stage table and `docs/HANDOFF_v3.2.0.md` follow-up section
+so new contributors hit it before the formal RELEASE notes.
+
 ### Net Phase 6 outcome
 
 UE test count: v3.2.0 tag shipped at 62 → +Phase 6a (3 marshal) → 65 → +Phase 6e (spawner

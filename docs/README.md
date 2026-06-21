@@ -31,7 +31,7 @@
 | S9c 弧長 snap-through 收尾 | [`PROGRESS_S9c.md`](PROGRESS_S9c.md) | [`specs/S9c_arclength.md`](specs/S9c_arclength.md) |
 | S10 N–M 互動塑鉸 | [`PROGRESS_S10.md`](PROGRESS_S10.md) | [`specs/S10_nm_interaction.md`](specs/S10_nm_interaction.md) |
 | S11 視覺化應力場後處理(v3.1.0;`computeStressField`) | (整入 `VERIFICATION.md` §1.6 + RELEASE notes) | [`specs/S11_stress_field.md`](specs/S11_stress_field.md) |
-| FrameCoreUE UE 反射層(v3.2.0;USTRUCT mirror + BP library + Slate panel) | (no PROGRESS — 整入 `RELEASE_v3.2.0.md` + `HANDOFF_v3.2.0.md`) | [`RELEASE_v3.2.0.md`](RELEASE_v3.2.0.md) |
+| FrameCoreUE UE 反射層(v3.2.0;USTRUCT mirror + BP library + Slate panel) | 入手 5-min 指南 [`FrameCoreUE_QuickStart.md`](FrameCoreUE_QuickStart.md) | [`RELEASE_v3.2.0.md`](RELEASE_v3.2.0.md) |
 | R 線 自建 supernodal direct lane(opt-in;非 S 主線) | [`PROGRESS_R_supernodal.md`](PROGRESS_R_supernodal.md) | `VERIFICATION.md` §3.8 |
 
 S 系列之前的線性套件(8 段)與崩塌 C 線(6 階段)沒有獨立 PROGRESS 檔——其能力、oracle 與
