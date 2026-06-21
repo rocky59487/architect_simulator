@@ -384,17 +384,40 @@ Wrote `docs/FrameCoreUE_QuickStart.md` covering:
 Linked from `docs/README.md` stage table and `docs/HANDOFF_v3.2.0.md` follow-up section
 so new contributors hit it before the formal RELEASE notes.
 
+#### Phase 6 closeout — axial column F4 fixture diversity (69 → 70 UE tests)
+
+Final fixture-diversity test exercising a geometry orientation NOT covered by any other
+existing UE marshal test:
+
+**`FFrameCoreUEAxialColumnTest`** (`FrameCore.UE.AxialColumnTest`) — F4 vertical column
+(node0 encastre, node1 at (0,0,h), tip load P downward). Exercises the **refVec(0,0,1)
+degeneracy fallback** (member axis along +Z is collinear with the default refVec, so the
+engine's fallback ordering picks a different local basis). Verifies:
+- |N| constant along member (rel<1e-4 between samples 0/5 and 5/10)
+- |N| ≈ P (rel<1e-3)
+- Vy / Vz / Mz ≈ 0 at midspan (pure axial, no bending)
+- Shell sentinels stay -1 (member-only)
+
+Rebuild incremental 9.94s; UE automation **70/70 EXIT 0**; AxialColumnTest `Result={成功}`.
+`$ExpectedUeTests` bumped 69 → 70; non-cuDSS recommendation 67 → 68.
+
 ### Net Phase 6 outcome
 
 UE test count: v3.2.0 tag shipped at 62 → +Phase 6a (3 marshal) → 65 → +Phase 6e (spawner
-+ robustness) → 67 → +Phase 6f (theta + zero-load) → **69 UE tests**, all green. Plus the
-v3.2 deferred **U-04** moved from "deferred to v3.3" to "CLOSED in v3.2 post-tag" (live
-TabSpawner sanity test). Coverage extends to: single/multi-member traces, shell layers,
-shell principal angles, user-set member IDs, negative-input contracts, zero-load edge,
-20-member scaling, 100x repeat memory stability, packaged-build compile path, nomad tab
-spawner registration, theta range invariant. Stability stress 3x clean (drift 0.7%). 6 doc
-topology cleanups applied from the broader idle-time sweep. 1 durable lesson added
-(`check` lambda vs UE macro collision).
++ robustness) → 67 → +Phase 6f (theta + zero-load) → 69 → +Phase 6 closeout (axial column)
+→ **70 UE tests**, all green. The v3.2 deferred **U-04** moved from "deferred to v3.3" to
+"CLOSED in v3.2 post-tag" (live TabSpawner sanity test). Coverage extends to:
+single/multi-member traces, shell layers, shell principal angles, user-set member IDs,
+negative-input contracts, zero-load edge, 20-member scaling, 100x repeat memory stability,
+packaged-build compile path, nomad tab spawner registration, theta range invariant, vertical
+axial column refVec fallback. Stability stress 3x clean (drift 0.7%). 6 doc topology cleanups
+applied from the broader idle-time sweep. 1 durable lesson added (`check` lambda vs UE macro
+collision). 1 quick-start guide for new contributors (`docs/FrameCoreUE_QuickStart.md`).
+
+**Final post-tag verification snapshot** (`bceo2k2g7` background task):
+- 5-leg gate: standalone F1..F70 / UE **70/70** / OpenSees / audit 104 / CLI 13 — `GATE: PASS`
+- v2_roundtrip CPU: `=== summary: ALL PASS ===` (23 capabilities incl. `inspect.stress_field`)
+- HEAD `2250926` is production-ready.
 
 ### Repo-wide light hygiene sweep (1 general-purpose agent)
 
