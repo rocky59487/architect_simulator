@@ -42,6 +42,7 @@ __pycache__/
 output/
 _audit*.log
 _scratch*.log
+dist/
 
 # OS cruft
 Desktop.ini
