@@ -67,7 +67,7 @@ jobs:
           tar -xzf eigen.tar.gz
           echo "EIGEN_DIR=$pwd\eigen-3.4.0" | Out-File -FilePath $env:GITHUB_ENV -Append
 
-      - name: Leg 1 - standalone F1..F70 (v3.1.0: + F68/F69/F70 S11 stress field)
+      - name: "Leg 1 - standalone F1..F70 (v3.1.0 + F68/F69/F70 S11 stress field)"
         id: standalone
         shell: cmd
         run: |
