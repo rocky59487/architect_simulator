@@ -1,7 +1,7 @@
 {
     "FileVersion": 3,
-    "Version": 29,
-    "VersionName": "3.1.0",
+    "Version": 30,
+    "VersionName": "3.2.0",
     "FriendlyName": "FrameSolver",
     "Description": "Beam-column structural mechanics core (3D direct stiffness, Eigen). Engine-agnostic FrameCore module.",
     "Category": "Structural",
@@ -17,6 +17,11 @@
     "Modules": [
         {
             "Name": "FrameCore",
+            "Type": "Runtime",
+            "LoadingPhase": "Default"
+        },
+        {
+            "Name": "FrameCoreUE",
             "Type": "Runtime",
             "LoadingPhase": "Default"
         }

@@ -79,12 +79,17 @@ inline constexpr uint32_t kAbiVersion   = 2;
 // constant was never bumped for v2.6 or v2.7 -- hello.response.version reported "2.5.0"
 // for two full releases. Wire ABI is still 2 (unchanged); kEngineVer is the human-facing
 // engine string clients use for capability/version negotiation.
+// v3.2.0: FrameCoreUE reflection module — added UE-side USTRUCT mirrors of frame::StressField
+// + UBlueprintFunctionLibrary (UFrameCoreStressFieldLibrary::ComputeCantileverFixture) +
+// editor Slate panel (SFrameCoreStressFieldPanel). Engine numerics and v2 dispatcher schema
+// are unchanged vs 3.1.0 (zero edits under Plugins/FrameSolver/Source/FrameCore/); the
+// bump reflects a new UE-side consumer surface so clients can capability-gate / version-pin
+// the matching FrameCoreUE.dll. v2 capability list unchanged.
+//
 // v3.1.0 (S11): added inspect.stress_field capability + per-fiber / per-shell-corner
-// stress sampling. Engine numerics are unchanged vs 3.0.1 (StressKernel.h is the
-// single source of truth shared with ElasticAllowable, F70 D/C interlock bit-exact);
-// the bump reflects a new advertised capability so clients can capability-gate the
-// new inspect verb.
-inline constexpr const char* kEngineVer = "3.1.0";
+// stress sampling. Engine numerics unchanged vs 3.0.1 (StressKernel.h is the single
+// source of truth shared with ElasticAllowable, F70 D/C interlock bit-exact).
+inline constexpr const char* kEngineVer = "3.2.0";
 inline constexpr const char* kSchemaVer = "2026.06";
 
 enum class Profile { Simple, Advanced };

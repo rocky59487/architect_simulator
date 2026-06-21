@@ -24,12 +24,12 @@ Plugins\FrameSolver\Standalone\build.bat
 | Leg | What runs | Count | What it proves |
 |---|---|---|---|
 | 1. Standalone | `frametest.exe` (fixtures **F1..F70** default / **F1..F70 + F67s** in CUDA build, built UE-free) | `ALL PASS (failures=0)` | every capability against analytic / literature / invariance oracles, on the pure-C++ build. F67 is a smoke fixture (tolerates silent CPU fallback for dev-box compile tests); F67s is strict (FAILS on silent fallback) and runs only when `FRAMECORE_GPU_STRICT=1` is set in the env — `Scripts\run_gpu_gate.ps1` sets it automatically when the cuDSS DLL resolves. v3.1.0 added **F68/F69/F70** (S11 stress-field oracle ladder). |
-| 2. UE automation | headless `FrameCore.*` tests | **60** tests w/ cuDSS, **58** without | UE-side mirrors of the standalone oracles across the same subsystems — the dual-build contract holds (v3.1.0 bumped 59→60 with `FFrameCoreStressFieldTest`; v2.11.1-RC bumped 58→59 with `FFrameCoreGpuBacksubStrictTest`; v2.11 Phase 7 bumped 57→58 for `FFrameCoreGpuBacksubTest`. Both GPU tests are `#if FRAMECORE_CUDA` gated so a non-cuDSS build emits 58.) |
+| 2. UE automation | headless `FrameCore.*` tests | **62** tests w/ cuDSS, **60** without | UE-side mirrors of the standalone oracles across the same subsystems — the dual-build contract holds (v3.2.0 bumped 60→62 with `FFrameCoreUEBlueprintSmokeTest` + `FFrameCoreUEEditorSmokeTest` — neither is `#if FRAMECORE_CUDA` gated so a non-cuDSS build emits 60, not 58 as in v3.1.x. v3.1.0 bumped 59→60 with `FFrameCoreStressFieldTest`; v2.11.1-RC bumped 58→59 with `FFrameCoreGpuBacksubStrictTest`; v2.11 Phase 7 bumped 57→58 for `FFrameCoreGpuBacksubTest`. Both GPU tests are `#if FRAMECORE_CUDA` gated.) |
 | 3. OpenSees | `Tools/opensees_compare.py` + `pdelta_compare.py` | strict `1e-8` default | agreement with an independent, widely-used FEM code (validation only; never linked) |
 | 4. Deep audit | `linear_deep_audit.exe` | **104** checks | independent re-derivations (sympy/numpy-sourced constants), bit-identity no-op proofs, element-spectrum oracles |
 | 5. CLI round-trip | `Tools/cli_roundtrip.py` | **13** checks | the text/daemon/C-API bridge reproduces engine results bit-for-bit and surfaces modal/dynamic precondition failures |
 
-Guard rails: `run_gate.ps1` hard-fails if fewer than `$ExpectedUeTests = 60` UE tests run (v3.1.0 bump for `FFrameCoreStressFieldTest`; 58 on non-cuDSS builds — pass `-ExpectedUeTests 58`)
+Guard rails: `run_gate.ps1` hard-fails if fewer than `$ExpectedUeTests = 62` UE tests run (v3.2.0 bump for `FFrameCoreUEBlueprintSmokeTest` + `FFrameCoreUEEditorSmokeTest`; 60 on non-cuDSS builds — pass `-ExpectedUeTests 60`)
 (catches "new test silently not compiled"); the audit prints its own check count rather than
 a hard-coded number; `-RequireOpenSees` turns a missing OpenSeesPy into a failure instead of
 a soft skip. Fixture numbering is append-only; **F41 and F60 are unassigned** (F41: S3 ended
@@ -103,7 +103,7 @@ matching the bat resolver, CI workflow). The same three gate suites stay green:
 
 | Gate | Command | What it covers |
 |---|---|---|
-| **a.** 5-leg | `Scripts\run_gate.ps1 -RequireOpenSees` | standalone + UE (default 60 with cuDSS — pass `-ExpectedUeTests 58` without) + OpenSees + deep audit + CLI |
+| **a.** 5-leg | `Scripts\run_gate.ps1 -RequireOpenSees` | standalone + UE (default 62 with cuDSS — pass `-ExpectedUeTests 60` without) + OpenSees + deep audit + CLI |
 | **b.** v2 CPU | `build_capi_v2.bat` + `python Tools\v2_roundtrip.py` | dispatcher round-trip without GPU |
 | **c.** GPU 6th | `Scripts\run_gpu_gate.ps1 -Strict` (use `-CondaEnv <path>` to override the auto-probe) | frametest_cuda F1..F67 + F67s strict + v2_roundtrip CUDA + r2_bench --gpu 90k ≤ 16.67 ms. Requires cuDSS DLLs on PATH for `-Strict`; soft-skips otherwise. |
 

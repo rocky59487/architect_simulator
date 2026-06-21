@@ -19,24 +19,35 @@ C++17-compatible; the UE module target is compiled as C++20 because of the curre
 > `v2.2+1` release packaged them together (FrameCore v2.2 + LevelSim v1.0.0). Every release
 > from `v2.3` onwards is FrameCore-only — LevelSim has not changed since `v2.2+1`.
 
-> **Status (2026-06-21, v3.1.0 — S11 stress field post-process):** the v3.0.0 STABLE anchor
-> + v3.0.1 hardening + v3.1.0's S11 visualisation numerical layer. v3.1.0 adds the new
-> `StressKernel.h` single source of truth shared between `ElasticAllowable` (D/C screen) and
-> the new `StressField` (visualisation post-process), three new standalone fixtures
-> (F68 cantilever member field, F69 clamped-plate shell layer recovery + 30° z-rotation
-> invariance, F70 D/C interlock — all bit-exact through the shared kernel), and the
-> `inspect.stress_field` v2 dispatcher capability. **Engine source delta v3.0.1..v3.1.0 = 5
-> files / ~350 lines**; `ElasticAllowable.cpp` was refactored to delegate to `StressKernel.h`
-> with bit-identical F1..F66 behaviour. On the integrator's host the **6 CPU-only legs
-> all run green against the rebuilt v3.1.0 source**: standalone F1..F70 ALL PASS,
-> **UE 60/60 ALL PASS** (incl. new `FFrameCoreStressFieldTest`), **OpenSees strict PASS**,
-> deep audit 104 PASS, CLI round-trip 13 ALL PASS, v2_roundtrip CPU ALL PASS (incl. 11
-> new `inspect.stress_field` checks). The 3 CUDA legs (`run_gpu_gate.ps1 -Strict`) are
-> reachable but were not exercised in this release session — v3.1.0 has zero source delta
-> in the CUDA path, so the v3.0.0 GPU evidence (`r2_bench --gpu 90k margin +11.939 ms`,
-> `F67s STRICT_EXECUTED` fingerprint) carries forward unchanged. See
-> [docs/RELEASE_v3.1.0.md](docs/RELEASE_v3.1.0.md) for the full reproduction matrix and
-> [docs/HANDOFF_v3.1.0.md](docs/HANDOFF_v3.1.0.md) for the next-cycle pickup guide.
+> **Status (2026-06-22, v3.2.0 — FrameCoreUE thin-slice UE reflection module):** the v3.0.0
+> STABLE anchor + v3.0.1 hardening + v3.1.0 S11 visualisation numerical layer + v3.2.0
+> UE-side reflection layer. v3.2.0 adds a new `FrameCoreUE` plugin module that exposes
+> `FRAMECORE_API computeStressField` to Blueprint designers (USTRUCT mirrors of
+> `frame::StressField`, `UFrameCoreStressFieldLibrary`) and editor dev tools (a Slate
+> utility panel `SFrameCoreStressFieldPanel` registered as a nomad tab under
+> WorkspaceMenu/Tools). **Engine source delta v3.1.0..v3.2.0 = 0 lines under
+> `Plugins/FrameSolver/Source/FrameCore/`** (engine rule #1 preserved; verified by
+> standalone F1..F70 bit-identical); v3.2 net delta is 10 new files (`FrameCoreUE/`
+> module shell + USTRUCT + library + panel + 2 smoke tests) + 4 lockstep version pins.
+> On the integrator's host the **6 CPU-only legs run green against the rebuilt v3.2.0
+> source**: standalone F1..F70 ALL PASS, **UE 62/62 ALL PASS** (incl. new
+> `FFrameCoreUEBlueprintSmokeTest` and `FFrameCoreUEEditorSmokeTest`), **OpenSees strict
+> PASS**, deep audit 104 PASS, CLI round-trip 13 ALL PASS, v2_roundtrip CPU ALL PASS
+> (`kEngineVer=3.2.0` pin enforced; capability list unchanged). The 3 CUDA legs
+> (`run_gpu_gate.ps1 -Strict`) are reachable but were not exercised in this release
+> session — v3.2.0 has zero source delta in the CUDA path, so the v3.0.0 / v3.1.0 GPU
+> evidence (`r2_bench --gpu 90k margin +11.939 ms`, `F67s STRICT_EXECUTED` fingerprint)
+> carries forward unchanged. See
+> [docs/RELEASE_v3.2.0.md](docs/RELEASE_v3.2.0.md) for the full reproduction matrix and
+> [docs/HANDOFF_v3.2.0.md](docs/HANDOFF_v3.2.0.md) for the next-cycle pickup guide.
+>
+> v3.1.0 (S11 stress-field post-process) shipped `StressKernel.h` as the single source
+> of truth shared between `ElasticAllowable` (D/C screen) and the new `StressField`
+> (visualisation post-process), plus three standalone fixtures (F68 cantilever member
+> field, F69 clamped-plate shell layer recovery + 30° z-rotation invariance, F70 D/C
+> interlock — all bit-exact through the shared kernel) and the `inspect.stress_field`
+> v2 dispatcher capability. v3.2.0 builds the UE5 consumer-side surface on top of
+> v3.1.0's `FRAMECORE_API computeStressField`.
 >
 > v3.0.0 STABLE folded five hardening items + 7-agent audit fixes on top of v2.11.1
 > (`f09a197`); v3.0.1 patches the six follow-up findings from the post-release
@@ -72,7 +83,7 @@ C++17-compatible; the UE module target is compiled as C++20 because of the curre
 >
 > 1. `Scripts\run_gate.ps1 -RequireOpenSees` exits 0
 >    (standalone F1..F70 default / F1..F70 + F67s CUDA + UE **60/60** with cuDSS,
->    **58/58** without — pass `-ExpectedUeTests 58` in the latter case; OpenSees
+>    **60/60** without — pass `-ExpectedUeTests 60` in the latter case; OpenSees
 >    strict; deep audit 104; CLI round-trip 13). Under `FRAMECORE_GPU_STRICT=1`
 >    additionally requires `[F67s_UE] STRICT_EXECUTED` fingerprint in the UE log.
 > 2. `Plugins\FrameSolver\Standalone\build_capi_v2.bat` + `python Tools\v2_roundtrip.py`
@@ -325,11 +336,11 @@ Engine\Binaries\Win64\UnrealEditor-Cmd.exe ...\ArchSim.uproject -ExecCmds="Autom
 
 > `run_gate.ps1` runs the UE automation but does **not** rebuild the UE module — rebuild
 > first (command above) after touching engine code, or the automation runs a stale binary.
-> The `$ExpectedUeTests = 60` guard catches a silently-missing test (v3.1.0 bumped
+> The `$ExpectedUeTests = 62` guard catches a silently-missing test (v3.2.0 bumped
 > 59→60 when `FFrameCoreStressFieldTest` was added; v2.11.1-RC bumped 58→59 with
 > `FFrameCoreGpuBacksubStrictTest`; v2.11 Phase 7 bumped 57→58 for
 > `FFrameCoreGpuBacksubTest`, the UE mirror of standalone F67). On a box without cuDSS
-> the two GPU tests compile out via `#if FRAMECORE_CUDA` — pass `-ExpectedUeTests 58`.
+> the two GPU tests compile out via `#if FRAMECORE_CUDA` — pass `-ExpectedUeTests 60`.
 
 **Try the engine without writing C++** — the text bridge solves a model from stdin:
 
@@ -394,7 +405,7 @@ Plugins/FrameSolver/
                                         collapse, reanalysis, corotational, optimization)
     Private/*.cpp                       implementation (+ Private/FrameEigen.h: the single
                                         Eigen include site, dual-build guarded)
-    Private/Tests/*.cpp                 60 UE automation tests w/ cuDSS, 58 without (UE-side oracle mirrors)
+    Private/Tests/*.cpp                 62 UE automation tests w/ cuDSS, 60 without (UE-side oracle mirrors)
   Standalone/                           console gates + CLI/C-API drivers (see its README)
   Grasshopper/                          C# reference client for the text bridge
 Scripts/run_gate.ps1                    the one-click five-leg gate
