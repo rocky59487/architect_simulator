@@ -84,6 +84,14 @@ struct SnSession::Impl {
     // cost is ~74ms (Research/R2_realtime_150k profile). The fingerprint guard keeps nodes stable
     // for the session lifetime, so a one-shot rebuild covers all subsequent solveFrame() calls.
     std::unordered_map<NodeId, int> nodeIdToIdx;
+    // Phase 3' (v2.11): at session ctor we run the per-element addEquivalentNodalLoads loop
+    // ONCE on a scratch vector to detect whether ANY element contributes a non-zero Q_f. If
+    // every element ends up with Q_f == 0 (frame tower / nodal-loads-only fixtures = the
+    // educational-game interactive UX), per-frame solveFrame skips the entire loop. Element
+    // Q_f is a model property and the fingerprint guard guarantees stability across calls.
+    // Skip is bit-equivalent: F unchanged.
+    bool qfAllZero = false;
+    bool qfDetected = false;
 
 #if defined(FRAMECORE_CUDA) && FRAMECORE_CUDA
     // R2.3: cuDSS GPU lane state. Built at ctor when opts.useGpuBacksub == true. All-null when
@@ -414,31 +422,41 @@ SolveResult SnSession::solveFrame(const FrameModel& model) {
         for (int d = 0; d < 6; ++d) F(gdof(ni, d)) += nl.comp[d];
     }
     SN_TIME_BEGIN(rhsEq);
+    // Phase 3' (v2.11): one-shot Qf-detection at first solveFrame; skip the entire element
+    // loop forever after when every element's distributed-load contribution is zero. The
+    // detection itself runs the loop ONCE on a scratch buffer, so the first call pays the
+    // same eq-stage cost as before — every subsequent call is free.
+    if (!p_->qfDetected) {
+        VecX Ftest = VecX::Zero(N);
+        for (const auto& el : S.elems) el->addEquivalentNodalLoads(Ftest);
+        p_->qfAllZero  = Ftest.isZero(0);
+        p_->qfDetected = true;
+        if (!p_->qfAllZero) F += Ftest;     // reuse the work we already paid for
+    } else if (!p_->qfAllZero) {
 #ifdef _OPENMP
-    // Phase 3 (v2.11) parallel RHS path, gated on opts.parallelRhs to protect the common
-    // nodal-loads-only fixture (Qf_=0 elements; OpenMP fork/join overhead beats the work).
-    if (p_->opts.parallelRhs) {
-        const int nThreads = std::max(1, std::min(8, (int)S.elems.size() / 4096));
-        if (nThreads <= 1) {
-            for (const auto& el : S.elems) el->addEquivalentNodalLoads(F);
-        } else {
-            std::vector<VecX> Floc(nThreads, VecX::Zero(N));
-            const long ne = static_cast<long>(S.elems.size());
-            #pragma omp parallel num_threads(nThreads)
-            {
-                const int tid = omp_get_thread_num();
-                VecX& Ft = Floc[tid];
-                #pragma omp for nowait schedule(static)
-                for (long e = 0; e < ne; ++e) S.elems[(size_t)e]->addEquivalentNodalLoads(Ft);
+        if (p_->opts.parallelRhs) {
+            const int nThreads = std::max(1, std::min(8, (int)S.elems.size() / 4096));
+            if (nThreads <= 1) {
+                for (const auto& el : S.elems) el->addEquivalentNodalLoads(F);
+            } else {
+                std::vector<VecX> Floc(nThreads, VecX::Zero(N));
+                const long ne = static_cast<long>(S.elems.size());
+                #pragma omp parallel num_threads(nThreads)
+                {
+                    const int tid = omp_get_thread_num();
+                    VecX& Ft = Floc[tid];
+                    #pragma omp for nowait schedule(static)
+                    for (long e = 0; e < ne; ++e) S.elems[(size_t)e]->addEquivalentNodalLoads(Ft);
+                }
+                for (int t = 0; t < nThreads; ++t) F += Floc[t];
             }
-            for (int t = 0; t < nThreads; ++t) F += Floc[t];
+        } else {
+            for (const auto& el : S.elems) el->addEquivalentNodalLoads(F);
         }
-    } else {
-        for (const auto& el : S.elems) el->addEquivalentNodalLoads(F);
-    }
 #else
-    for (const auto& el : S.elems) el->addEquivalentNodalLoads(F);
+        for (const auto& el : S.elems) el->addEquivalentNodalLoads(F);
 #endif
+    }
     SN_TIME_END(rhsEq, p_->lastT.rhsEqMs);
 
     bool hasNonZeroPresc = false;
