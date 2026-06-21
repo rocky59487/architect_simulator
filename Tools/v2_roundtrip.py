@@ -47,7 +47,20 @@ ENGINE_VER_RE = re.compile(r"^\d+\.\d+(?:\.\d+)?$")
 EXPECTED_ENGINE_VER = os.environ.get("FRAMECORE_EXPECTED_ENGINE_VER", "").strip()
 
 REPO = Path(__file__).resolve().parent.parent
-DLL    = REPO / "Plugins" / "FrameSolver" / "Standalone" / "frame_capi_v2.dll"
+# Allow run_gpu_gate.ps1 to point at frame_capi_v2_cuda.dll without touching v2_roundtrip.
+# Set FRAMECORE_V2_DLL to an absolute path; default stays the CPU-only dispatcher build.
+_V2_DLL_OVERRIDE = os.environ.get("FRAMECORE_V2_DLL", "").strip()
+DLL    = Path(_V2_DLL_OVERRIDE) if _V2_DLL_OVERRIDE \
+         else REPO / "Plugins" / "FrameSolver" / "Standalone" / "frame_capi_v2.dll"
+
+# On Python 3.8+, LoadLibrary does NOT search PATH by default. The CUDA-build dispatcher
+# transitively depends on cuDSS / cuSPARSE / cuBLAS / cudart / nvJitLink (~7 DLLs) under
+# the conda env. FRAMECORE_V2_DLL_DEPS_DIRS = "dir1;dir2" makes those paths visible to
+# the DLL loader for this process only -- nothing global, nothing leaks.
+for _dep_dir in os.environ.get("FRAMECORE_V2_DLL_DEPS_DIRS", "").split(os.pathsep):
+    _dep_dir = _dep_dir.strip()
+    if _dep_dir and os.path.isdir(_dep_dir) and hasattr(os, "add_dll_directory"):
+        os.add_dll_directory(_dep_dir)
 V1_DLL = REPO / "Plugins" / "FrameSolver" / "Standalone" / "frame_capi.dll"
 
 # Python 3.8+ on Windows ignores %PATH% for native DLL dependencies; explicitly add the conda
@@ -629,6 +642,44 @@ def main() -> int:
                           "dyn_collapse.live.events" in caps,
                           f"caps subset has dyn_collapse.live.events? {'dyn_collapse.live.events' in caps}"):
                 failures += 1
+            # R2.3 (v2.10.1) GPU lane wire-up: 'solve.linear.gpu_backsub' should appear only
+            # on engine binaries built with -DFRAMECORE_CUDA=1. The default frame_capi_v2.dll
+            # (build_capi_v2.bat) does NOT define FRAMECORE_CUDA, so the capability must be
+            # ABSENT here. The CUDA-enabled build (build_capi_v2_cuda.bat ->
+            # frame_capi_v2_cuda.dll) advertises it; cover that in run_gpu_gate.ps1.
+            expected_gpu_cap = os.environ.get("FRAMECORE_EXPECTED_GPU_CAP", "").lower() == "true"
+            gpu_cap_present  = "solve.linear.gpu_backsub" in caps
+            label = "R2.3 (v2.10.1): 'solve.linear.gpu_backsub' presence matches build flavour"
+            if not check(label, gpu_cap_present == expected_gpu_cap,
+                          f"expected={expected_gpu_cap} got={gpu_cap_present}"):
+                failures += 1
+
+            # session.open echoes the gpuBacksub flag. The default build should still accept
+            # the body field; the engine just won't use the GPU lane. Round-trip the value to
+            # prove the dispatcher is wired up (the response should mirror what we asked).
+            dll.send(ctx, build_frame({
+                "v": 2, "kind": "request", "id": "rgo", "method": "session.open",
+                "body": {"mode": "supernodal", "gpuBacksub": True}
+            }))
+            rc_go, raw_go = dll.recv(ctx)
+            ok_go = rc_go == OK and raw_go
+            if not check("R2.3: session.open accepts body.gpuBacksub", ok_go, f"rc={rc_go}"):
+                failures += 1
+            elif ok_go:
+                _, hdr_go, _ = parse_frame(raw_go)
+                body_go = hdr_go.get("body", {})
+                if not check("R2.3: session.open echoes gpuBacksub=true",
+                              body_go.get("gpuBacksub") is True,
+                              f"body={body_go}"):
+                    failures += 1
+                # Close the test session immediately so we don't leak it.
+                sid_go = body_go.get("session", "")
+                if sid_go:
+                    dll.send(ctx, build_frame({
+                        "v": 2, "kind": "request", "id": "rgoc",
+                        "method": "session.close", "body": {"session": sid_go}
+                    }))
+                    dll.recv(ctx)
 
         # --- session.close ---
         if sid:

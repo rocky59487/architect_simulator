@@ -251,12 +251,18 @@ Frame Dispatcher::HandleSessionOpen(Dispatcher&, Context& ctx, const Frame& in) 
     // session lifetime -- model.set will allocate the SnSession off the prepared system.
     const std::string mode = b ? b->getString("mode", "default") : "default";
     s->useSnSession = (mode == "supernodal");
+    // R2.3 (v2.10.1): body.gpuBacksub=true asks the supernodal session to route backsub
+    // through cuDSS on NVIDIA hardware. Only respected when useSnSession (the supernodal
+    // mode -- LDLT lane has nothing to route to GPU). Silently ignored on engine binaries
+    // built without FRAMECORE_CUDA=1: the SnSession's own #ifdef gate handles the fallback.
+    s->useGpuBacksub = s->useSnSession && (b ? b->getBool("gpuBacksub", false) : false);
     ctx.sessions[s->id] = s;
 
     JsonObject body;
-    body.emplace("session", Json(s->id));
-    body.emplace("ready",   Json(true));
-    body.emplace("mode",    Json(s->useSnSession ? std::string("supernodal") : std::string("default")));
+    body.emplace("session",     Json(s->id));
+    body.emplace("ready",       Json(true));
+    body.emplace("mode",        Json(s->useSnSession ? std::string("supernodal") : std::string("default")));
+    body.emplace("gpuBacksub",  Json(s->useGpuBacksub));
     return MakeResponse(id, std::move(body));
 }
 
@@ -367,7 +373,13 @@ Frame Dispatcher::HandleModelSet(Dispatcher&, Context& ctx, const Frame& in) {
         try {
             sess->prepared = std::make_unique<frame::PreparedSystem>(
                 frame::assembleAndFactor(*sess->model));
-            sess->sn = std::make_unique<frame::SnSession>(*sess->prepared);
+            // R2.3 (v2.10.1): forward session-level GPU flag into the SnSession options. The
+            // SnSession contract makes useGpuBacksub a no-op on FRAMECORE_CUDA=0 builds, so the
+            // dispatcher does not need to compile-time gate this. Failure inside cuDSS setup
+            // is also non-fatal (the session falls back to CPU sn::solveSuper transparently).
+            frame::SnSessionOptions sOpts;
+            sOpts.useGpuBacksub = sess->useGpuBacksub;
+            sess->sn = std::make_unique<frame::SnSession>(*sess->prepared, sOpts);
         } catch (const std::exception& e) {
             // Surface the failure but do not refuse model.set; the client can still drop to
             // LDLT by ignoring the SnSession (we clear `sn` so solve.linear takes the LDLT path).

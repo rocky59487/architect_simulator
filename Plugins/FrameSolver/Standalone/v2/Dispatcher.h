@@ -102,6 +102,12 @@ struct EngineSession {
     // also builds a SnSession off the prepared system. solve.linear routes through sn->solveFrame
     // instead of re-factoring; the supernodal factor amortises across many solve.linear calls.
     bool         useSnSession = false;
+    // R2.3 (v2.10.1+) GPU lane: session.open with body.gpuBacksub=true forwards into the
+    // SnSessionOptions::useGpuBacksub flag when model.set builds the supernodal session. The
+    // session-level toggle is sticky so a per-request flag isn't needed; clients that want to
+    // turn GPU on and off across calls open separate sessions. When the engine binary was not
+    // compiled with FRAMECORE_CUDA=1 the flag is silently ignored (the SnSession contract).
+    bool         useGpuBacksub = false;
     std::unique_ptr<frame::SnSession>      sn;
     std::vector<std::string> defaultsApplied;     // populated by model.set in simple profile
 };
@@ -165,6 +171,13 @@ inline std::vector<std::string> Capabilities() {
         // the engine's onEventEmitted callback. Clients that don't want live events can pass
         // liveEvents=false in the request body and fall back to the v2.7 post-run loop.
         "dyn_collapse.live.events",
+#if defined(FRAMECORE_CUDA) && FRAMECORE_CUDA
+        // R2.3 (v2.10.1): session.open with body.gpuBacksub=true routes the supernodal
+        // session's backsub through cuDSS on NVIDIA hardware. Only advertised when the
+        // engine binary was built with -DFRAMECORE_CUDA=1; default builds omit this string
+        // so clients can use it as a hard compile-time gate.
+        "solve.linear.gpu_backsub",
+#endif
     };
 }
 
