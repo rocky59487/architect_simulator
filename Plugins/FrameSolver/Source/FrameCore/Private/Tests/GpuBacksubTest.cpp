@@ -97,10 +97,14 @@ bool FFrameCoreGpuBacksubStrictTest::RunTest(const FString& /*Parameters*/)
     // launched with (UnrealEditor-Cmd inherits its parent's env).
     const FString StrictFlag = FPlatformMisc::GetEnvironmentVariable(TEXT("FRAMECORE_GPU_STRICT"));
     if (StrictFlag != TEXT("1")) {
-        AddInfo(TEXT("FRAMECORE_GPU_STRICT != 1 -- strict GPU-attached check skipped. "
-                     "Run via Scripts/run_gpu_gate.ps1 on a box with cuDSS to enforce."));
+        AddInfo(TEXT("[F67s_UE] STRICT_SKIPPED reason=env_unset_or_not_1 "
+                     "(run via Scripts/run_gpu_gate.ps1 on a cuDSS box to enforce)"));
         return true;
     }
+    // v3.0.1 audit: emit fingerprint string for run_gate.ps1 / run_gpu_gate.ps1 to grep
+    // in Saved/Logs/ArchSim.log. SKIP path emits "STRICT_SKIPPED"; executed path emits
+    // "STRICT_EXECUTED". The gate enforces EXECUTED presence (no SKIPPED) under strict.
+    AddInfo(TEXT("[F67s_UE] STRICT_EXECUTED gpu_attach=cuDSS env=FRAMECORE_GPU_STRICT=1"));
 
     Section  sec = Section::Rectangular(150.0, 200.0);
     sec.J = 1.5e8;

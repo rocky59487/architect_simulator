@@ -84,6 +84,24 @@ if (Test-Path $Log) {
 }
 Write-Host ("       UE automation: {0} tests run, exit code {1} (process exit {2}; expected >= {3})" -f $Total, $UeExit, $UeRC, $ExpectedUeTests)
 
+# v3.0.1 BLOCKER 2 audit: enforce that FFrameCoreGpuBacksubStrictTest actually
+# executed (not silent SKIP) when FRAMECORE_GPU_STRICT=1 is set in the env. The
+# test SKIPs cleanly (PASS) when env unset -- intentional for dev-box compile
+# tests -- but under strict mode we demand the EXECUTED fingerprint in the log.
+if ($env:FRAMECORE_GPU_STRICT -eq '1' -and (Test-Path $Log)) {
+    $UeStrictExec = (Select-String -Path $Log -Pattern '\[F67s_UE\] STRICT_EXECUTED' -AllMatches | Measure-Object).Count
+    $UeStrictSkip = (Select-String -Path $Log -Pattern '\[F67s_UE\] STRICT_SKIPPED'  -AllMatches | Measure-Object).Count
+    if ($UeStrictExec -lt 1 -or $UeStrictSkip -ge 1) {
+        Write-Host ("       UE strict enforcement FAIL: expected STRICT_EXECUTED in log; got exec={0} skip={1}" -f $UeStrictExec, $UeStrictSkip) -ForegroundColor Red
+        $UeStrictRC = 1
+    } else {
+        Write-Host ("       UE strict enforcement: OK (STRICT_EXECUTED fingerprint observed)") -ForegroundColor Green
+        $UeStrictRC = 0
+    }
+} else {
+    $UeStrictRC = 0   # not in strict mode
+}
+
 # ---- [3/3] OpenSees offline cross-validation (#14; skipped if openseespy absent) ----
 Write-Host ''
 Write-Host '[3/5] OpenSees offline cross-validation...'
@@ -121,7 +139,7 @@ if ($OsRC -eq 2) {
     else { Write-Host '       (OpenSees skipped: openseespy absent; pass -RequireOpenSees to enforce in CI)' -ForegroundColor Yellow }
 }
 $OsOk = if ($RequireOpenSees) { $OsRC -eq 0 } else { $OsRC -ne 1 }
-$UeCountOk = ($Total -ge $ExpectedUeTests)
+$UeCountOk = ($Total -ge $ExpectedUeTests) -and ($UeStrictRC -eq 0)
 $GateOk = ($StandaloneRC -eq 0) -and ($UeExit -eq 0) -and $UeCountOk -and $OsOk -and ($AuditRC -eq 0) -and ($CliRC -eq 0)
 if ($GateOk) {
     Write-Host (" GATE: PASS  (standalone OK, UE {0} tests green, OpenSees {1}, deep audit OK, CLI round-trip OK)" -f $Total, $OsState) -ForegroundColor Green

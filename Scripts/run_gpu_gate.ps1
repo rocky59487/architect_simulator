@@ -211,6 +211,21 @@ $F67RC = $LASTEXITCODE
 $F67Line = ($F67Out | Select-String -Pattern 'ALL PASS|FAILURES' | Select-Object -Last 1)
 Write-Host ("       frametest_cuda: {0} (exit {1})" -f $F67Line, $F67RC)
 
+# v3.0.1 BLOCKER 2 audit: enforce STRICT_EXECUTED fingerprint under strict mode.
+# Catches the case where the strict branch was compiled out, env wasn't seen by the
+# child process, or any future refactor skipped F67s without anyone noticing.
+if ($env:FRAMECORE_GPU_STRICT -eq '1') {
+    $StrictExec = ($F67Out | Select-String -Pattern '\[F67s\] STRICT_EXECUTED' | Measure-Object).Count
+    $StrictSkip = ($F67Out | Select-String -Pattern '\[F67s\] STRICT_SKIPPED' | Measure-Object).Count
+    if ($StrictExec -lt 1 -or $StrictSkip -ge 1) {
+        Write-Host ("       F67s strict enforcement FAIL (expected STRICT_EXECUTED, got exec={0} skip={1})" -f $StrictExec, $StrictSkip) -ForegroundColor Red
+        Write-Host ' GATE: FAIL (F67s strict path was not executed under -Strict mode)' -ForegroundColor Red
+        $env:Path = $SavedPath
+        exit 1
+    }
+    Write-Host ("       F67s strict enforcement: OK (STRICT_EXECUTED fingerprint observed)") -ForegroundColor Green
+}
+
 # ---- [2/3] CUDA v2 dispatcher gate ----
 Write-Host ''
 Write-Host '[2/3] CUDA v2 dispatcher (build_capi_v2_cuda.bat -> frame_capi_v2_cuda.dll)...'
@@ -226,10 +241,10 @@ if ($BuildV2RC -ne 0) {
     exit 1
 }
 
-# v2.11.1: bumped from '2.10.0' (carried over since v2.10.0 release; B-03 / D-07 / G-1 audit).
-# When kEngineVer in Dispatcher.h moves, this pin moves too -- otherwise v2_roundtrip CUDA
-# leg silently mis-asserts engine version in hello.response.
-$env:FRAMECORE_EXPECTED_ENGINE_VER  = '2.11.1'
+# v3.0.1: bumped from '2.11.1' alongside Dispatcher.h kEngineVer + uplugin VersionName.
+# This pin MUST move every time kEngineVer moves -- v3.0.0 release-after-the-fact audit
+# caught that release had stale "2.11.1" runtime version while tag said v3.0.0.
+$env:FRAMECORE_EXPECTED_ENGINE_VER  = '3.0.1'
 $env:FRAMECORE_EXPECTED_GPU_CAP     = 'true'
 $env:FRAMECORE_V2_DLL               = (Join-Path $Root 'Plugins\FrameSolver\Standalone\frame_capi_v2_cuda.dll')
 $env:FRAMECORE_V2_DLL_DEPS_DIRS     = $DepsDirs
@@ -251,6 +266,28 @@ if ($BuildR2RC -ne 0) {
     & (Join-Path $Root 'Research\R2_realtime_150k\r2_bench.exe') '--preset' '90k' '--gpu' '--compare' '--repeat' '15' '--warmup' '3' | Tee-Object -Variable R2Out | Out-Null
     $PerfRC = $LASTEXITCODE
     $PerfLine = ($R2Out | Select-String -Pattern '60fps_budget' | Select-Object -Last 1)
+
+    # v3.0.1 HIGH 1 audit: r2_bench's own exit code only enforces "margin >= 0" vs the
+    # 16.67 ms 60-fps budget. A GPU lane that silently regresses to ~12 ms still PASSes
+    # that loose check while shipping a 2.5x slowdown vs v2.11.0 baseline (~4.7 ms /
+    # margin ~+12 ms). Add a regression-hard threshold: require margin >= +8.0 ms
+    # (i.e. frame time <= 8.67 ms, ~2x the measured baseline). Tighten when baseline
+    # tightens.
+    if ($PerfLine) {
+        $marginMatch = ([string]$PerfLine) -match 'margin=\+?(?<m>[-\d\.]+)\s*ms'
+        if ($marginMatch) {
+            $marginMs = [double]$Matches['m']
+            $marginMin = 8.0   # baseline ~+11.94 ms; alert at 2x baseline frame time
+            if ($marginMs -lt $marginMin) {
+                Write-Host ("       r2_bench REGRESSION: margin={0} ms < required {1} ms (baseline v2.11.0 was ~+11.94 ms)" -f $marginMs, $marginMin) -ForegroundColor Red
+                $PerfRC = 1   # promote to gate failure
+            } else {
+                Write-Host ("       r2_bench regression check: OK (margin {0} ms >= {1} ms threshold)" -f $marginMs, $marginMin) -ForegroundColor Green
+            }
+        } else {
+            Write-Host ("       r2_bench margin parse FAILED (cannot enforce regression) -- treating as soft warning") -ForegroundColor Yellow
+        }
+    }
 }
 Write-Host ("       r2_bench --gpu 90k: {0} (exit {1})" -f $PerfLine, $PerfRC)
 

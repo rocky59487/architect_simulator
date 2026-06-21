@@ -1,0 +1,817 @@
+Section.cpp
+Member.cpp
+FrameModel.cpp
+ElementStiffness.cpp
+BeamColumnElement.cpp
+MITC4ShellElement.cpp
+FrameSolver.cpp
+C:\Users\wmc02\anaconda3\envs\framecore-direct\Library\include\metis.h(75): warning C4005: 'INT32_MIN': ¥¨¶°­«½Æ©w¸q
+C:\Program Files\Microsoft Visual Studio\18\Community\VC\Tools\MSVC\14.51.36231\include\stdint.h(51): note: °Ñ¾\ 'INT32_MIN' ¤§«eªº©w¸q
+C:\Users\wmc02\anaconda3\envs\framecore-direct\Library\include\metis.h(76): warning C4005: 'INT32_MAX': ¥¨¶°­«½Æ©w¸q
+C:\Program Files\Microsoft Visual Studio\18\Community\VC\Tools\MSVC\14.51.36231\include\stdint.h(55): note: °Ñ¾\ 'INT32_MAX' ¤§«eªº©w¸q
+C:\Users\wmc02\anaconda3\envs\framecore-direct\Library\include\metis.h(77): warning C4005: 'INT64_MIN': ¥¨¶°­«½Æ©w¸q
+C:\Program Files\Microsoft Visual Studio\18\Community\VC\Tools\MSVC\14.51.36231\include\stdint.h(52): note: °Ñ¾\ 'INT64_MIN' ¤§«eªº©w¸q
+C:\Users\wmc02\anaconda3\envs\framecore-direct\Library\include\metis.h(78): warning C4005: 'INT64_MAX': ¥¨¶°­«½Æ©w¸q
+C:\Program Files\Microsoft Visual Studio\18\Community\VC\Tools\MSVC\14.51.36231\include\stdint.h(56): note: °Ñ¾\ 'INT64_MAX' ¤§«eªº©w¸q
+ElasticAllowable.cpp
+Grillage.cpp
+SelfWeight.cpp
+Combination.cpp
+InfluenceLine.cpp
+ModalAnalysis.cpp
+C:\Users\wmc02\anaconda3\envs\framecore-direct\Library\include\metis.h(75): warning C4005: 'INT32_MIN': ¥¨¶°­«½Æ©w¸q
+C:\Program Files\Microsoft Visual Studio\18\Community\VC\Tools\MSVC\14.51.36231\include\stdint.h(51): note: °Ñ¾\ 'INT32_MIN' ¤§«eªº©w¸q
+C:\Users\wmc02\anaconda3\envs\framecore-direct\Library\include\metis.h(76): warning C4005: 'INT32_MAX': ¥¨¶°­«½Æ©w¸q
+C:\Program Files\Microsoft Visual Studio\18\Community\VC\Tools\MSVC\14.51.36231\include\stdint.h(55): note: °Ñ¾\ 'INT32_MAX' ¤§«eªº©w¸q
+C:\Users\wmc02\anaconda3\envs\framecore-direct\Library\include\metis.h(77): warning C4005: 'INT64_MIN': ¥¨¶°­«½Æ©w¸q
+C:\Program Files\Microsoft Visual Studio\18\Community\VC\Tools\MSVC\14.51.36231\include\stdint.h(52): note: °Ñ¾\ 'INT64_MIN' ¤§«eªº©w¸q
+C:\Users\wmc02\anaconda3\envs\framecore-direct\Library\include\metis.h(78): warning C4005: 'INT64_MAX': ¥¨¶°­«½Æ©w¸q
+C:\Program Files\Microsoft Visual Studio\18\Community\VC\Tools\MSVC\14.51.36231\include\stdint.h(56): note: °Ñ¾\ 'INT64_MAX' ¤§«eªº©w¸q
+BucklingAnalysis.cpp
+C:\Users\wmc02\anaconda3\envs\framecore-direct\Library\include\metis.h(75): warning C4005: 'INT32_MIN': ¥¨¶°­«½Æ©w¸q
+C:\Program Files\Microsoft Visual Studio\18\Community\VC\Tools\MSVC\14.51.36231\include\stdint.h(51): note: °Ñ¾\ 'INT32_MIN' ¤§«eªº©w¸q
+C:\Users\wmc02\anaconda3\envs\framecore-direct\Library\include\metis.h(76): warning C4005: 'INT32_MAX': ¥¨¶°­«½Æ©w¸q
+C:\Program Files\Microsoft Visual Studio\18\Community\VC\Tools\MSVC\14.51.36231\include\stdint.h(55): note: °Ñ¾\ 'INT32_MAX' ¤§«eªº©w¸q
+C:\Users\wmc02\anaconda3\envs\framecore-direct\Library\include\metis.h(77): warning C4005: 'INT64_MIN': ¥¨¶°­«½Æ©w¸q
+C:\Program Files\Microsoft Visual Studio\18\Community\VC\Tools\MSVC\14.51.36231\include\stdint.h(52): note: °Ñ¾\ 'INT64_MIN' ¤§«eªº©w¸q
+C:\Users\wmc02\anaconda3\envs\framecore-direct\Library\include\metis.h(78): warning C4005: 'INT64_MAX': ¥¨¶°­«½Æ©w¸q
+C:\Program Files\Microsoft Visual Studio\18\Community\VC\Tools\MSVC\14.51.36231\include\stdint.h(56): note: °Ñ¾\ 'INT64_MAX' ¤§«eªº©w¸q
+ResponseSpectrum.cpp
+C:\Users\wmc02\anaconda3\envs\framecore-direct\Library\include\metis.h(75): warning C4005: 'INT32_MIN': ¥¨¶°­«½Æ©w¸q
+C:\Program Files\Microsoft Visual Studio\18\Community\VC\Tools\MSVC\14.51.36231\include\stdint.h(51): note: °Ñ¾\ 'INT32_MIN' ¤§«eªº©w¸q
+C:\Users\wmc02\anaconda3\envs\framecore-direct\Library\include\metis.h(76): warning C4005: 'INT32_MAX': ¥¨¶°­«½Æ©w¸q
+C:\Program Files\Microsoft Visual Studio\18\Community\VC\Tools\MSVC\14.51.36231\include\stdint.h(55): note: °Ñ¾\ 'INT32_MAX' ¤§«eªº©w¸q
+C:\Users\wmc02\anaconda3\envs\framecore-direct\Library\include\metis.h(77): warning C4005: 'INT64_MIN': ¥¨¶°­«½Æ©w¸q
+C:\Program Files\Microsoft Visual Studio\18\Community\VC\Tools\MSVC\14.51.36231\include\stdint.h(52): note: °Ñ¾\ 'INT64_MIN' ¤§«eªº©w¸q
+C:\Users\wmc02\anaconda3\envs\framecore-direct\Library\include\metis.h(78): warning C4005: 'INT64_MAX': ¥¨¶°­«½Æ©w¸q
+C:\Program Files\Microsoft Visual Studio\18\Community\VC\Tools\MSVC\14.51.36231\include\stdint.h(56): note: °Ñ¾\ 'INT64_MAX' ¤§«eªº©w¸q
+ModalDynamics.cpp
+C:\Users\wmc02\anaconda3\envs\framecore-direct\Library\include\metis.h(75): warning C4005: 'INT32_MIN': ¥¨¶°­«½Æ©w¸q
+C:\Program Files\Microsoft Visual Studio\18\Community\VC\Tools\MSVC\14.51.36231\include\stdint.h(51): note: °Ñ¾\ 'INT32_MIN' ¤§«eªº©w¸q
+C:\Users\wmc02\anaconda3\envs\framecore-direct\Library\include\metis.h(76): warning C4005: 'INT32_MAX': ¥¨¶°­«½Æ©w¸q
+C:\Program Files\Microsoft Visual Studio\18\Community\VC\Tools\MSVC\14.51.36231\include\stdint.h(55): note: °Ñ¾\ 'INT32_MAX' ¤§«eªº©w¸q
+C:\Users\wmc02\anaconda3\envs\framecore-direct\Library\include\metis.h(77): warning C4005: 'INT64_MIN': ¥¨¶°­«½Æ©w¸q
+C:\Program Files\Microsoft Visual Studio\18\Community\VC\Tools\MSVC\14.51.36231\include\stdint.h(52): note: °Ñ¾\ 'INT64_MIN' ¤§«eªº©w¸q
+C:\Users\wmc02\anaconda3\envs\framecore-direct\Library\include\metis.h(78): warning C4005: 'INT64_MAX': ¥¨¶°­«½Æ©w¸q
+C:\Program Files\Microsoft Visual Studio\18\Community\VC\Tools\MSVC\14.51.36231\include\stdint.h(56): note: °Ñ¾\ 'INT64_MAX' ¤§«eªº©w¸q
+Connectivity.cpp
+Collapse.cpp
+DynamicCollapse.cpp
+C:\Users\wmc02\anaconda3\envs\framecore-direct\Library\include\metis.h(75): warning C4005: 'INT32_MIN': ¥¨¶°­«½Æ©w¸q
+C:\Program Files\Microsoft Visual Studio\18\Community\VC\Tools\MSVC\14.51.36231\include\stdint.h(51): note: °Ñ¾\ 'INT32_MIN' ¤§«eªº©w¸q
+C:\Users\wmc02\anaconda3\envs\framecore-direct\Library\include\metis.h(76): warning C4005: 'INT32_MAX': ¥¨¶°­«½Æ©w¸q
+C:\Program Files\Microsoft Visual Studio\18\Community\VC\Tools\MSVC\14.51.36231\include\stdint.h(55): note: °Ñ¾\ 'INT32_MAX' ¤§«eªº©w¸q
+C:\Users\wmc02\anaconda3\envs\framecore-direct\Library\include\metis.h(77): warning C4005: 'INT64_MIN': ¥¨¶°­«½Æ©w¸q
+C:\Program Files\Microsoft Visual Studio\18\Community\VC\Tools\MSVC\14.51.36231\include\stdint.h(52): note: °Ñ¾\ 'INT64_MIN' ¤§«eªº©w¸q
+C:\Users\wmc02\anaconda3\envs\framecore-direct\Library\include\metis.h(78): warning C4005: 'INT64_MAX': ¥¨¶°­«½Æ©w¸q
+C:\Program Files\Microsoft Visual Studio\18\Community\VC\Tools\MSVC\14.51.36231\include\stdint.h(56): note: °Ñ¾\ 'INT64_MAX' ¤§«eªº©w¸q
+Reanalysis.cpp
+C:\Users\wmc02\anaconda3\envs\framecore-direct\Library\include\metis.h(75): warning C4005: 'INT32_MIN': ¥¨¶°­«½Æ©w¸q
+C:\Program Files\Microsoft Visual Studio\18\Community\VC\Tools\MSVC\14.51.36231\include\stdint.h(51): note: °Ñ¾\ 'INT32_MIN' ¤§«eªº©w¸q
+C:\Users\wmc02\anaconda3\envs\framecore-direct\Library\include\metis.h(76): warning C4005: 'INT32_MAX': ¥¨¶°­«½Æ©w¸q
+C:\Program Files\Microsoft Visual Studio\18\Community\VC\Tools\MSVC\14.51.36231\include\stdint.h(55): note: °Ñ¾\ 'INT32_MAX' ¤§«eªº©w¸q
+C:\Users\wmc02\anaconda3\envs\framecore-direct\Library\include\metis.h(77): warning C4005: 'INT64_MIN': ¥¨¶°­«½Æ©w¸q
+C:\Program Files\Microsoft Visual Studio\18\Community\VC\Tools\MSVC\14.51.36231\include\stdint.h(52): note: °Ñ¾\ 'INT64_MIN' ¤§«eªº©w¸q
+C:\Users\wmc02\anaconda3\envs\framecore-direct\Library\include\metis.h(78): warning C4005: 'INT64_MAX': ¥¨¶°­«½Æ©w¸q
+C:\Program Files\Microsoft Visual Studio\18\Community\VC\Tools\MSVC\14.51.36231\include\stdint.h(56): note: °Ñ¾\ 'INT64_MAX' ¤§«eªº©w¸q
+¥¿¦b²£¥Íµ{¦¡½X...
+¥¿¦b½sÄ¶...
+PDeltaAnalysis.cpp
+C:\Users\wmc02\anaconda3\envs\framecore-direct\Library\include\metis.h(75): warning C4005: 'INT32_MIN': ¥¨¶°­«½Æ©w¸q
+C:\Program Files\Microsoft Visual Studio\18\Community\VC\Tools\MSVC\14.51.36231\include\stdint.h(51): note: °Ñ¾\ 'INT32_MIN' ¤§«eªº©w¸q
+C:\Users\wmc02\anaconda3\envs\framecore-direct\Library\include\metis.h(76): warning C4005: 'INT32_MAX': ¥¨¶°­«½Æ©w¸q
+C:\Program Files\Microsoft Visual Studio\18\Community\VC\Tools\MSVC\14.51.36231\include\stdint.h(55): note: °Ñ¾\ 'INT32_MAX' ¤§«eªº©w¸q
+C:\Users\wmc02\anaconda3\envs\framecore-direct\Library\include\metis.h(77): warning C4005: 'INT64_MIN': ¥¨¶°­«½Æ©w¸q
+C:\Program Files\Microsoft Visual Studio\18\Community\VC\Tools\MSVC\14.51.36231\include\stdint.h(52): note: °Ñ¾\ 'INT64_MIN' ¤§«eªº©w¸q
+C:\Users\wmc02\anaconda3\envs\framecore-direct\Library\include\metis.h(78): warning C4005: 'INT64_MAX': ¥¨¶°­«½Æ©w¸q
+C:\Program Files\Microsoft Visual Studio\18\Community\VC\Tools\MSVC\14.51.36231\include\stdint.h(56): note: °Ñ¾\ 'INT64_MAX' ¤§«eªº©w¸q
+CorotationalAnalysis.cpp
+TensionOnly.cpp
+SizeOpt.cpp
+Topology.cpp
+SnSolver.cpp
+C:\Users\wmc02\anaconda3\envs\framecore-direct\Library\include\metis.h(75): warning C4005: 'INT32_MIN': ¥¨¶°­«½Æ©w¸q
+C:\Program Files\Microsoft Visual Studio\18\Community\VC\Tools\MSVC\14.51.36231\include\stdint.h(51): note: °Ñ¾\ 'INT32_MIN' ¤§«eªº©w¸q
+C:\Users\wmc02\anaconda3\envs\framecore-direct\Library\include\metis.h(76): warning C4005: 'INT32_MAX': ¥¨¶°­«½Æ©w¸q
+C:\Program Files\Microsoft Visual Studio\18\Community\VC\Tools\MSVC\14.51.36231\include\stdint.h(55): note: °Ñ¾\ 'INT32_MAX' ¤§«eªº©w¸q
+C:\Users\wmc02\anaconda3\envs\framecore-direct\Library\include\metis.h(77): warning C4005: 'INT64_MIN': ¥¨¶°­«½Æ©w¸q
+C:\Program Files\Microsoft Visual Studio\18\Community\VC\Tools\MSVC\14.51.36231\include\stdint.h(52): note: °Ñ¾\ 'INT64_MIN' ¤§«eªº©w¸q
+C:\Users\wmc02\anaconda3\envs\framecore-direct\Library\include\metis.h(78): warning C4005: 'INT64_MAX': ¥¨¶°­«½Æ©w¸q
+C:\Program Files\Microsoft Visual Studio\18\Community\VC\Tools\MSVC\14.51.36231\include\stdint.h(56): note: °Ñ¾\ 'INT64_MAX' ¤§«eªº©w¸q
+SnSession.cpp
+C:\Users\wmc02\anaconda3\envs\framecore-direct\Library\include\metis.h(75): warning C4005: 'INT32_MIN': ¥¨¶°­«½Æ©w¸q
+C:\Program Files\Microsoft Visual Studio\18\Community\VC\Tools\MSVC\14.51.36231\include\stdint.h(51): note: °Ñ¾\ 'INT32_MIN' ¤§«eªº©w¸q
+C:\Users\wmc02\anaconda3\envs\framecore-direct\Library\include\metis.h(76): warning C4005: 'INT32_MAX': ¥¨¶°­«½Æ©w¸q
+C:\Program Files\Microsoft Visual Studio\18\Community\VC\Tools\MSVC\14.51.36231\include\stdint.h(55): note: °Ñ¾\ 'INT32_MAX' ¤§«eªº©w¸q
+C:\Users\wmc02\anaconda3\envs\framecore-direct\Library\include\metis.h(77): warning C4005: 'INT64_MIN': ¥¨¶°­«½Æ©w¸q
+C:\Program Files\Microsoft Visual Studio\18\Community\VC\Tools\MSVC\14.51.36231\include\stdint.h(52): note: °Ñ¾\ 'INT64_MIN' ¤§«eªº©w¸q
+C:\Users\wmc02\anaconda3\envs\framecore-direct\Library\include\metis.h(78): warning C4005: 'INT64_MAX': ¥¨¶°­«½Æ©w¸q
+C:\Program Files\Microsoft Visual Studio\18\Community\VC\Tools\MSVC\14.51.36231\include\stdint.h(56): note: °Ñ¾\ 'INT64_MAX' ¤§«eªº©w¸q
+main.cpp
+¥¿¦b²£¥Íµ{¦¡½X...
+[build] OK -> Standalone\frametest.exe (FRAMECORE_SUPERNODAL=1)
+
+# FrameCore standalone gate | build b57cf99 | compiled Jun 21 2026 19:24:07
+FrameCore standalone fixtures  (units: N, mm, MPa)
+  E=210000  G=80769  square=100  A=10000  Iz=8.33333e+06  Wz=166667
+
+[F1] cantilever tip load  P=1000 L=2000
+  [PASS] not singular                     
+  [PASS] tip deflection |u_z(j)|          got=1.52381      exp=1.52381      rel=1.46e-16 (tol=1e-06)
+  [PASS] root moment |M_i|                got=2e+06        exp=2e+06        rel=1.16e-16 (tol=1e-06)
+  [PASS] reaction R_z(node0)              got=1000         exp=1000         rel=4.55e-16 (tol=1e-09)
+  [PASS] checkSection mode != None        
+  [PASS] checkSection risk                got=0.04         exp=0.04         rel=0.00e+00 (tol=1e-06)
+[F2] simply-supported UDL  w=5.0 L=3000
+  [PASS] not singular                     
+  [PASS] midspan deflection |u_z|         got=3.01339      exp=3.01339      rel=0.00e+00 (tol=1e-06)
+  [PASS] midspan moment |M|               got=5.625e+06    exp=5.625e+06    rel=3.31e-16 (tol=1e-05)
+  [PASS] reaction R_z(node0)              got=7500         exp=7500         rel=0.00e+00 (tol=1e-06)
+  [PASS] reaction R_z(node2)              got=7500         exp=7500         rel=0.00e+00 (tol=1e-06)
+[F3] mechanism (under-constrained)
+  [PASS] singular detected                LDLT factorization failed (info != Success): rank-deficient stiffness / mechanism
+  [PASS] diagnostic non-empty             LDLT factorization failed (info != Success): rank-deficient stiffness / mechanism
+[F4] vertical column  P=50000 h=3000
+  [PASS] not singular                     
+  [PASS] axial shortening |u_z|           got=0.0714286    exp=0.0714286    rel=0.00e+00 (tol=1e-06)
+  [PASS] axial N > 0 (compression)        N=50000.000000
+[F5] checkSection pure torsion  T=1e6
+  [PASS] torsion stress sTor (MPa)        got=5.02088      exp=5.02088      rel=0.00e+00 (tol=1e-06)
+  [PASS] mode == Torsion                  
+  [PASS] torsion risk                     got=0.0278938    exp=0.0278938    rel=0.00e+00 (tol=1e-06)
+[F6] propped cantilever via release  w=5.0 L=4000
+  [PASS] not singular                     
+  [PASS] released-end moment ~ 0          Mj=0.000000
+  [PASS] fixed-end moment |M_i| = wL^2/8  got=1e+07        exp=1e+07        rel=0.00e+00 (tol=1e-06)
+  [PASS] reaction R_z(node0) = 5wL/8      got=12500        exp=12500        rel=0.00e+00 (tol=1e-06)
+  [PASS] reaction R_z(node2) = 3wL/8      got=7500         exp=7500         rel=0.00e+00 (tol=1e-06)
+[F7] torsional double-release mechanism
+  [PASS] singular detected                member-end release leaves a singular released sub-block (free mechanism, e.g. both torsional ends released) at member 0
+  [PASS] diagnostic mentions release      member-end release leaves a singular released sub-block (free mechanism, e.g. both torsional ends released) at member 0
+[F8] Timoshenko cantilever  L=2000 Asy=8333.3
+  [PASS] not singular                     
+  [PASS] tip deflection = PL^3/3EI + PL/GAs got=1.52678      exp=1.52678      rel=7.27e-16 (tol=1e-06)
+   ratio Timo/EB: deep(L/d=3)=1.08667  slender(L/d=60)=1.00022
+  [PASS] deep-beam shear significant (>5%) rDeep=1.086667
+  [PASS] slender converges to EB (<0.1%)  rSlen=1.000217
+  [PASS] shear effect shrinks with slenderness 
+[F9] circular section  r=50  I=4.90874e+06
+  [PASS] I = pi r^4 / 4                   got=4.90874e+06  exp=4.90874e+06  rel=1.90e-16 (tol=1e-12)
+  [PASS] Iy == Iz                         got=4.90874e+06  exp=4.90874e+06  rel=0.00e+00 (tol=1e-12)
+  [PASS] J = 2I (polar)                   got=9.81748e+06  exp=9.81748e+06  rel=1.90e-16 (tol=1e-12)
+  [PASS] circular cantilever tip = PL^3/3EI got=2.5869       exp=2.5869       rel=5.15e-16 (tol=1e-06)
+  [PASS] circular biaxial sComp = sqrt2*M/W got=14.4051      exp=14.4051      rel=1.23e-16 (tol=1e-06)
+  [PASS] round resultant < rectangular corner sum sComp=14.405061
+  [PASS] circular torsion sTor = T r / J (exact) got=5.09296      exp=5.09296      rel=0.00e+00 (tol=1e-09)
+[F10] quarter-circle arch cantilever  R=2000  dExp=3.59039
+   N= 8  d=3.56241  err=7.792e-03
+   N=16  d=3.58394  err=1.798e-03
+   N=32  d=3.58934  err=2.936e-04
+   N=64  d=3.59069  err=8.284e-05
+  [PASS] arch solves (non-singular)       
+  [PASS] arch error shrinks as N grows    
+  [PASS] arch tip (N=64) -> (pi/4)PR^3/EI got=3.59069      exp=3.59039      rel=8.28e-05 (tol=1e-02)
+[F11] rotation invariance  |u0|=1.52381
+  [PASS] rotated solve non-singular       
+  [PASS] tip |u| preserved under rotation got=1.52381      exp=1.52381      rel=2.16e-14 (tol=1e-09)
+  [PASS] u_rotated == R u_base (equivariance) du=0.000000
+[F12] grillage plate  D=4.29258e+10  plate w_c=0.605323 mm
+  [PASS] grillage builds                  
+  [PASS] grillage non-singular            
+  [PASS] load conservation: sum Rz = q a b got=400000       exp=400000       rel=1.46e-16 (tol=1e-06)
+   N=4 w=0.61549 (err 1.68%)  N=8 w=0.61987 (err 2.40%)  N=12 w=0.61685 (err 1.90%)
+  [PASS] grillage deflection within 5% of plate theory (all meshes) e4=0.016800 e8=0.024034 e12=0.019047
+  [PASS] grillage mesh-converged (|d12-d8| < 2% d8) d8=0.619871 d12=0.616853
+[F13] MITC4 shell plate bending  (E=30000 nu=0.3)
+  [PASS] plate builds non-singular        
+   simply-supported square  plate w_c=14.7784 mm
+   N=4 w=14.461 (err 2.15%)  N=8 w=14.729 (err 0.33%)  N=16 w=14.798 (err 0.13%)  N=24 w=14.818 (err 0.27%)
+  [PASS] plate near Kirchhoff (N=16 and N=24 within 2%) e16=0.001306 e24=0.002710
+  [PASS] plate deflection monotone-increasing (Mindlin softening overshoots Kirchhoff) w4=14.460904 w8=14.729475 w16=14.797699 w24=14.818447
+   thin plate t/a=0.001  w=14768.6 exp=14778.4 (err 0.07%)
+  [PASS] thin plate not shear-locked (N=16 within 3%) eThin=0.000666
+  [PASS] patch non-singular               
+   patch (regular      ) Mxx_exp=-2.74725  max|dMxx|=4.44e-16 |dMyy|=2.22e-16 |Mxy|=0.00e+00 |Q|=5.13e-15
+  [PASS] patch Mxx = -D c (constant)      eMxx=0.000000
+  [PASS] patch Myy = -nu D c (constant)   eMyy=0.000000
+  [PASS] patch Mxy ~ 0                    mMxy=0.000000
+  [PASS] patch shear ~ 0 (pure bending)   mQ=0.000000
+  [PASS] patch non-singular               
+   patch (parallelogram) Mxx_exp=-2.74725  max|dMxx|=1.78e-15 |dMyy|=5.55e-16 |Mxy|=8.14e-16 |Q|=1.78e-14
+  [PASS] patch Mxx = -D c (constant)      eMxx=0.000000
+  [PASS] patch Myy = -nu D c (constant)   eMyy=0.000000
+  [PASS] patch Mxy ~ 0                    mMxy=0.000000
+  [PASS] patch shear ~ 0 (pure bending)   mQ=0.000000
+[F14] MITC4 shell membrane + drilling + 3D facet
+  [PASS] membrane patch non-singular      
+   membrane patch (regular      ) Nxx_exp=32.967 max|dNxx|=7.11e-15 |dNyy|=1.78e-15 |Nxy|=0.00e+00
+  [PASS] membrane patch Nxx constant      eNxx=0.000000
+  [PASS] membrane patch Nyy = nu Nxx      eNyy=0.000000
+  [PASS] membrane patch Nxy ~ 0           mNxy=0.000000
+  [PASS] membrane patch non-singular      
+   membrane patch (parallelogram) Nxx_exp=32.967 max|dNxx|=7.11e-15 |dNyy|=1.78e-15 |Nxy|=3.13e-15
+  [PASS] membrane patch Nxx constant      eNxx=0.000000
+  [PASS] membrane patch Nyy = nu Nxx      eNyy=0.000000
+  [PASS] membrane patch Nxy ~ 0           mNxy=0.000000
+  [PASS] flat clamped shell NON-singular (drilling gate) 
+   clamped plate w=4.60148 exp=4.5864 (err 0.33%)
+  [PASS] clamped plate within 3% of theory eC=0.003289
+  [PASS] rotated shell non-singular       
+   |u_centre| flat=4.59108 rotated=4.59108
+  [PASS] |u_centre| invariant under 3D rotation got=4.59108      exp=4.59108      rel=1.22e-12 (tol=1e-09)
+[F15] MITC4 Scordelis-Lo roof  (ref free-edge w=0.3024)
+  [PASS] roof builds non-singular         
+   N=8 w=0.2915 (err 3.60%)  N=16 w=0.29834 (err 1.34%)  N=24 w=0.29989 (err 0.83%)
+  [PASS] roof converges to reference (N=24 within 3%) e24=0.008304
+  [PASS] roof mesh-converging (e24 < e8)  e8=0.036043 e24=0.008304
+[F16] MITC4 pinched cylinder  (ref under-load w=1.8248e-05)
+  [PASS] cylinder builds non-singular     
+   N=8 1.32903e-05 (72.8%)  N=16 1.68816e-05 (92.5%)  N=24 1.77108e-05 (97.1%)  N=32 1.80252e-05 (98.8%)
+  [PASS] cylinder converging upward (w32 > w16 > w8) w8=0.000013 w16=0.000017 w32=0.000018
+  [PASS] cylinder N=32 reaches >= 90% of reference ratio=0.987789
+  [PASS] cylinder N=32 not over-stiff/over-soft (<= 105%) ratio=0.987789
+[F17] superposition: u(A)+u(B) == u(A+B)
+   max|du|=0.00e+00/0.762  max|dR|=0.00e+00/1e+03  max|dM|=0.00e+00/2.33e-10
+  [PASS] superposition u identity (rel<1e-10) du/us=0.000000
+  [PASS] superposition reactions identity dr/Rs=0.000000
+  [PASS] superposition moments identity   dm/Ms=0.000000
+[F18] self-weight  rho=7850 -> w=0.770085 N/mm
+  [PASS] cantilever SW non-singular       
+  [PASS] cantilever SW fixed-end moment wL^2/2 got=1.54017e+06  exp=1.54017e+06  rel=3.02e-16 (tol=1e-06)
+  [PASS] cantilever SW reaction = wL      got=1540.17      exp=1540.17      rel=1.48e-16 (tol=1e-06)
+  [PASS] cantilever SW tip defl wL^4/8EI  got=0.880097     exp=0.880097     rel=2.52e-16 (tol=1e-06)
+  [PASS] SS SW non-singular               
+  [PASS] SS SW reaction wL/2 (node0)      got=1155.13      exp=1155.13      rel=1.97e-16 (tol=1e-06)
+  [PASS] SS SW midspan defl 5wL^4/384EI   got=0.464114     exp=0.464114     rel=0.00e+00 (tol=1e-06)
+   shell: pressure w=0.347925  self-weight w=0.347925
+  [PASS] shell SW non-singular            
+  [PASS] shell self-weight == rho*t*g pressure got=0.347925     exp=0.347925     rel=4.79e-16 (tol=1e-09)
+[F19] factorize-once reuse + prescribed settlement
+   reuse vs fresh: max|du| load A=0.00e+00  load B=0.00e+00
+  [PASS] solveLoad(A) == fresh solve(A)   dA=0.000000
+  [PASS] solveLoad(B) reuses same factorization == fresh dB=0.000000
+  [PASS] settlement non-singular          
+  [PASS] settlement end moment 6EI d/L^2  got=2.625e+06    exp=2.625e+06    rel=0.00e+00 (tol=1e-06)
+  [PASS] settlement reaction 12EI d/L^3   got=2625         exp=2625         rel=0.00e+00 (tol=1e-06)
+[F20] pattern loading + envelope (two-span continuous, w=5.0 L=3000)
+   support moment: full=5.625e+06 (wL^2/8=5.625e+06)  single-span=2.8125e+06 (wL^2/16=2.8125e+06)
+  [PASS] two-span support moment (full) = wL^2/8 got=5.625e+06    exp=5.625e+06    rel=1.66e-16 (tol=1e-04)
+  [PASS] two-span support moment (1 span) = wL^2/16 got=2.8125e+06   exp=2.8125e+06   rel=0.00e+00 (tol=1e-04)
+  [PASS] envelope worst support moment = wL^2/8 got=5.625e+06    exp=5.625e+06    rel=1.66e-16 (tol=1e-04)
+   left-span moment at midL: single-left=4.2188e+06  full=2.8125e+06
+  [PASS] single-span pattern bends its span more than full load one=4218750.000000 full=2812500.000000
+  [PASS] envelope uMin matches per-case min got=-2.10938     exp=-2.10938     rel=0.00e+00 (tol=1e-12)
+[F21] influence lines (factorize-once, unit load marched)
+  [PASS] reaction IL == (L-x)/L           e=0.000000
+  [PASS] reaction IL == Muller-Breslau deflected shape e=0.000000
+   reaction IL err=1.07e-14 (analytic) / 4.77e-15 (Muller-Breslau);  moment IL err=1.25e-11 (peak ab/L=1000)
+  [PASS] midspan moment IL == triangle (peak ab/L) e=0.000000
+[F22] modal analysis  (rho=7850 -> 7.850e-09 tonne/mm^3)
+  [PASS] SS modal non-singular            
+   SS beam: omega1=92.1012 rad/s (exact 92.1009; f1=14.6584 Hz)
+  [PASS] SS fundamental omega1 = (pi/L)^2 sqrt(EI/rhoA) got=92.1012      exp=92.1009      rel=3.26e-06 (tol=1e-03)
+  [PASS] modes ascending                  
+  [PASS] cantilever modal non-singular    
+   cantilever: omega1=58.3301 (exact 58.3301; f1=9.2835 Hz)
+  [PASS] cantilever fundamental omega1 = 1.875^2 sqrt(EI/rhoAL^4) got=58.3301      exp=58.3301      rel=4.13e-07 (tol=1e-03)
+[F23] linear buckling (Euler column)
+  [PASS] pinned-pinned buckling non-singular 
+   pinned-pinned: Pcr=1.91912e+06 (Euler 1.91909e+06, factor=1919)
+  [PASS] Euler Pcr = pi^2 EI/L^2          got=1.91912e+06  exp=1.91909e+06  rel=1.35e-05 (tol=1e-03)
+  [PASS] fixed-free buckling non-singular 
+   fixed-free: Pcr=479773 (Euler 479772, factor=479.8)
+  [PASS] Euler Pcr = pi^2 EI/(2L)^2       got=479773       exp=479772       rel=8.44e-07 (tol=1e-03)
+[F24] response spectrum (modal participation + SRSS)
+  [PASS] RS non-singular                  
+   SS: 1st-mode eff mass ratio=0.8106 (8/pi^2=0.8106)  participating=98.6%  V=2414.5
+  [PASS] SS 1st-mode eff mass = 8/pi^2    got=0.810569     exp=0.810569     rel=1.40e-07 (tol=2e-02)
+  [PASS] SS participating mass > 85%      rsum=0.985558
+  [PASS] RS base shear > 0                
+   cantilever: 1st-mode eff mass ratio=0.6131 (0.6131)
+  [PASS] cantilever 1st-mode eff mass ~ 0.613 got=0.613076     exp=0.6131       rel=3.90e-05 (tol=3e-02)
+[F25] modal time-history (step load, Newmark-beta)
+   SDOF: peak=4.4042  static(settled)=2.2021  DLF=2.0000
+  [PASS] undamped step DLF = 2            got=2            exp=2            rel=1.03e-09 (tol=1e-02)
+   multi-mode damped: settled=-5.1423  static=-5.1429
+  [PASS] damped step settles to static    got=-5.14233     exp=-5.14286     rel=1.03e-04 (tol=2e-02)
+[F26] element removal (Member::active) â€” propped cantilever, remove prop -> -PL^3/3EI=-1.5238
+  [PASS] propped cantilever non-singular  
+  [PASS] prop stiffens tip (|defl| < cantilever) 
+  [PASS] after removing prop: non-singular 
+  [PASS] removed prop force stays 0       got=0            exp=0            rel=0.00e+00 (tol=1e-09)
+  [PASS] tip deflection = -PL^3/3EI       got=-1.52381     exp=-1.52381     rel=1.46e-16 (tol=1e-06)
+  [PASS] active=false == omitted member (disp) got=0            exp=0            rel=0.00e+00 (tol=1e-09)
+  [PASS] isolated node after removal -> mechanism expected singular
+[F27] safety factor + criticality margin  D/C=0.04 SF=25 pivotMargin=3e-06
+  [PASS] worstUtilization valid           
+  [PASS] max D/C = (PL/W)/cap (closed form) got=0.04         exp=0.04         rel=1.73e-16 (tol=1e-09)
+  [PASS] safety factor = 1/maxDC          got=25           exp=25           rel=1.42e-16 (tol=1e-09)
+  [PASS] governing member id = 0          
+  [PASS] D/C scales linearly with load    got=0.08         exp=0.08         rel=1.73e-16 (tol=1e-09)
+  [PASS] SF scales inversely with load    got=12.5         exp=12.5         rel=1.42e-16 (tol=1e-09)
+  [PASS] no active member -> invalid summary 
+  [PASS] single-DOF non-singular          
+  [PASS] single-DOF axial pivotMargin = 1 got=1            exp=1            rel=0.00e+00 (tol=1e-12)
+  [PASS] healthy pivotMargin in (0,1]     
+  [PASS] pivotMargin invariant under uniform stiffness scale got=3e-06        exp=3e-06        rel=0.00e+00 (tol=1e-12)
+  [PASS] mechanism -> singular & pivotMargin 0 
+[F28] shell element removal (ShellQuad::active) â€” 2x2 cantilever plate
+  [PASS] full plate non-singular          
+  [PASS] after removing q0: non-singular  
+  [PASS] shell active=false == omitted facet (disp) got=0            exp=0            rel=0.00e+00 (tol=1e-09)
+  [PASS] inactive facet forces stay 0     got=0            exp=0            rel=0.00e+00 (tol=1e-12)
+  [PASS] reactions balance active-facet pressure only got=-7500        exp=-7500        rel=3.97e-12 (tol=1e-09)
+  [PASS] isolated node after facet removal -> mechanism expected singular
+  [PASS] flipped shell.active rejects stale factor solveLoad: model changed since assembleAndFactor (geometry/topology/support flags/distributed loads). Re-run assembleAndFactor.
+  [PASS] stale-reuse diagnostic names the cause solveLoad: model changed since assembleAndFactor (geometry/topology/support flags/distributed loads). Re-run assembleAndFactor.
+[F29] connectivity + fragment mass properties (Chaos handoff)
+  [PASS] free rod: analysis valid         
+  [PASS] free rod: 1 detached, 0 grounded, no loose nodes 
+  [PASS] rod mass = rho*A*L (tonne)       got=0.157        exp=0.157        rel=0.00e+00 (tol=1e-12)
+  [PASS] rod com x = L/2                  got=1000         exp=1000         rel=0.00e+00 (tol=1e-12)
+  [PASS] rod Iyy = mL^2/12                got=52333.3      exp=52333.3      rel=1.39e-16 (tol=1e-12)
+  [PASS] rod Izz = mL^2/12                got=52333.3      exp=52333.3      rel=1.39e-16 (tol=1e-12)
+  [PASS] rod Ixx ~ 0 (slender)            got=0            exp=0            rel=0.00e+00 (tol=1e-12)
+  [PASS] rotated rod: 1 detached cluster  
+  [PASS] rot rod Ixx = mL^2/24            got=26166.7      exp=26166.7      rel=1.39e-16 (tol=1e-09)
+  [PASS] rot rod Izz = mL^2/12            got=52333.3      exp=52333.3      rel=1.39e-16 (tol=1e-09)
+  [PASS] rot rod Ixy = -mL^2/24 (tensor entry) got=-26166.7     exp=-26166.7     rel=1.39e-16 (tol=1e-09)
+  [PASS] free plate: 1 detached cluster   
+  [PASS] plate mass = rho*t*a^2           got=0.025        exp=0.025        rel=0.00e+00 (tol=1e-12)
+  [PASS] plate com x = a/2                got=500          exp=500          rel=1.14e-16 (tol=1e-12)
+  [PASS] plate Ixx = m a^2/12             got=2083.33      exp=2083.33      rel=4.37e-16 (tol=1e-09)
+  [PASS] plate Izz = m a^2/6 (polar)      got=4166.67      exp=4166.67      rel=8.73e-16 (tol=1e-09)
+  [PASS] towers+bridge: one grounded component 
+  [PASS] cut bridge, both grounded: 2 components, none detached 
+  [PASS] unfooted tower detaches as one cluster 
+  [PASS] cluster lists tower B exactly    
+  [PASS] cluster mass = tower B rod       got=0.0785       exp=0.0785       rel=0.00e+00 (tol=1e-12)
+  [PASS] cluster com z = H/2              got=500          exp=500          rel=0.00e+00 (tol=1e-12)
+  [PASS] bare free nodes land in looseNodes 
+[F30] progressive-collapse driver (C2) â€” LSP sequential linear analysis
+  [PASS] chain: outcome Stable            
+  [PASS] chain: exactly 2 steps           
+  [PASS] chain step0 maxDC = P/(A cap) (closed form) got=1.25         exp=1.25         rel=0.00e+00 (tol=1e-09)
+  [PASS] chain step0 is the baseline (no removals) 
+  [PASS] chain step1 removes the thin link (id 1, Tension) 
+  [PASS] chain step1 triggerRatio = 1.25  got=1.25         exp=1.25         rel=0.00e+00 (tol=1e-09)
+  [PASS] chain step1 detaches the lower half 
+  [PASS] debris lists {n2,n3 / M2}        
+  [PASS] debris mass = rho*A*L            got=0.0785       exp=0.0785       rel=0.00e+00 (tol=1e-12)
+  [PASS] debris com z = -2500             got=-2500        exp=-2500        rel=0.00e+00 (tol=1e-12)
+  [PASS] debris Ixx = mL^2/12             got=6541.67      exp=6541.67      rel=2.92e-15 (tol=1e-09)
+  [PASS] chain step1 maxDC = 0 (load left with the debris) got=0            exp=0            rel=0.00e+00 (tol=1e-12)
+  [PASS] chain step1 safetyFactor = +inf  
+  [PASS] dlf=2 doubles step0 maxDC exactly got=2.5          exp=2.5          rel=0.00e+00 (tol=1e-12)
+  [PASS] maxSteps=1 -> MaxSteps outcome   step budget exhausted with events still occurring
+  [PASS] initialRemovals: one-step Stable with debris 
+  [PASS] unknown initialRemovals id -> Invalid 
+  [PASS] cascade: outcome Collapsed       no active element remains grounded
+  [PASS] cascade: exactly 3 steps         
+  [PASS] step0 maxDC = prop force-method closed form got=1.98797      exp=1.98797      rel=2.23e-16 (tol=1e-09)
+  [PASS] step1 crushes the prop (id 2)    
+  [PASS] step1 triggerRatio = prop D/C    got=1.98797      exp=1.98797      rel=2.23e-16 (tol=1e-09)
+  [PASS] step1 maxDC = cantilever root (PL/W)/cap got=1.2          exp=1.2          rel=3.70e-16 (tol=1e-09)
+  [PASS] step2 severs the beam root (id 0) 
+  [PASS] step2 triggerRatio = root D/C    got=1.2          exp=1.2          rel=3.70e-16 (tol=1e-09)
+  [PASS] step2: floating remainder detaches as debris 
+  [PASS] debris mass = rho*A*(L-a)        got=0.11775      exp=0.11775      rel=0.00e+00 (tol=1e-12)
+  [PASS] debris com x = 2250              got=2250         exp=2250         rel=0.00e+00 (tol=1e-12)
+  [PASS] terminal step snapshot reads all-zero 
+[F31] shell von Mises screen + driver shell removal
+  [PASS] membrane vM = sqrt(10)/vm        got=0.316228     exp=0.316228     rel=0.00e+00 (tol=1e-12)
+  [PASS] constant field: centre governs   
+  [PASS] bending vM equals membrane analogue (face-symmetric) got=0.316228     exp=0.316228     rel=0.00e+00 (tol=1e-12)
+  [PASS] corner peak vM = 0.3             got=0.3          exp=0.3          rel=0.00e+00 (tol=1e-12)
+  [PASS] governing sample is corner 2     
+  [PASS] vm=0 under demand screens as infinite D/C 
+  [PASS] patch non-singular               
+  [PASS] patch screen valid               
+  [PASS] patch vM D/C = (6Dc/t^2) sqrt(1-nu+nu^2)/vm got=0.0146509    exp=0.0146509    rel=0.00e+00 (tol=1e-08)
+  [PASS] all shells inactive -> screen invalid 
+  [PASS] strip: outcome Collapsed         no active element remains grounded
+  [PASS] strip: exactly 2 steps           
+  [PASS] strip step0 over threshold       
+  [PASS] step1 removes the ROOT facet via ShellVonMises 
+  [PASS] step1 triggerRatio carries the facet D/C got=8.53007      exp=8.53007      rel=0.00e+00 (tol=1e-12)
+  [PASS] tip facet detaches as debris     
+  [PASS] debris mass = rho*t*a^2          got=0.00625      exp=0.00625      rel=0.00e+00 (tol=1e-12)
+  [PASS] debris com x = 750               got=750          exp=750          rel=0.00e+00 (tol=1e-12)
+  [PASS] plastic modulus Zz = b d^2/4     got=250000       exp=250000       rel=0.00e+00 (tol=1e-12)
+[F32] plastic hinge mechanics (Mp=7.5e+07, w_y=56.25)
+  [PASS] elastic beam non-singular        
+  [PASS] |elastic end moment| at w_y = fy*Zz got=7.5e+07      exp=7.5e+07      rel=0.00e+00 (tol=1e-09)
+  [PASS] hinged beam non-singular         
+  [PASS] support hinge at yield == elastic (u rel < 1e-12) rel=0.000000
+  [PASS] hinged end recovers Mz = 0 (contract) got=0            exp=0            rel=0.00e+00 (tol=1e-09)
+  [PASS] far member forces unchanged      got=-7.5e+07     exp=-7.5e+07     rel=0.00e+00 (tol=1e-09)
+  [PASS] internal hinge non-singular      
+  [PASS] internal hinge at current moment == elastic (u rel < 1e-12) rel=0.000000
+  [PASS] propped state non-singular       
+  [PASS] one hinge: |M_far| = wL^2/8 - Mp/2 got=8.25e+07     exp=8.25e+07     rel=1.81e-16 (tol=1e-09)
+  [PASS] sum Rz balances the UDL          got=240000       exp=240000       rel=0.00e+00 (tol=1e-09)
+  [PASS] two-hinge state non-singular     
+  [PASS] two hinges: |M_mid| = wL^2/8 - Mp got=4.5e+07      exp=4.5e+07      rel=0.00e+00 (tol=1e-09)
+  [PASS] new hinge rejects stale factor   solveLoad: model changed since assembleAndFactor (geometry/topology/support flags/distributed loads). Re-run assembleAndFactor.
+  [PASS] validate rejects non-bending hinge dof plastic hinge dof must be a bending rotation (4/5/10/11)
+  [PASS] validate rejects hinge on missing member plastic hinge references missing member
+  [PASS] 0.98 w*: outcome Stable          
+  [PASS] 0.98 w*: exactly 3 steps, 2 hinges 
+  [PASS] hinge 1 at member 0 end i (tie-break smallest id/dof) 
+  [PASS] hinge 1 ratio = 0.98*16/12       got=1.30667      exp=1.30667      rel=0.00e+00 (tol=1e-09)
+  [PASS] |hinge 1 Mp| = fy*Zz             got=7.5e+07      exp=7.5e+07      rel=0.00e+00 (tol=1e-12)
+  [PASS] hinge 2 at member 1 end j        
+  [PASS] hinge 2 ratio = 0.98*2 - 0.5     got=1.46         exp=1.46         rel=0.00e+00 (tol=1e-09)
+  [PASS] final maxDC = 0.96*Mp/(W cap) (ductile > 1, still Stable) got=1.44         exp=1.44         rel=0.00e+00 (tol=1e-09)
+  [PASS] 1.02 w*: outcome Collapsed (hinge mechanism) mechanism in the grounded remainder: LDLT factorization failed (info != Success): rank-deficient stiffness / mechanism
+  [PASS] 1.02 w*: exactly 4 steps, 3 hinges, terminal unsolved 
+  [PASS] hinge 3 ratio = 1.02*2 - 1       got=1.04         exp=1.04         rel=0.00e+00 (tol=1e-09)
+  [PASS] hinge 3 completes the mechanism at midspan 
+   plastic collapse load bracketed: Stable at 0.98 w*, Collapsed at 1.02 w*  (w*=16Mp/L^2=75)
+[F34] sparse buckling (subspace iteration vs dense vs Euler)
+  [PASS] pinned-pinned n=10 dense non-singular 
+  [PASS] pinned-pinned n=10 sparse non-singular 
+   pinned-pinned n=10: lamDense=414.528964 lamSparse=414.528964 Euler=414.523 relSparseVsDense=2.07e-14
+  [PASS] pinned-pinned n=10 sparse == dense got=414.529      exp=414.529      rel=2.07e-14 (tol=1e-06)
+  [PASS] pinned-pinned n=10 sparse Pcr == Euler got=414529       exp=414523       rel=1.35e-05 (tol=1e-04)
+  [PASS] fixed-free n=10 dense non-singular 
+  [PASS] fixed-free n=10 sparse non-singular 
+   fixed-free n=10: lamDense=103.630934 lamSparse=103.630934 Euler=103.631 relSparseVsDense=2.36e-13
+  [PASS] fixed-free n=10 sparse == dense  got=103.631      exp=103.631      rel=2.36e-13 (tol=1e-06)
+  [PASS] fixed-free n=10 sparse Pcr == Euler got=103631       exp=103631       rel=8.44e-07 (tol=1e-04)
+  [PASS] pinned-pinned n=24 dense non-singular 
+  [PASS] pinned-pinned n=24 sparse non-singular 
+   pinned-pinned n=24: lamDense=414.523554 lamSparse=414.523554 Euler=414.523 relSparseVsDense=1.19e-12
+  [PASS] pinned-pinned n=24 sparse == dense got=414.524      exp=414.524      rel=1.19e-12 (tol=1e-06)
+  [PASS] pinned-pinned n=24 sparse Pcr == Euler got=414524       exp=414523       rel=4.07e-07 (tol=1e-04)
+  [PASS] all-tension dense singular (no compression) no positive buckling eigenvalue (no compression?)
+  [PASS] all-tension forced-sparse singular (defers to dense) no positive buckling eigenvalue (no compression?)
+  [PASS] all-tension sparse diagnostic == dense no positive buckling eigenvalue (no compression?)
+[F35] ReSolve ladder (Tier-1) vs fresh + F-increment + mechanism
+  [PASS] portal session valid             
+  [PASS] baseline tier == 0               
+  [PASS] baseline ReSolve == fresh        rel=0.000000
+  [PASS] remove UDL member: tier == 1     
+  [PASS] remove UDL member: not singular  
+   removed b0(UDL): tier=1 rank=6 reRel=2.43e-12
+  [PASS] remove UDL member: ReSolve == fresh (F-increment) rel=0.000000
+  [PASS] restore member: ReSolve == baseline (drift) rel=0.000000
+  [PASS] remove column: tier == 1         
+  [PASS] remove column: ReSolve == fresh  rel=0.000000
+  [PASS] chain session valid              
+  [PASS] chain remove base: capacitance mechanism flagged 
+  [PASS] chain remove base: ReSolve singular ReSolve: capacitance singular (removed set forms a mechanism)
+  [PASS] chain remove base: fresh singular too LDLT factorization failed (info != Success): rank-deficient stiffness / mechanism
+  [PASS] plate session valid              
+  [PASS] shell remove facet: not singular 
+   removed shell facet 0: tier=1 rank=6 reRel=1.70e-12
+  [PASS] shell remove facet: ReSolve == fresh (pressure F-increment) rel=0.000000
+[F36] ReSolve Tier-2 (stale-LDLT PCG) vs fresh
+  [PASS] tier2 session valid              
+   tier=2 rank=6 pcgIters=3 relResidual=1.44e-11 reRel=5.31e-15
+  [PASS] Tier-2 selected (rank > maxRank) tier=2
+  [PASS] Tier-2 PCG iterated              
+  [PASS] Tier-2 not singular              
+  [PASS] Tier-2 ReSolve == fresh (tolerance) rel=0.000000
+[F37] DynamicCollapse: portal frame, brace trips -> Ritz==modes (full basis), zero truncation
+   modes: outcome=2 events=1 frames=42 | ritz: events=1 frames=42
+  [PASS] F37 brace tripped first (modes)  
+  [PASS] F37 same event count (Ritz vs modes) 
+  [PASS] F37 same frame count (Ritz vs modes) 
+  [PASS] F37 truncationResidual ~ 0 (full basis) maxTrunc=0.000000
+  [PASS] F37 Ritz frames == mode frames (full basis) rel=0.000000
+  [PASS] F37 zero-mass dynamic model is Invalid (not Stable) outcome=3 diag=zero mass (set Material.rho > 0 for dynamic collapse)
+[F38] DynamicCollapse: brace trips -> sway -> hung chain detaches with velocity
+   outcome=2 events=2
+   event[0] t=2.000e-05 mode=2 removedM=1 detached=0
+   event[1] t=4.660e-03 mode=1 removedM=1 detached=1 mass=6.2800e-01 vel=(3.420e+00,-1.796e-13,1.487e+00) |angVel|=8.449e-02
+  [PASS] F38 a fragment detached          
+  [PASS] F38 fragment has mass            mass=0.628000
+  [PASS] F38 handoff velocity finite      
+  [PASS] F38 handoff velocity nonzero (moving fragment) speed=3.728996
+  [PASS] F38 handoff respects x-z symmetry (vel_y ~ 0) vel_y=-0.000000
+[F39] DynamicCollapse: axial chain, mid member trips -> detach + retained axial SDOF
+   outcome=2 events=1 frames=83 T=7.187e-04 u1_static=5.0000e-03
+  [PASS] F39 exactly one event            events=1
+  [PASS] F39 member1 removed              
+  [PASS] F39 upper part detached (carries member2) 
+  [PASS] F39 post-event frame exists      
+  [PASS] F39 inherited u1 == static (analytic) got=0.005        exp=0.005        rel=2.26e-15 (tol=1e-09)
+  [PASS] F39 retained part free-vibrates (overshoots) 
+  [PASS] F39 amplitude conserved (Newmark) got=0.005        exp=0.005        rel=2.26e-15 (tol=1e-02)
+  [PASS] F39 Ritz inherited u1 == static  got=0.005        exp=0.005        rel=6.94e-16 (tol=1e-08)
+[F40] P-Delta: cantilever column, frozen-reuse vs K_T-reference vs beam-column exact
+  [PASS] F40 frozen converged (P/Pcr=0.000000) 
+  [PASS] F40 reference converged (P/Pcr=0.000000) 
+  [PASS] F40 frozen == reference (P/Pcr=0.000000) got=2.7          exp=2.7          rel=0.00e+00 (tol=1e-10)
+  [PASS] F40 reference == beam-column exact (P/Pcr=0.000000) got=2.7          exp=2.7          rel=1.63e-14 (tol=1e-03)
+  [PASS] F40 P=0 frozen bit-identical to linear 
+  [PASS] F40 P=0 zero iterations          iters=0
+  [PASS] F40 frozen converged (P/Pcr=0.300000) 
+  [PASS] F40 reference converged (P/Pcr=0.300000) 
+  [PASS] F40 frozen == reference (P/Pcr=0.300000) got=3.8416       exp=3.8416       rel=1.62e-13 (tol=1e-10)
+  [PASS] F40 reference == beam-column exact (P/Pcr=0.300000) got=3.8416       exp=3.8416       rel=2.64e-07 (tol=1e-03)
+  [PASS] F40 frozen converged (P/Pcr=0.950000) 
+  [PASS] F40 reference converged (P/Pcr=0.950000) 
+  [PASS] F40 frozen == reference (P/Pcr=0.950000) got=53.26        exp=53.26        rel=1.45e-12 (tol=1e-10)
+  [PASS] F40 reference == beam-column exact (P/Pcr=0.950000) got=53.26        exp=53.262       rel=3.72e-05 (tol=1e-03)
+  [PASS] F40 f=1.05 reference diverged (K_T not PD) 
+  [PASS] F40 f=1.05 frozen diverged (sliding window) iters=20
+[F42] Tension-only: X-braced portal, eliminate the compressed brace
+  [PASS] F42 converged                    
+  [PASS] F42 converged in <=3 iters       iters=2
+  [PASS] F42 exactly one brace slack      slack=1
+  [PASS] F42 surviving brace in tension (N<0) N=-40044.864749
+  [PASS] F42 converged == omitted-brace model (rel<1e-10) rel=0.000000
+  [PASS] F42 tensionOnly in fingerprint (stale rejected) 
+[F43] Tension-only: monotone finite termination + cycle guard
+  [PASS] F43 monotone converged (finite termination) 
+  [PASS] F43 monotone bounded iters (<= nTO+1) iters=2
+  [PASS] F43 monotone respects tension-only sign constraint 
+  [PASS] F43 default policy terminates across a load sweep 
+[F44] Size optimization: classic 10-bar truss FSD (stress-ratio resizing)
+  [PASS] F44 converged                    iters=24
+  [PASS] F44 weight >= pin-jointed optimum 1593.2 lb (combined-stress is heavier) W=1608.489970
+  [PASS] F44 FSD weight within 1.5% of literature 1593.2 lb got=1608.49      exp=1593.2       rel=9.60e-03 (tol=1e-02)
+  [PASS] F44 sized bars fully stressed (|D/C-1|<1e-6) nSized=6
+  [PASS] F44 bars 2/5/6/10 at A_min bound 
+  [PASS] F44 bar1 area (in^2)             got=7.99202      exp=7.94         rel=6.55e-03 (tol=3e-02)
+  [PASS] F44 bar3 area (in^2)             got=8.10713      exp=8.06         rel=5.85e-03 (tol=3e-02)
+  [PASS] F44 zero-cap demand does not fake-converge converged=0 invalidDemand=1
+  [PASS] F44 zero-cap final D/C is non-finite 
+  [PASS] F44 zero-force member reports zero area/section A=0.000000
+  [PASS] F44 zero-force member has zero sized volume 
+[F45] BESO sensitivity: element strain energy + energy balance (sum a = 1/2 F.u)
+  [PASS] F45 not singular                 
+  [PASS] F45 energy balance sum(alpha) == 1/2 F.u got=140098       exp=140098       rel=4.13e-14 (tol=1e-09)
+  [PASS] F45 both members carry strain energy 
+  [PASS] F45 cantilever alpha == 1/2 F.u  got=761.905      exp=761.905      rel=4.48e-16 (tol=1e-09)
+  [PASS] F45 pure axial alpha == P^2 L/2EA got=428.571      exp=428.571      rel=0.00e+00 (tol=1e-06)
+  [PASS] F45 pure bending alpha == M^2 L/2EIz got=228571       exp=228571       rel=0.00e+00 (tol=1e-05)
+  [PASS] F45 pure torsion alpha == T^2 L/2GJ got=197803       exp=197803       rel=0.00e+00 (tol=1e-05)
+[F46] BESO: ground-structure evolutionary removal + compliance-best rollback
+  [PASS] F46 drove volume to/near target + clean termination reason=2 volFrac=0.503424
+  [PASS] F46 removed >= 25% of members    active 81->40
+  [PASS] F46 best topology non-singular (load path intact) 
+  [PASS] F46 compliance rises >= 15% with removal (softer structure) C0=354.330198 Cf=527.874715
+[F47] N2 collapse robustness: unconstrained vs robust BESO topology
+  [PASS] F47 unconstrained topology is fragile (a single removal collapses it) 
+  [PASS] F47 robust topology survives every single-member removal 
+  [PASS] F47 sampled robust topology survives every single-member removal 
+  [PASS] F47 robust BESO locked protective members nProtected=1
+  [PASS] F47 robust retains >= unconstrained active members unc=2 rob=3
+  [PASS] F47 unconstrained dropped the backup bar b (idx 2) 
+  [PASS] F47 robust kept + locked the backup bar b (idx 2) 
+[F48] QM6 incompatible-mode membrane: constant-strain patch + in-plane bending unlock
+  [PASS] QM6 patch non-singular           
+   QM6 patch (regular      ) max|dNxx|=7.11e-15 |dNyy|=1.78e-15 |Nxy|=7.82e-16
+  [PASS] QM6 patch Nxx constant (centre-Jacobian) eNxx=0.000000
+  [PASS] QM6 patch Nyy = nu Nxx           eNyy=0.000000
+  [PASS] QM6 patch Nxy ~ 0                mNxy=0.000000
+  [PASS] QM6 patch non-singular           
+   QM6 patch (parallelogram) max|dNxx|=7.11e-15 |dNyy|=1.78e-15 |Nxy|=6.26e-15
+  [PASS] QM6 patch Nxx constant (centre-Jacobian) eNxx=0.000000
+  [PASS] QM6 patch Nyy = nu Nxx           eNyy=0.000000
+  [PASS] QM6 patch Nxy ~ 0                mNxy=0.000000
+   slender 4x1 cantilever dEB=0.13333  Q4=0.032688 (-75.5%)  QM6=0.1321 (-0.9%)
+  [PASS] Q4 membrane LOCKS (tip < 40% of Euler-Bernoulli) dQ4/dEB=0.245161
+  [PASS] QM6 RELEASES the lock (tip within 15% of Euler-Bernoulli) eQM6=-0.009219
+  [PASS] QM6 strictly better than Q4 (membrane locking) eQ4=-0.754839 eQM6=-0.009219
+   Cook's refC(QM6 N=32)=25.02  Q4 N=32=24.8 (lit~23.96)  N=4: Q4=18.14 (-27.5%)  QM6=23.97 (-4.2%)
+  [PASS] Cook converged tip in plausible range [23,27] (guards self-reference drift) refC=25.019300
+  [PASS] Cook Q4 monotonically approaches the QM6-converged tip (same limit, Q4 slower) q4_N4=18.137940 q4_N32=24.798591 refC=25.019300
+  [PASS] Cook QM6 coarse closer to converged than Q4 eq4=-0.275042 eqm=-0.041833
+  [PASS] Cook QM6 N=4 within 6% of converged eqm=-0.041833
+[F49] DKQ discrete-Kirchhoff thin plate: constant-curvature patch + thin-plate convergence
+  [PASS] DKQ patch non-singular           
+   DKQ patch (regular      ) Mxx_exp=-2.74725 max|dMxx|=4.44e-16 |dMyy|=2.22e-16 |Mxy|=8.14e-16
+  [PASS] DKQ patch Mxx = -D c (constant)  eMxx=0.000000
+  [PASS] DKQ patch Myy = -nu D c          eMyy=0.000000
+  [PASS] DKQ patch Mxy ~ 0                mMxy=0.000000
+  [PASS] DKQ patch non-singular           
+   DKQ patch (parallelogram) Mxx_exp=-2.74725 max|dMxx|=1.33e-15 |dMyy|=8.88e-16 |Mxy|=2.44e-15
+  [PASS] DKQ patch Mxx = -D c (constant)  eMxx=0.000000
+  [PASS] DKQ patch Myy = -nu D c          eMyy=0.000000
+  [PASS] DKQ patch Mxy ~ 0                mMxy=0.000000
+   SS thin plate wc=118.227  DKQ N16=118.281 (0.05%) N24=118.29 (0.05%)  MITC4 N16=118.205
+  [PASS] DKQ converges to Kirchhoff (N16 & N24 within 2%) eD16=0.000459 eD24=0.000528
+  [PASS] DKQ clamped non-singular         
+   clamped thin plate wc=36.6912  DKQ N16=37.249 (1.52%)
+  [PASS] DKQ clamped within 3% of Kirchhoff eD=0.015204
+[F50] co-rotational large displacement: planar cantilever elastica (Mattiasson table)
+   alpha= 1 exact dv/L=0.301721 dh/L=0.056433 | N4 dv=0.302217(0.16%) | N16 dv=0.301753(0.011%) dh=0.056394(0.07%) it=72
+  [PASS] F50 converged alpha=1            
+  [PASS] F50 N4 coarse within 1.5% dv alpha=1 e=0.001645
+  [PASS] F50 N16 dv/L alpha=1             got=0.301753     exp=0.301721     rel=1.06e-04 (tol=2e-03)
+  [PASS] F50 N16 dh/L alpha=1             got=0.0563939    exp=0.0564332    rel=6.96e-04 (tol=5e-03)
+   alpha= 2 exact dv/L=0.493457 dh/L=0.160642 | N4 dv=0.495439(0.40%) | N16 dv=0.493585(0.026%) dh=0.160568(0.05%) it=81
+  [PASS] F50 converged alpha=2            
+  [PASS] F50 N4 coarse within 1.5% dv alpha=2 e=0.004015
+  [PASS] F50 N16 dv/L alpha=2             got=0.493585     exp=0.493457     rel=2.59e-04 (tol=2e-03)
+  [PASS] F50 N16 dh/L alpha=2             got=0.160568     exp=0.160642     rel=4.61e-04 (tol=5e-03)
+   alpha= 5 exact dv/L=0.713792 dh/L=0.387628 | N4 dv=0.719178(0.75%) | N16 dv=0.714138(0.049%) dh=0.387568(0.02%) it=104
+  [PASS] F50 converged alpha=5            
+  [PASS] F50 N4 coarse within 1.5% dv alpha=5 e=0.007546
+  [PASS] F50 N16 dv/L alpha=5             got=0.714138     exp=0.713792     rel=4.85e-04 (tol=2e-03)
+  [PASS] F50 N16 dh/L alpha=5             got=0.387568     exp=0.387628     rel=1.55e-04 (tol=5e-03)
+   alpha=10 exact dv/L=0.810609 dh/L=0.554996 | N4 dv=0.818848(1.02%) | N16 dv=0.811138(0.065%) dh=0.554969(0.00%) it=204
+  [PASS] F50 converged alpha=10           
+  [PASS] F50 N4 coarse within 1.5% dv alpha=10 e=0.010163
+  [PASS] F50 N16 dv/L alpha=10            got=0.811138     exp=0.810609     rel=6.52e-04 (tol=2e-03)
+  [PASS] F50 N16 dh/L alpha=10            got=0.554969     exp=0.554996     rel=4.76e-05 (tol=5e-03)
+   rotational invariance: |u_tip| base=0.655006 rotated=0.655006 rel=0.00e+00
+  [PASS] F50 rotated solve converged      
+  [PASS] F50 in-plane rotational invariance got=0.655006     exp=0.655006     rel=0.00e+00 (tol=1e-09)
+   P-Delta degeneration: sway CR=4.718915e-02 PDelta=4.742709e-02 rel=5.02e-03 (Paxial/Pcr=0.3)
+  [PASS] F50 P-Delta deg converged        
+  [PASS] F50 CR sway == P-Delta sway      got=0.0471892    exp=0.0474271    rel=5.02e-03 (tol=1e-02)
+[F51] 3D co-rotational: arbitrary-axis invariance / spatial elastica / torsion+biaxial
+   (a) arbitrary-axis invariance |u_tip| base=0.812724 rot=0.812724 rel=4.10e-16
+  [PASS] F51a converged                   
+  [PASS] F51a arbitrary-axis rotational invariance got=0.812724     exp=0.812724     rel=4.10e-16 (tol=1e-09)
+   (b) spatial elastica alpha= 1 dv/L=0.301753(exp 0.301721) dh/L=0.056394(exp 0.056433)
+  [PASS] F51b converged alpha=1           
+  [PASS] F51b spatial dv/L alpha=1        got=0.301753     exp=0.301721     rel=1.06e-04 (tol=2e-03)
+  [PASS] F51b spatial dh/L alpha=1        got=0.0563939    exp=0.0564332    rel=6.96e-04 (tol=6e-03)
+   (b) spatial elastica alpha= 5 dv/L=0.714138(exp 0.713792) dh/L=0.387568(exp 0.387628)
+  [PASS] F51b converged alpha=5           
+  [PASS] F51b spatial dv/L alpha=5        got=0.714138     exp=0.713792     rel=4.85e-04 (tol=2e-03)
+  [PASS] F51b spatial dh/L alpha=5        got=0.387568     exp=0.387628     rel=1.55e-04 (tol=6e-03)
+   (b) spatial elastica alpha=10 dv/L=0.811138(exp 0.810609) dh/L=0.554969(exp 0.554996)
+  [PASS] F51b converged alpha=10          
+  [PASS] F51b spatial dv/L alpha=10       got=0.811138     exp=0.810609     rel=6.52e-04 (tol=2e-03)
+  [PASS] F51b spatial dh/L alpha=10       got=0.554969     exp=0.554996     rel=4.76e-05 (tol=6e-03)
+   (c) pure torsion theta_x=1.666667e-03 exact=1.666667e-03 rel=2.60e-16
+  [PASS] F51c torsion converged           
+  [PASS] F51c pure torsion theta=TL/GJ    got=0.00166667   exp=0.00166667   rel=2.60e-16 (tol=1e-06)
+   (d) biaxial dy=1.666667e-05(exp 1.666667e-05) dz=3.333333e-05(exp 3.333333e-05)
+  [PASS] F51d biaxial converged           
+  [PASS] F51d biaxial dy=FyL^3/3EIy       got=1.66667e-05  exp=1.66667e-05  rel=7.52e-10 (tol=1e-06)
+  [PASS] F51d biaxial dz=FzL^3/3EIz       got=3.33333e-05  exp=3.33333e-05  rel=1.37e-09 (tol=1e-06)
+   (e) large-angle torsion theta_x=2.827433 exact=2.827433 rel=1.41e-15
+  [PASS] F51e large-angle torsion converged 
+  [PASS] F51e large-angle pure torsion theta=0.9pi got=2.82743      exp=2.82743      rel=1.41e-15 (tol=1e-09)
+[F52] S9c arc-length: shallow-arch snap-through (limit point + post-buckling path)
+   (a) arc-length: 80 steps, lambda_peak=0.00586 @step3, lambda_end=0.00480, hasLimit=1
+  [PASS] F52a arc-length converged        
+  [PASS] F52a snap-through limit point tracked (lambda rises then falls) 
+  [PASS] F52a limit load lambda_peak ~ 0.00586 (cross-validated vs OpenSees ArcLength) got=0.00585833   exp=0.00586      rel=2.85e-04 (tol=2e-02)
+   (b) load control to 1.5x limit: converged=0 diverged=1
+  [PASS] F52b load control diverges at limit point (arc-length is required) 
+[F53] S9c: member UDL + prescribed displacement + consistent (FD) tangent
+   (a) UDL cantilever tip=1.250000e-04 exact=1.250000e-04 rel=1.25e-08
+  [PASS] F53a UDL converged               
+  [PASS] F53a UDL cantilever tip = wL^4/8EI got=0.000125     exp=0.000125     rel=1.25e-08 (tol=1e-04)
+   (b) prescribed tip Uy=1.000000e-04(set 1.000000e-04) base reaction=-3.000000e-07 exact=-3.000000e-07
+  [PASS] F53b prescribed converged        
+  [PASS] F53b prescribed tip Uy == delta (Dirichlet BC imposed) got=0.0001       exp=0.0001       rel=0.00e+00 (tol=1e-09)
+  [PASS] F53b prescribed base reaction = -3EI delta/L^3 got=-3e-07       exp=-3e-07       rel=1.02e-08 (tol=5e-03)
+   (b2) prescribed rotation tip Rz=1.000000e-04(set 1.000000e-04) base moment=-1.000000e-07 exact=-1.000000e-07
+  [PASS] F53b2 prescribed rotation converged 
+  [PASS] F53b2 prescribed tip Rz == theta (expSO3 BC recover) got=0.0001       exp=0.0001       rel=0.00e+00 (tol=1e-06)
+  [PASS] F53b2 prescribed rotation base moment = -EI theta/L got=-1e-07       exp=-1e-07       rel=2.65e-16 (tol=1e-02)
+   (c) consistent tangent: main peak=0.005858(80it) FD peak=0.005858(160it) rel=4.44e-16
+  [PASS] F53c consistent-tangent both converged 
+  [PASS] F53c FD tangent same limit load as main-term got=0.00585833   exp=0.00585833   rel=4.44e-16 (tol=1e-03)
+[F54] S10: N-M interaction plastic hinge (Mp_eff = Mp*(1-(N/Ny)^2))
+  [PASS] F54 Mp_eff(N=0) = Mp             got=8.64e+07     exp=8.64e+07     rel=0.00e+00 (tol=1e-15)
+  [PASS] F54 Mp_eff(N=Ny/2) = 0.75 Mp     got=6.48e+07     exp=6.48e+07     rel=0.00e+00 (tol=1e-15)
+  [PASS] F54 Mp_eff sign symmetry (|N|)   got=6.48e+07     exp=6.48e+07     rel=0.00e+00 (tol=1e-15)
+  [PASS] F54 Mp_eff(N=Ny) = 0             got=0            exp=0            rel=0.00e+00 (tol=1e-15)
+  [PASS] F54 Mp_eff clamps to 0 beyond squash (N=2Ny) 
+  [PASS] F54 rectangular Mp_eff == neutral-axis first principles got=7.8624e+07   exp=7.8624e+07   rel=0.00e+00 (tol=1e-12)
+  [PASS] F54 0.99 w* (N-M on): Stable, no hinge 
+  [PASS] F54 1.01 w* (N-M on): base hinge -> Collapsed mechanism in the grounded remainder: near-zero pivot in LDLT D (mechanism) at reduced dof #4
+  [PASS] F54 hinge at base end-i, Mz dof  
+  [PASS] F54 trigger ratio = |M|/Mp_eff = 1.01 got=1.01         exp=1.01         rel=0.00e+00 (tol=1e-09)
+  [PASS] F54 frozen residual |Mp| = Mp_eff(P) = 0.75 Mp got=6.48e+07     exp=6.48e+07     rel=0.00e+00 (tol=1e-09)
+  [PASS] F54 same load, N-M off: Stable (axial interaction is decisive) 
+   N-M hinge load bracketed: Stable@0.99w* / Collapsed@1.01w* (N-M on); same load Stable (N-M off); Mp_eff/Mp=0.750
+[F55] supernodal opt-in lane: solveLoadSupernodal vs LDLT oracle
+  [PASS] F55-B frame cantilever           uRel=0.000000 Rrel=0.000000 | [SnSolver] self-built supernodal Cholesky
+  [PASS] F55-B SS+UDL                     uRel=0.000000 Rrel=0.000000 | [SnSolver] self-built supernodal Cholesky
+  [PASS] F55-B settlement moves free node freeNorm=2.500000
+  [PASS] F55-B settlement                 uRel=0.000000 Rrel=0.000000 | [SnSolver] self-built supernodal Cholesky
+  [PASS] F55-B release                    uRel=0.000000 Rrel=0.000000 | [SnSolver] self-built supernodal Cholesky
+  [PASS] F55-B shell plate                uRel=0.000000 Rrel=0.000000 | [SnSolver] self-built supernodal Cholesky
+  [PASS] F55-A disabled==LDLT drop-in     uRel=0.000000 Rrel=0.000000 | [SnSolver] LDLT (supernodal lane disabled)
+  [PASS] F55-C mechanism -> singular via fallback (not NaN) LDLT factorization failed (info != Success): rank-deficient stiffness / mechanism
+[F56] SnSession: reused supernodal factor (factor-once + solve-many) vs LDLT oracle
+  [PASS] F56 session valid (supernodal factor ready) [SnSession] supernodal factor ready (reused per frame)
+  [PASS] F56 frame 0 reused factor == LDLT (rel<1e-10) uRel=0.000000 | [SnSession] supernodal solve (reused factor)
+  [PASS] F56 frame 1 reused factor == LDLT (rel<1e-10) uRel=0.000000 | [SnSession] supernodal solve (reused factor)
+  [PASS] F56 frame 2 reused factor == LDLT (rel<1e-10) uRel=0.000000 | [SnSession] supernodal solve (reused factor)
+  [PASS] F56 disabled session == LDLT drop-in (rel<1e-12) uRel=0.000000 | [SnSession] LDLT ([SnSession] disabled; frames use LDLT)
+[F57] shell K_sigma: SS square-plate uniaxial buckling (N_cr = 4 pi^2 D / a^2)
+  [PASS] F57 n=12 non-singular            
+   n=12: Ncr_num=91.21333 Ncr_exact=90.38099 rel=9.209e-03
+  [PASS] F57 n=16 non-singular            
+   n=16: Ncr_num=90.82161 Ncr_exact=90.38099 rel=4.875e-03
+  [PASS] F57 n=20 non-singular            
+   n=20: Ncr_num=90.63665 Ncr_exact=90.38099 rel=2.829e-03
+  [PASS] F57 SS plate buckling -> 4 pi^2 D/a^2 (rel<3% at n=20) rel=0.002829
+  [PASS] F57 axis-z non-singular          
+  [PASS] F57 axis-x non-singular          
+  [PASS] F57 axis invariance (normal z == normal x) got=91.2133      exp=91.2133      rel=8.51e-13 (tol=1e-09)
+  [PASS] F57 dense non-singular           
+  [PASS] F57 sparse non-singular          
+  [PASS] F57 sparse == dense (shell Kg)   got=90.8216      exp=90.8216      rel=4.28e-12 (tol=1e-06)
+  [PASS] F57 opt-in OFF -> no shell Kg -> singular (no buckling source) no positive buckling eigenvalue (no compression?)
+[F58] shell EICR CR: small-disp==linear + arbitrary-axis invariance (NR + FD tangent)
+   (a) small-disp  w_cr=0.0005716404 w_lin=0.0005716404 rel=3.84e-11
+  [PASS] F58a shell CR small-disp converged 
+  [PASS] F58a linear non-singular         
+  [PASS] F58a shell CR small-disp == linear got=0.00057164   exp=0.00057164   rel=3.84e-11 (tol=1e-03)
+   (b) arbitrary-axis invariance |u_tip| base=69.4585 rot=69.4585 rel=2.60e-14 (w/L=0.695)
+  [PASS] F58b shell CR rotated converged  
+  [PASS] F58b shell CR arbitrary-axis rotation invariance got=69.4585      exp=69.4585      rel=2.60e-14 (tol=1e-09)
+[F59] shell EICR large-deflection strip vs Mattiasson elastica (nu=0 plate strip == beam EI)
+   alpha= 1 dv/L=0.30151(exp 0.30172) dh/L=0.05632(exp 0.05643)
+  [PASS] F59 converged alpha=1            
+  [PASS] F59 strip dv/L alpha=1           got=0.301506     exp=0.301721     rel=7.11e-04 (tol=3e-03)
+  [PASS] F59 strip dh/L alpha=1           got=0.0563191    exp=0.0564332    rel=2.02e-03 (tol=5e-03)
+   alpha= 5 dv/L=0.71368(exp 0.71379) dh/L=0.38728(exp 0.38763)
+  [PASS] F59 converged alpha=5            
+  [PASS] F59 strip dv/L alpha=5           got=0.71368      exp=0.713792     rel=1.56e-04 (tol=3e-03)
+  [PASS] F59 strip dh/L alpha=5           got=0.387284     exp=0.387628     rel=8.87e-04 (tol=5e-03)
+   alpha=10 dv/L=0.81050(exp 0.81061) dh/L=0.55460(exp 0.55500)
+  [PASS] F59 converged alpha=10           
+  [PASS] F59 strip dv/L alpha=10          got=0.810502     exp=0.810609     rel=1.32e-04 (tol=3e-03)
+  [PASS] F59 strip dh/L alpha=10          got=0.554599     exp=0.554996     rel=7.15e-04 (tol=5e-03)
+[F61] warped MITC4 membrane patch: best-fit projection vs P0 (warping correction)
+  [PASS] F61 warped patch non-singular (P0) 
+  [PASS] F61 warped patch non-singular (best-fit) 
+   warp=3% Nxx err: P0=9.006e-04 best-fit=9.006e-04 (warpTolerance admits the warped quads)
+  [PASS] F61a warped quad admitted + bounded error (warpTolerance relaxes validate) 
+   flat   Nxx err: P0=2.155e-16 best-fit=2.155e-16 (both ~ machine precision)
+  [PASS] F61b flat patch P0 exact constant Nxx eOff=0.000000
+  [PASS] F61b flat patch best-fit exact constant Nxx eOn=0.000000
+   warp=4% -> Nxx err=1.602e-03
+   warp=2% -> Nxx err=4.001e-04
+   warp=1% -> Nxx err=1.000e-04
+  [PASS] F61c warp error shrinks with warp magnitude (refine the mesh to converge) 
+[F63] supernodal-primary replaces LDLT (PERF-01 architectural win)
+  [PASS] F63a cantilever: SnPrimary non-singular 
+  [PASS] F63a cantilever: SnPrimary used (useSnPrimary set) 
+  [PASS] F63a cantilever: uRel(LDLT, SnPrimary) < 1e-9 rel=0.000000
+  [PASS] F63a SS+UDL: SnPrimary non-singular 
+  [PASS] F63a SS+UDL: uRel < 1e-9         rel=0.000000
+  [PASS] F63a shell plate: SnPrimary non-singular 
+  [PASS] F63a shell plate: uRel < 1e-9    rel=0.000000
+   pivotMargin: LDLT=3.000e-06  SnPrimary=1.875e-07
+  [PASS] F63b SnPrimary pivotMargin > 0   pS=0.000000
+  [PASS] F63b both pivotMargins well above pivotTol 
+  [PASS] F63c mechanism flagged singular under SnPrimary LDLT factorization failed (info != Success): rank-deficient stiffness / mechanism
+  [PASS] F63d solveModal refuses SnPrimary solveModal requires the LDLT factor; rebuild PreparedSystem with SolveOptions::useSupernodalPrimary=false
+  [PASS] F63d solveBuckling refuses SnPrimary solveBuckling requires the LDLT factor; rebuild PreparedSystem with SolveOptions::useSupernodalPrimary=false
+  [PASS] F63e SnSession on SnPrimary is valid [SnSession] reusing PreparedSystem supernodal-primary factor
+  [PASS] F63e SnSession diagnostic says reused (no double-factor) [SnSession] reusing PreparedSystem supernodal-primary factor
+  [PASS] F63e SnSession solveFrame == solveLoad (rel<1e-12) rel=0.000000
+[F62] Neumaier compensated IR: slender cantilever (L/d=200, ~cond 1e6)
+  [PASS] F62a default ctor == irSteps=0 (bit-equiv backward compat) uDiff=0.000000 | [SnSession] supernodal solve (reused factor)
+   resInf free DOFs: IR=0 -> 6.123e-08 ; IR=2 -> 5.029e-08 (ratio 8.21e-01)
+  [PASS] F62b SnSession IR>=1 reduces ||K*u-F|| at free DOFs r0=6.123e-08 r2=5.029e-08 | [SnSession] supernodal solve (reused factor) + IR2/2
+  [PASS] F62c IR solution is a small polish (rel<1e-6 at cond~1e6) duRel=1.148e-09
+   stateless resInf: IR=0 -> 6.123e-08 ; IR=2 -> 5.029e-08
+  [PASS] F62d stateless solveLoadSupernodal IR>=1 reduces residual s0=6.123e-08 s2=5.029e-08 | [SnSolver] self-built supernodal Cholesky + IR2/2
+[F64] AC-06 shell buckling knockdown + AC-07 curved-shell mesh guard
+  [PASS] F64a buckling solved (raw)       
+  [PASS] F64a buckling solved (knockdown) 
+  [PASS] F64a raw eigenvalue unchanged    got=483.381      exp=483.381      rel=0.00e+00 (tol=1e-12)
+  [PASS] F64a design value = alpha * raw  got=314.198      exp=314.198      rel=0.00e+00 (tol=1e-12)
+  [PASS] F64a knockdownFactor recorded    got=0.65         exp=0.65         rel=0.00e+00 (tol=1e-12)
+  [PASS] F64a default knockdown=1         got=1            exp=1            rel=0.00e+00 (tol=1e-12)
+  [PASS] F64a-shell shell buckling raw non-singular 
+  [PASS] F64a-shell shell buckling knockdown non-singular 
+  [PASS] F64a-shell out-of-range knockdown still solves shellBucklingKnockdown=1.500000 out of range (0, 1]; alpha=1.0 used (raw eigenvalue reported)
+  [PASS] F64a-shell raw eigenvalue stable across alphas got=91.2133      exp=91.2133      rel=0.00e+00 (tol=1e-12)
+  [PASS] F64a-shell design = 0.65 * raw   got=59.2887      exp=59.2887      rel=0.00e+00 (tol=1e-12)
+  [PASS] F64a-shell out-of-range alpha clamps to 1.0 got=1            exp=1            rel=0.00e+00 (tol=1e-12)
+  [PASS] F64a-shell out-of-range alpha surfaces diagnostic (NLL-NEW-2 fix) shellBucklingKnockdown=1.500000 out of range (0, 1]; alpha=1.0 used (raw eigenvalue reported)
+  [PASS] F64a-shell raw eigenvalue agrees with F57 oracle (rel<5% at n=12) rel=9.209e-03
+  [PASS] F64b coarse cylinder admitted with guard OFF (default) 
+  [PASS] F64b 22.5deg guard rejects 8-facet cylinder (45deg per facet) curved-shell mesh too coarse: max adjacent-facet angle = 45.000000 deg > tol 22.500000 deg (shells [1,0]). Refine the curved-shell mesh (suggested 22.5 deg ~ 16 facets per 90 deg curvature for ~2% hoop accuracy), or set SolveOptions::shellCurvatureMaxAngleDeg=0 to disable.
+  [PASS] F64b diagnostic names the geometric problem curved-shell mesh too coarse: max adjacent-facet angle = 45.000000 deg > tol 22.500000 deg (shells [1,0]). Refine the curved-shell mesh (suggested 22.5 deg ~ 16 facets per 90 deg curvature for ~2% hoop accuracy), or set SolveOptions::shellCurvatureMaxAngleDeg=0 to disable.
+  [PASS] F64b 50deg guard admits 8-facet cylinder 
+  [PASS] F64b 22.5deg guard admits refined 32-facet cylinder (11.25deg per facet) 
+  [PASS] F65 SnPrimary prepared non-singular 
+  [PASS] F65 recover-mode session valid   [SnSession] reusing PreparedSystem supernodal-primary factor
+  [PASS] F65 lazy-mode session valid      [SnSession] reusing PreparedSystem supernodal-primary factor
+  [PASS] F65 recover.u sized to global DOF 
+  [PASS] F65 lazy.u sized to global DOF   
+  [PASS] F65 lazy.u == recover.u (rel<1e-12) rel=0.000000
+  [PASS] F65 lazy.reactions == recover.reactions (rel<1e-12) rel=0.000000
+  [PASS] F65 recover.memberForces.size == model.members.size() got=1 expect=1
+  [PASS] F65 lazy.memberForces.empty()    size=0
+  [PASS] F65 recover.shellForces.size == model.shells.size() got=0 expect=0
+  [PASS] F65 lazy.shellForces.empty()     size=0
+  [PASS] F65 lazy.diagnostic contains [lazy-recover] [SnSession] supernodal solve (reused factor) [lazy-recover]
+  [PASS] F65 recover.diagnostic does NOT contain [lazy-recover] [SnSession] supernodal solve (reused factor)
+  [PASS] F66 SnPrimary prepared non-singular (prescribed rotation) 
+  [PASS] F66 LDLT oracle non-singular     
+  [PASS] F66 SnSession.u == LDLT.u under prescribed rotation (rel<1e-10) rel=0.000000
+  [PASS] F66 SnSession.reactions == LDLT.reactions under prescribed rotation (rel<1e-10) rel=0.000000
+  [PASS] F66 tip Rz == prescribed theta (Dirichlet identity) got=0.0001       exp=0.0001       rel=0.00e+00 (tol=1e-12)
+  [PASS] F66 SnSession.u stable across consecutive solveFrame calls (nodeIdx cache) rel=0.000000
+
+ALL PASS  (failures=0)

@@ -1,0 +1,32 @@
+Using bundled DotNet SDK version: 8.0.412 win-x64
+Running UnrealBuildTool: dotnet "..\..\Engine\Binaries\DotNET\UnrealBuildTool\UnrealBuildTool.dll" ArchSimEditor Win64 Development -project=E:\project\ArchSim\ArchSim.uproject -waitmutex
+Log file: C:\Users\wmc02\AppData\Local\UnrealBuildTool\Log.txt
+Using 'git status' to determine working set for adaptive non-unity build (E:\project\ArchSim).
+Invalidating makefile for ArchSimEditor (FrameCore.Build.cs modified)
+Available x64 toolchains (1):
+ * C:\Program Files\Microsoft Visual Studio\18\Community\VC\Tools\MSVC\14.51.36231
+    (Family=14.51.36231, FamilyRank=1, Version=14.51.36247, HostArchitecture=x64, ReleaseChannel=Latest, Architecture=x64)
+Visual Studio 2026 compiler version 14.51.36247 is not a preferred version. Please use the latest preferred version 14.44.35207
+UHT compiled-in object format Default
+Building ArchSimEditor...
+Using Visual Studio 2026 14.51.36247 toolchain (C:\Program Files\Microsoft Visual Studio\18\Community\VC\Tools\MSVC\14.51.36231) and Windows 10.0.26100.0 SDK (C:\Program Files (x86)\Windows Kits\10).
+Warning: Visual Studio 2026 compiler is not a preferred version
+[Adaptive Build] Excluded from FrameCore unity file: GpuBacksubTest.cpp
+Determining max actions to execute in parallel (16 physical cores, 32 logical cores)
+  Executing up to 16 processes, one per physical core
+  Requested 1.5 GB memory per action, 13.73 GB available: limiting max parallel actions to 9
+Using Unreal Build Accelerator local executor to run 4 action(s)
+  Storage capacity 40Gb
+---- Starting trace: 260621_192702 ----
+UbaSessionServer - Disable remote execution (remote sessions will finish current processes)
+[1/4] Compile [x64] GpuBacksubTest.cpp
+[2/4] Link [x64] UnrealEditor-FrameCore.lib
+   正在建立程式庫 E:/project/ArchSim/Plugins/FrameSolver/Intermediate/Build/Win64/x64/UnrealEditor/Development/FrameCore/UnrealEditor-FrameCore.lib 和物件 E:/project/ArchSim/Plugins/FrameSolver/Intermediate/Build/Win64/x64/UnrealEditor/Development/FrameCore/UnrealEditor-FrameCore.exp
+[3/4] Link [x64] UnrealEditor-FrameCore.dll
+[4/4] WriteMetadata ArchSimEditor.target [NoUba]
+
+Trace written to file C:/Users/wmc02/AppData/Local/UnrealBuildTool/Log.uba with size 3.5kb
+Total time in Unreal Build Accelerator local executor: 3.38 seconds
+
+Result: Succeeded
+Total execution time: 12.00 seconds

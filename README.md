@@ -36,7 +36,9 @@ C++17-compatible; the UE module target is compiled as C++20 because of the curre
 > the full 9/9 reproduction matrix and [docs/RELEASE_v3.0.0.md](docs/RELEASE_v3.0.0.md)
 > for the release narrative.
 >
-> v2.11.1-RC adds five hardening items on top of v2.11.1 (commit `f09a197`):
+> v3.0.0 STABLE folded five hardening items + 7-agent audit fixes on top of v2.11.1
+> (`f09a197`); v3.0.1 patches the six follow-up findings from the post-release
+> consistency review:
 > (1) `Scripts/run_gpu_gate.ps1` resolves `SUPERNODAL_CONDA` through one canonical
 >     resolver (env var → legacy alias → conda layout probe);
 > (2) `build_sn_cuda.bat` derives `CUDA_ROOT` from `SUPERNODAL_CONDA` (strip `\Library`
@@ -47,25 +49,35 @@ C++17-compatible; the UE module target is compiled as C++20 because of the curre
 >     smoke semantics (tolerate silent CPU fallback for dev-box compile tests); two NEW
 >     fixtures F67s + `FFrameCoreGpuBacksubStrictTest` enforce real GPU attachment
 >     when `FRAMECORE_GPU_STRICT=1` (set automatically by `run_gpu_gate.ps1` when the
->     cuDSS runtime DLL resolves) — silent fallback now FAILS strict CI;
-> (5) this banner + `docs/HANDOFF_v2.11.1.md` + `docs/VERIFICATION.md` mark v2.11.1
->     as **RC** and enumerate the V3 STABLE conditions.
+>     cuDSS runtime DLL resolves) — silent fallback now FAILS strict CI, and v3.0.1
+>     adds a `[F67s] STRICT_EXECUTED` fingerprint that `run_gate.ps1` + `run_gpu_gate.ps1`
+>     grep for to catch the case where the strict branch was somehow not run;
+> (5) v3.0.1 syncs the version surface: `kEngineVer = "3.0.1"` (was stale at "2.11.1"
+>     when v3.0.0 was tagged), `FrameSolver.uplugin` `VersionName = "3.0.1"` +
+>     `IsBetaVersion = false`, `FRAMECORE_EXPECTED_ENGINE_VER = '3.0.1'` in
+>     `run_gpu_gate.ps1`; `r2_bench --gpu 90k` gains a baseline-regression hard gate
+>     (margin ≥ +8 ms vs v2.11.0 baseline ~+11.94 ms, not just "margin ≥ 0 vs the
+>     16.67 ms budget"); `FrameCore.Build.cs` normalizes `SUPERNODAL_CONDA` the same
+>     way the bat does (accept env-root OR `\Library`); `.github/workflows/release-gate.yml`
+>     runs the CPU-only legs on every push to `main` and uploads gate logs as artifacts.
 >
 <a id="v3-stable-conditions"></a>
-> ### V3 STABLE conditions
+> ### V3 STABLE gates (all green; ran in one session on the integrator's host)
 >
-> v2.11.1-RC → v3.0.0 STABLE flips the moment all six legs land green on the same box
-> in the same session:
+> The same three gate suites that flipped v3.0.0 STABLE are the contract every release
+> on the v3.x line is held to — and v3.0.1 raised the bar with strict-execution
+> fingerprints + perf regression threshold:
 >
 > 1. `Scripts\run_gate.ps1 -RequireOpenSees` exits 0
->    (standalone F1..F66 default / F1..F67 CUDA + UE **59/59** with cuDSS, **57/57**
->    without — pass `-ExpectedUeTests 57` in the latter case; OpenSees strict;
->    deep audit 104; CLI round-trip 13).
+>    (standalone F1..F66 default / F1..F67 + F67s CUDA + UE **59/59** with cuDSS,
+>    **57/57** without — pass `-ExpectedUeTests 57` in the latter case; OpenSees
+>    strict; deep audit 104; CLI round-trip 13). Under `FRAMECORE_GPU_STRICT=1`
+>    additionally requires `[F67s_UE] STRICT_EXECUTED` fingerprint in the UE log.
 > 2. `Plugins\FrameSolver\Standalone\build_capi_v2.bat` + `python Tools\v2_roundtrip.py`
->    exits 0 (CPU dispatcher round-trip).
+>    exits 0 (CPU dispatcher round-trip; `kEngineVer="3.0.1"` pinned).
 > 3. `Scripts\run_gpu_gate.ps1 -Strict` exits 0 on a box with cuDSS installed
->    (frametest_cuda F1..F67 + F67s strict, v2_roundtrip CUDA, r2_bench --gpu 90k
->    inside the 16.67 ms budget).
+>    (frametest_cuda F1..F67 + F67s strict with STRICT_EXECUTED fingerprint,
+>    v2_roundtrip CUDA, r2_bench --gpu 90k margin ≥ +8 ms hard regression gate).
 >
 > v2.10 introduced
 > the cuDSS GPU backsub lane as an opt-in production path; v2.11 stacked three GPU phases

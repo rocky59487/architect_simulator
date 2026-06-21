@@ -39,11 +39,30 @@ public class FrameCore : ModuleRules
         // -> SnSolver.cpp routes to the LDLT fallback, so the UE build still succeeds without it.
         if (Target.Platform == UnrealTargetPlatform.Win64)
         {
+            // v3.0.1 MEDIUM 1 audit: match PS1 Resolve-SupernodalConda + bat
+            // :normalize_conda_ss semantics -- accept SUPERNODAL_CONDA as either the
+            // conda env root (e.g. C:\Users\me\anaconda3\envs\framecore-direct) OR with
+            // a trailing \Library / /Library suffix. The bat/UE convention is that all
+            // OpenBLAS+METIS lookups need the \Library form, so append it when missing.
             string condaSS = Environment.GetEnvironmentVariable("SUPERNODAL_CONDA");
             if (string.IsNullOrEmpty(condaSS))
+            {
                 condaSS = Path.Combine(
                     Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
                     "anaconda3", "envs", "framecore-direct", "Library");
+            }
+            else
+            {
+                string trimmedSS = condaSS.TrimEnd('\\', '/');
+                if (!Path.GetFileName(trimmedSS).Equals("Library", StringComparison.OrdinalIgnoreCase))
+                {
+                    condaSS = Path.Combine(trimmedSS, "Library");
+                }
+                else
+                {
+                    condaSS = trimmedSS;
+                }
+            }
 
             string incOpenBlas = Path.Combine(condaSS, "include", "openblas");
             string incRoot     = Path.Combine(condaSS, "include");

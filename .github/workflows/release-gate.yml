@@ -1,0 +1,170 @@
+name: release-gate
+
+# Self-validating release gate for FrameCore. Runs the CPU-only legs of the 9-leg
+# verification matrix on every push to main and every PR. The GPU legs (cuDSS) and
+# UE automation require GPU hardware + UE 5.7 install and are NOT in scope here --
+# those are run manually on the integrator's box per docs/HANDOFF_v2.11.1.md.
+#
+# Reachable CPU legs on GitHub-hosted windows-latest:
+#   * standalone build.bat + frametest.exe (F1..F66 default)
+#   * build_linear_audit.bat + linear_deep_audit.exe (104 checks)
+#   * build_cli.bat + python Tools/cli_roundtrip.py (13 checks)
+#   * build_capi_v2.bat + python Tools/v2_roundtrip.py (CPU dispatcher)
+#
+# OpenSees leg is opt-in via openseespy pip install (not in default windows-latest
+# image; ~1 min install) and is run when present.
+#
+# Each leg uploads its stdout to a GitHub Actions artifact named
+# `gate-log-<leg>-<sha>` so the run is auditable post-mortem -- v3.0.0 HIGH 2 audit
+# called out that "9/9 green" was only in docs, with no CI evidence.
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  cpu-gate:
+    runs-on: windows-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          submodules: false
+          fetch-depth: 1
+
+      - name: Setup MSVC
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x64
+
+      - name: Setup miniconda + framecore-direct env
+        uses: conda-incubator/setup-miniconda@v3
+        with:
+          auto-update-conda: true
+          activate-environment: framecore-direct
+          environment-file: environment.yml
+          auto-activate-base: false
+          miniforge-version: latest
+
+      - name: Set SUPERNODAL_CONDA
+        shell: pwsh
+        run: |
+          $env:SUPERNODAL_CONDA = "$env:CONDA_PREFIX\Library"
+          echo "SUPERNODAL_CONDA=$env:CONDA_PREFIX\Library" | Out-File -FilePath $env:GITHUB_ENV -Append
+
+      - name: Eigen header (vendored under UE_5.7 tree; CI uses sibling clone)
+        shell: pwsh
+        run: |
+          # CI doesn't have UE_5.7 installed; download just the Eigen header tree.
+          # The standalone build only needs Eigen headers, not the full UE engine.
+          mkdir -Force eigen-vendor | Out-Null
+          Invoke-WebRequest -Uri "https://gitlab.com/libeigen/eigen/-/archive/3.4.0/eigen-3.4.0.tar.gz" -OutFile eigen.tar.gz
+          tar -xzf eigen.tar.gz
+          echo "EIGEN_DIR=$pwd\eigen-3.4.0" | Out-File -FilePath $env:GITHUB_ENV -Append
+
+      - name: Leg 1 - standalone F1..F66
+        id: standalone
+        shell: cmd
+        run: |
+          call Plugins\FrameSolver\Standalone\build.bat > gate-standalone.log 2>&1
+          if errorlevel 1 (
+            type gate-standalone.log
+            exit /b 1
+          )
+          Plugins\FrameSolver\Standalone\frametest.exe >> gate-standalone.log 2>&1
+          findstr /C:"ALL PASS" gate-standalone.log
+          if errorlevel 1 (
+            type gate-standalone.log
+            exit /b 1
+          )
+
+      - name: Leg 4 - linear deep audit (104 checks)
+        id: audit
+        shell: cmd
+        run: |
+          call Plugins\FrameSolver\Standalone\build_linear_audit.bat > gate-audit.log 2>&1
+          if errorlevel 1 (
+            type gate-audit.log
+            exit /b 1
+          )
+          Plugins\FrameSolver\Standalone\linear_deep_audit.exe >> gate-audit.log 2>&1
+          findstr /R /C:"PASS failures=0 checks=104" gate-audit.log
+          if errorlevel 1 (
+            type gate-audit.log
+            exit /b 1
+          )
+
+      - name: Leg 5 - CLI round-trip (13 checks)
+        id: cli
+        shell: pwsh
+        run: |
+          cmd /c "call Plugins\FrameSolver\Standalone\build_cli.bat" *>&1 | Tee-Object -FilePath gate-cli-build.log
+          python Tools\cli_roundtrip.py *>&1 | Tee-Object -FilePath gate-cli.log
+          if (-not (Select-String -Path gate-cli.log -Pattern 'ALL PASS')) {
+            Get-Content gate-cli.log
+            exit 1
+          }
+
+      - name: Leg 6a - v2_roundtrip CPU dispatcher
+        id: v2roundtrip
+        shell: pwsh
+        run: |
+          cmd /c "call Plugins\FrameSolver\Standalone\build_capi_v2.bat" *>&1 | Tee-Object -FilePath gate-capi-build.log
+          $env:FRAMECORE_EXPECTED_ENGINE_VER = '3.0.1'
+          python Tools\v2_roundtrip.py *>&1 | Tee-Object -FilePath gate-v2roundtrip.log
+          if (-not (Select-String -Path gate-v2roundtrip.log -Pattern '=== summary: ALL PASS')) {
+            Get-Content gate-v2roundtrip.log
+            exit 1
+          }
+
+      - name: Leg 3 - OpenSees strict (opt-in)
+        id: opensees
+        shell: pwsh
+        continue-on-error: true
+        run: |
+          python -c "import openseespy.opensees" 2>$null
+          if ($LASTEXITCODE -ne 0) {
+            Write-Host "openseespy not installed; skipping OpenSees leg (set up via conda pip in environment.yml)"
+            exit 0
+          }
+          python Tools\opensees_compare.py *>&1 | Tee-Object -FilePath gate-opensees.log
+          if (-not (Select-String -Path gate-opensees.log -Pattern 'OPENSEES GATE: PASS')) {
+            Get-Content gate-opensees.log
+            exit 1
+          }
+
+      - name: Upload gate logs as artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: gate-logs-${{ github.sha }}
+          path: |
+            gate-standalone.log
+            gate-audit.log
+            gate-cli-build.log
+            gate-cli.log
+            gate-capi-build.log
+            gate-v2roundtrip.log
+            gate-opensees.log
+          if-no-files-found: warn
+          retention-days: 90
+
+      - name: Gate summary
+        if: always()
+        shell: pwsh
+        run: |
+          Write-Host "============================================="
+          Write-Host " release-gate CPU summary (commit ${{ github.sha }})"
+          Write-Host "============================================="
+          Write-Host "Standalone:    ${{ steps.standalone.outcome }}"
+          Write-Host "Audit (104):   ${{ steps.audit.outcome }}"
+          Write-Host "CLI (13):      ${{ steps.cli.outcome }}"
+          Write-Host "v2_roundtrip:  ${{ steps.v2roundtrip.outcome }}"
+          Write-Host "OpenSees:      ${{ steps.opensees.outcome }}"
+          Write-Host "GPU + UE legs run manually on the integrator's box."
+          Write-Host "See docs/HANDOFF_v2.11.1.md and docs/gate-logs/<tag>/ for evidence."

@@ -4045,7 +4045,13 @@ int main() {
             // are silent SKIP per D-04 audit.
             checkTrue("F67s SKIP (FRAMECORE_GPU_STRICT != \"1\" -- see Scripts/run_gpu_gate.ps1; literal '1' only)",
                       true);
+            std::printf("[F67s] STRICT_SKIPPED reason=env_unset_or_not_1\n");
         } else {
+            // v3.0.1 audit: emit fingerprint string that run_gpu_gate.ps1 greps for under
+            // -Strict mode. If frametest_cuda stdout under strict mode does NOT contain
+            // this exact token, the gate FAILs even if g_fail==0 -- catching the case
+            // where the strict branch was somehow compiled out or skipped.
+            std::printf("[F67s] STRICT_EXECUTED gpu_attach=cuDSS env=FRAMECORE_GPU_STRICT=1\n");
             // A-03 audit: 3-arg Material(E, G, rho=7850) matches F67 + UE smoke/strict exactly
             // (Material default rho=0 doesn't affect this static fixture but mirrors the others
             // so a future rho-dependent code path keeps the four fixtures bit-equivalent).

@@ -67,16 +67,21 @@ GH bridge + C-09/C-10), [`RELEASE_v2.7.md`](RELEASE_v2.7.md) (live frames + canc
 `docs/POST_V2_5_HARDENING.md` was never authored; the v2.8.1 audit pass replaces both
 dead-link sites with the canonical release trail.
 
-## 1.5. Release Candidate vs STABLE (v2.11.1-RC → v3.0.0)
+## 1.5. v3.0.0 STABLE gate suites (and the v3.0.1 patch hardening on top)
 
-**v2.11.1 is a Release Candidate.** On the integrator's host, 7 of 9 legs ran
-green against the rebuilt v2.11.1-RC source (standalone F1..F66 + audit 104 + CLI
+**v3.0.0 STABLE shipped 2026-06-21 with all 9 legs green in one integrator session,
+and v3.0.1 raised the bar with strict-execution fingerprints + perf regression
+threshold + CI workflow.** The release-time matrix (kept here as historical
+evidence — see [`docs/RELEASE_v3.0.0.md`](RELEASE_v3.0.0.md) for the v3.0.0 narrative
+and [`docs/RELEASE_v3.0.1.md`](RELEASE_v3.0.1.md) for v3.0.1):
+
+On the integrator's host, all 9 legs ran green against the v3.0.0 source
+(standalone F1..F66 + audit 104 + CLI
 13 + v2_roundtrip CPU + standalone F1..F67 + F67s CUDA strict + v2_roundtrip CUDA +
-r2_bench --gpu 90k margin +11.946 ms). The **two** remaining NOT-RUN legs (UE 59/59
-and OpenSees strict) need an environment the integrator doesn't have available:
-UE 5.7 module rebuild (≥ 1 h swap-thrash on 31 GB RAM) and `openseespy` in the
-system python. v3.0.0 STABLE flips the moment all six gate suites land green in a
-single owner session:
+r2_bench --gpu 90k margin +11.946 ms + UE 59/59 + OpenSees strict). v3.0.1 added
+post-v3.0.0 hardening (kEngineVer 2.11.1→3.0.1 sync, strict-test STRICT_EXECUTED
+fingerprint enforcement, r2_bench regression threshold, UE Build.cs normalisation
+matching the bat resolver, CI workflow). The same three gate suites stay green:
 
 | Gate | Command | What it covers |
 |---|---|---|

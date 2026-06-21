@@ -1,4 +1,16 @@
-# Handoff — v2.11.1-RC → V3 STABLE candidate (2026-06-21)
+# Handoff — v3.0.0 STABLE shipped + v3.0.1 patch (2026-06-21)
+
+> **Historical note (this file's original framing was `v2.11.1-RC → V3 STABLE
+> candidate`):** v3.0.0 was tagged the same day after UE rebuild + OpenSees re-ran
+> green, and v3.0.1 followed within the same session to close 6 post-release
+> consistency findings (version surface sync, strict-test executed fingerprint
+> enforcement, r2_bench regression hard gate, CI workflow + gate-log artifacts,
+> UE Build.cs normalisation, doc scrub). The §-numbered content below still
+> reflects the v2.11.1-RC → STABLE flow because it's the right narrative for the
+> incoming maintainer; the §2 reproduction matrix shows the as-run green state.
+
+## Legacy lede (preserved for context)
+
 
 > Supplements `HANDOFF_v2.11.0.md`. v2.11.1 is the release-hardening pass
 > on the v2.11 GPU lane: integrates 5 post-tag commits + closes 6 BLOCKER /
