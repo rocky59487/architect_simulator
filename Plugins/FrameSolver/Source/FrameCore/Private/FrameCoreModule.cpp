@@ -14,22 +14,54 @@
 // FrameCore.Build.cs (SUPERNODAL_CONDA env var, else the default anaconda3 location). If the DLL is
 // absent the handle stays null -- acceptable in dev where Build.cs only sets FRAMECORE_SUPERNODAL=1
 // when the env exists; a shipping build must instead stage openblas.dll next to the executable.
+//
+// Phase 7 (v2.11): when FRAMECORE_CUDA=1, the same StartupModule preloads the cuDSS /
+// cuSPARSE / cudart runtime DLL group from the same conda env. Build.cs registers them as
+// delay-load DLLs, so a missing DLL in a packaged game lets the GPU lane gracefully fall
+// back to the CPU one rather than failing to load FrameCore.dll.
 class FFrameCoreModule : public IModuleInterface
 {
 public:
     virtual void StartupModule() override
     {
-        FString root = FPlatformMisc::GetEnvironmentVariable(TEXT("SUPERNODAL_CONDA"));
-        if (root.IsEmpty())
+        FString libraryRoot = FPlatformMisc::GetEnvironmentVariable(TEXT("SUPERNODAL_CONDA"));
+        if (libraryRoot.IsEmpty())
         {
             const FString home = FPlatformMisc::GetEnvironmentVariable(TEXT("USERPROFILE"));
-            root = FPaths::Combine(home, TEXT("anaconda3"), TEXT("envs"), TEXT("framecore-direct"), TEXT("Library"));
+            libraryRoot = FPaths::Combine(home, TEXT("anaconda3"), TEXT("envs"), TEXT("framecore-direct"), TEXT("Library"));
         }
-        const FString dll = FPaths::Combine(root, TEXT("bin"), TEXT("openblas.dll"));
-        if (FPaths::FileExists(dll))
+        // openblas (supernodal CPU)
+        const FString openblasDll = FPaths::Combine(libraryRoot, TEXT("bin"), TEXT("openblas.dll"));
+        if (FPaths::FileExists(openblasDll))
         {
-            OpenBlasHandle = FPlatformProcess::GetDllHandle(*dll);
+            OpenBlasHandle = FPlatformProcess::GetDllHandle(*openblasDll);
         }
+#if FRAMECORE_CUDA
+        // cuDSS / cuSPARSE / cudart (GPU lane). The conda env keeps cudart64_12.dll under the
+        // env root's bin/, while cuDSS + cuSPARSE + transitive deps sit under Library/bin/.
+        // Mirror the standalone build_sn_cuda.bat resolution.
+        const FString home = FPlatformMisc::GetEnvironmentVariable(TEXT("USERPROFILE"));
+        const FString envRoot = FPaths::Combine(home, TEXT("anaconda3"), TEXT("envs"), TEXT("framecore-direct"));
+        const TCHAR* dllNames[] = {
+            TEXT("nvJitLink_120_0.dll"),
+            TEXT("cublasLt64_12.dll"),
+            TEXT("cublas64_12.dll"),
+            TEXT("cusparse64_12.dll"),
+            TEXT("cudart64_12.dll"),
+            TEXT("cudss_mtlayer_vcomp14064_0.dll"),
+            TEXT("cudss64_0.dll"),
+        };
+        for (const TCHAR* name : dllNames)
+        {
+            const FString libBin = FPaths::Combine(libraryRoot, TEXT("bin"), name);
+            const FString envBin = FPaths::Combine(envRoot, TEXT("bin"), name);
+            const FString src = FPaths::FileExists(libBin) ? libBin : (FPaths::FileExists(envBin) ? envBin : FString());
+            if (!src.IsEmpty())
+            {
+                CudaHandles.Add(FPlatformProcess::GetDllHandle(*src));
+            }
+        }
+#endif
     }
 
     virtual void ShutdownModule() override
@@ -39,10 +71,20 @@ public:
             FPlatformProcess::FreeDllHandle(OpenBlasHandle);
             OpenBlasHandle = nullptr;
         }
+#if FRAMECORE_CUDA
+        for (void* h : CudaHandles)
+        {
+            if (h) FPlatformProcess::FreeDllHandle(h);
+        }
+        CudaHandles.Empty();
+#endif
     }
 
 private:
     void* OpenBlasHandle = nullptr;
+#if FRAMECORE_CUDA
+    TArray<void*> CudaHandles;
+#endif
 };
 
 IMPLEMENT_MODULE(FFrameCoreModule, FrameCore);
