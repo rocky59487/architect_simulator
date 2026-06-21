@@ -319,15 +319,57 @@ Rebuild incremental 6.64s; automation **67/67 EXIT 0**; both new tests `Result={
 
 `$ExpectedUeTests` bumped 65 → 67; non-cuDSS recommendation bumped 63 → 65.
 
+#### Phase 6f — theta range + zero-load edge tests + perf baseline (67 → 69 UE tests)
+
+Two more focused edge tests:
+
+1. **`FFrameCoreUEThetaRangeTest`** (`FrameCore.UE.ThetaRangeTest`) — sweeps 40 shell
+   sample points (4 shells × 5 points × 2 layers) on the 2x2 clamped plate fixture and
+   asserts every `FFrameShellStressPoint.ThetaRad ∈ (-π/2, π/2]` (v3.1.0 audit A-09 fix
+   carry-forward invariant; atan2-based principal axis cannot return -π/2 since that
+   maps to +π/2). Catches float roundoff at boundary too (eps tolerance 1e-5).
+2. **`FFrameCoreUEZeroLoadTest`** (`FrameCore.UE.ZeroLoadTest`) — `ComputeCantileverFixture(P=0, L=2000, 11)`
+   verifies all 11 sample sigmas are exactly 0 (zero load → zero internal forces →
+   zero analytic stress from `frame::computeStressField`), no NaN anywhere, global
+   maxes 0, shell sentinels stay -1. This documents the BP-friendly zero-load contract.
+
+Rebuild incremental 2.73s; UE automation **69/69 EXIT 0**; both new tests `Result={成功}`.
+`$ExpectedUeTests` bumped 67 → 69; non-cuDSS recommendation 65 → 67.
+
+**Compile error fresh durable lesson:** First attempt failed because `auto check = [&](...)` 
+lambda name collided with UE's `check()` assertion macro (CoreMinimal.h). Compiler tried to
+expand `check(bp.ShellsTop[s].Center)` as the macro, evaluating the argument as `bool`,
+hence "`!` cannot be applied to const FFrameShellStressPoint". Renamed to `checkThetaRange`
+and the build flew through. Adds to CLAUDE.md 踩雷 catalog alongside `IN`/`OUT` (Windows SAL
+macros), now `check` (UE assertion macro).
+
+#### Phase 6f perf baseline (`frame_perf.exe`)
+
+Standalone XXL benchmark run for the v3.2.0 post-tag baseline reference:
+
+```
+case=XXL-24st-12x9 nx=12 ny=9 stories=24 repeat=5 warmup=1 dry=0
+nodes=3250 members=9816 dof=19500 freeDof=18720 loads=3122
+buildMs    = 0.24-0.32 ms (matrix assembly)
+solveMs    = 1672-1828 ms median ~1714 ms (LDLT solve on 19500 freeDof)
+checksum   = 14006.6399593 (deterministic across re-runs)
+```
+
+This is the engine-native LDLT path (the supernodal lane fires on much larger DOF counts).
+v3.2.0 source delta in engine numerics is 0 lines vs v3.1.0; this baseline is therefore the
+same v3.1.0 number, recorded here for handoff completeness.
+
 ### Net Phase 6 outcome
 
-UE test count: v3.2.0 tag shipped at 62 → +Phase 6a (3 marshal scenarios) → 65 → +Phase 6e
-(spawner sanity + robustness) → **67 UE tests**, all green. Plus the v3.2 deferred **U-04**
-moved from "deferred to v3.3" to "closed in v3.2 post-tag". Coverage extends to:
-single/multi-member traces, shell layers, user-set member IDs, negative-input contracts,
+UE test count: v3.2.0 tag shipped at 62 → +Phase 6a (3 marshal) → 65 → +Phase 6e (spawner
++ robustness) → 67 → +Phase 6f (theta + zero-load) → **69 UE tests**, all green. Plus the
+v3.2 deferred **U-04** moved from "deferred to v3.3" to "CLOSED in v3.2 post-tag" (live
+TabSpawner sanity test). Coverage extends to: single/multi-member traces, shell layers,
+shell principal angles, user-set member IDs, negative-input contracts, zero-load edge,
 20-member scaling, 100x repeat memory stability, packaged-build compile path, nomad tab
-spawner registration. Stability stress 3x clean (drift 0.7%). 6 doc topology cleanups
-applied from the broader idle-time sweep.
+spawner registration, theta range invariant. Stability stress 3x clean (drift 0.7%). 6 doc
+topology cleanups applied from the broader idle-time sweep. 1 durable lesson added
+(`check` lambda vs UE macro collision).
 
 ### Repo-wide light hygiene sweep (1 general-purpose agent)
 
