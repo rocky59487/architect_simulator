@@ -19,9 +19,55 @@ C++17-compatible; the UE module target is compiled as C++20 because of the curre
 > `v2.2+1` release packaged them together (FrameCore v2.2 + LevelSim v1.0.0). Every release
 > from `v2.3` onwards is FrameCore-only — LevelSim has not changed since `v2.2+1`.
 
-> **Status (2026-06-21, v2.11.1 — release-hardening pass on the v2.11 GPU lane, integrating
-> Phase 7 UE FRAMECORE_CUDA wire-up + UE F67 mirror test that landed post-tag `v2.11.0`,
-> plus a 7-agent adversarial audit that closed 6 BLOCKER / HIGH findings):** v2.10 introduced
+> **Status (2026-06-21, v3.0.0 STABLE — V3 anchor, 9/9 legs verified in one session):**
+> the v2.11.1 release-hardening pass + 5 follow-up items + 7-agent audit fixes land the
+> V3 stability anchor. On the integrator's host (RTX 5070 Ti Laptop + cuDSS 0.8) **all 9
+> verification legs run green against the rebuilt v3.0.0 source** in a single session:
+> standalone F1..F66 ALL PASS, **UE 59/59 ALL PASS** (incl. new
+> `FFrameCoreGpuBacksubStrictTest`), **OpenSees strict PASS**, deep audit 104 PASS,
+> CLI round-trip 13 ALL PASS, v2_roundtrip CPU ALL PASS, **frametest_cuda F1..F67 + F67s
+> strict ALL PASS** (cuDSS truly attached on device — diagnostic carries `[GPU] cuDSS
+> factor ready` and `reactions on CPU` reverse-asserted absent), v2_roundtrip CUDA ALL
+> PASS, and r2_bench --gpu 90k **PASS** with margin **+11.939 ms** under the 16.67 ms /
+> frame 60-fps budget. V3 STABLE flip conditions all met; UE rebuild was incremental
+> (~62 s wall-clock) and openseespy was already present (the earlier "not in system
+> python" claim was stale per release-hardening Rule #4). See
+> [docs/HANDOFF_v2.11.1.md §2](docs/HANDOFF_v2.11.1.md#2-gates-what-ran-what-didnt) for
+> the full 9/9 reproduction matrix and [docs/RELEASE_v3.0.0.md](docs/RELEASE_v3.0.0.md)
+> for the release narrative.
+>
+> v2.11.1-RC adds five hardening items on top of v2.11.1 (commit `f09a197`):
+> (1) `Scripts/run_gpu_gate.ps1` resolves `SUPERNODAL_CONDA` through one canonical
+>     resolver (env var → legacy alias → conda layout probe);
+> (2) `build_sn_cuda.bat` derives `CUDA_ROOT` from `SUPERNODAL_CONDA` (strip `\Library`
+>     suffix → env root), with `CUDA_ROOT` / `CUDA_PATH` explicit overrides;
+> (3) `build_capi_v2_cuda.bat` mirrors (2) block-for-block so dispatcher + standalone
+>     CUDA builds never silently drift;
+> (4) F67 (standalone) and `FFrameCoreGpuBacksubTest` (UE) keep their existing
+>     smoke semantics (tolerate silent CPU fallback for dev-box compile tests); two NEW
+>     fixtures F67s + `FFrameCoreGpuBacksubStrictTest` enforce real GPU attachment
+>     when `FRAMECORE_GPU_STRICT=1` (set automatically by `run_gpu_gate.ps1` when the
+>     cuDSS runtime DLL resolves) — silent fallback now FAILS strict CI;
+> (5) this banner + `docs/HANDOFF_v2.11.1.md` + `docs/VERIFICATION.md` mark v2.11.1
+>     as **RC** and enumerate the V3 STABLE conditions.
+>
+<a id="v3-stable-conditions"></a>
+> ### V3 STABLE conditions
+>
+> v2.11.1-RC → v3.0.0 STABLE flips the moment all six legs land green on the same box
+> in the same session:
+>
+> 1. `Scripts\run_gate.ps1 -RequireOpenSees` exits 0
+>    (standalone F1..F66 default / F1..F67 CUDA + UE **59/59** with cuDSS, **57/57**
+>    without — pass `-ExpectedUeTests 57` in the latter case; OpenSees strict;
+>    deep audit 104; CLI round-trip 13).
+> 2. `Plugins\FrameSolver\Standalone\build_capi_v2.bat` + `python Tools\v2_roundtrip.py`
+>    exits 0 (CPU dispatcher round-trip).
+> 3. `Scripts\run_gpu_gate.ps1 -Strict` exits 0 on a box with cuDSS installed
+>    (frametest_cuda F1..F67 + F67s strict, v2_roundtrip CUDA, r2_bench --gpu 90k
+>    inside the 16.67 ms budget).
+>
+> v2.10 introduced
 > the cuDSS GPU backsub lane as an opt-in production path; v2.11 stacked three GPU phases
 > (Phase 1 cuSPARSE SpMV reactions, Phase 2 single CUDA stream + async memcpy, Phase 3'
 > Qf-detection cache) and reached **60 fps through 200 K DOF** on RTX 5070 Ti Laptop —
@@ -35,14 +81,19 @@ C++17-compatible; the UE module target is compiled as C++20 because of the curre
 > ctor narrowed to `cudaStreamSynchronize` (no longer blocks unrelated CUDA work in the
 > same process), UE DLL preload warns on `GetDllHandle` returning null (no more silent
 > delay-fault), `environment.yml` documents the optional CUDA package install, docs
-> resynced to the current 58/F67/104/etc. counts.  **FrameCore engine source delta
-> v2.11.0..v2.11.1 = 4 files / ~60 lines, all additive guards / env-var overrides /
-> version strings.** The six-leg verification gate stays green —
+> resynced to the current 58/F67/104/etc. counts.  v2.11.1-RC stacks five extra hardening
+> items on top (above), bumping UE test count 58 → **59** when built with cuDSS
+> (`FFrameCoreGpuBacksubStrictTest`) and adding F67s (strict) alongside F67 (smoke) on the
+> standalone CUDA gate. **FrameCore engine source delta v2.11.0..v2.11.1-RC = ~6 files /
+> ~120 lines, all additive guards / env-var overrides / version strings / new test
+> fixtures.** The six-leg verification gate stays green for reachable legs —
 > standalone `ALL PASS` (62 + 1 individual F-fixtures spanning **F1..F66 default build,
-> F1..F67 in CUDA build** — F41 and F60 are intentionally absent, see [`docs/VERIFICATION.md`](docs/VERIFICATION.md)) ·
-> **58** UE automation tests (Phase 7 added `FFrameCoreGpuBacksubTest`, the UE mirror of
-> standalone F67) · **OpenSees** strict cross-validation PASS · deep audit **104**
-> independent checks · CLI round-trip ALL PASS. One repo-relative command reproduces it
+> F1..F67 + F67s in CUDA build** — F41 and F60 are intentionally absent, see [`docs/VERIFICATION.md`](docs/VERIFICATION.md)) ·
+> **59** UE automation tests with cuDSS (57 without; v2.11.1-RC added
+> `FFrameCoreGpuBacksubStrictTest` for silent-fallback detection on top of v2.11's
+> `FFrameCoreGpuBacksubTest` smoke) · **OpenSees** strict cross-validation PASS ·
+> deep audit **104** independent checks · CLI round-trip ALL PASS. One repo-relative
+> command reproduces it
 > (`-Engine` or `UE_ENGINE_ROOT` can point at a non-sibling Unreal install):
 > `powershell -ExecutionPolicy Bypass -File Scripts\run_gate.ps1 -RequireOpenSees`.
 > The optional 6th + GPU gate legs (v2 dispatcher round-trip CPU + CUDA + production GPU
@@ -259,8 +310,10 @@ Engine\Binaries\Win64\UnrealEditor-Cmd.exe ...\ArchSim.uproject -ExecCmds="Autom
 
 > `run_gate.ps1` runs the UE automation but does **not** rebuild the UE module — rebuild
 > first (command above) after touching engine code, or the automation runs a stale binary.
-> The `$ExpectedUeTests = 58` guard catches a silently-missing test (v2.11.1 bumped 57→58
-> when Phase 7 added `FFrameCoreGpuBacksubTest`, the UE mirror of standalone F67).
+> The `$ExpectedUeTests = 59` guard catches a silently-missing test (v2.11.1-RC bumped
+> 58→59 when `FFrameCoreGpuBacksubStrictTest` was added; v2.11 Phase 7 bumped 57→58 for
+> `FFrameCoreGpuBacksubTest`, the UE mirror of standalone F67). On a box without cuDSS
+> the two GPU tests compile out via `#if FRAMECORE_CUDA` — pass `-ExpectedUeTests 57`.
 
 **Try the engine without writing C++** — the text bridge solves a model from stdin:
 
@@ -325,7 +378,7 @@ Plugins/FrameSolver/
                                         collapse, reanalysis, corotational, optimization)
     Private/*.cpp                       implementation (+ Private/FrameEigen.h: the single
                                         Eigen include site, dual-build guarded)
-    Private/Tests/*.cpp                 58 UE automation tests (UE-side oracle mirrors)
+    Private/Tests/*.cpp                 59 UE automation tests w/ cuDSS, 57 without (UE-side oracle mirrors)
   Standalone/                           console gates + CLI/C-API drivers (see its README)
   Grasshopper/                          C# reference client for the text bridge
 Scripts/run_gate.ps1                    the one-click five-leg gate

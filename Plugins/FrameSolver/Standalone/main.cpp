@@ -41,6 +41,7 @@
 #include <utility>
 
 #include <cstdio>
+#include <cstdlib>   // std::getenv (F67s strict-attached gate reads FRAMECORE_GPU_STRICT)
 #include <cmath>
 #include <string>
 #include <algorithm>
@@ -3945,7 +3946,7 @@ int main() {
 #endif // FRAMECORE_SUPERNODAL
 
 #if defined(FRAMECORE_SUPERNODAL) && FRAMECORE_SUPERNODAL && defined(FRAMECORE_CUDA) && FRAMECORE_CUDA
-    // ---------- F67: R2.3 GPU backsub bit-equivalence (cuDSS lane) ----------
+    // ---------- F67 (smoke): GPU backsub bit-equivalence -- tolerates fallback ----------
     // Research/R2_realtime_150k/RESULTS_round3_gpu_success.md measured the cuDSS GPU lane at
     // 2.5 ms / frame at 90 k DOF (22x faster than the CPU sn_chol lane). F67 verifies that
     // the production opt-in flag (SnSessionOptions::useGpuBacksub=true) returns numerically-
@@ -3954,6 +3955,15 @@ int main() {
     // Tolerance: rel < 1e-8 -- the cuDSS METIS ordering differs slightly from the self-built
     // sn_chol ordering, so we don't expect rel = 0 even at FP64. Empirically GPU vs CPU on the
     // same SPD K_ff matches to ~1e-9 - 1e-10 on the 90k tower.
+    //
+    // ** F67 is a SMOKE test by design **: it passes whether cuDSS actually ran on the GPU
+    // or transparently fell back to CPU (no NVIDIA driver / cuDSS DLL not on PATH / runtime
+    // failure). This lets a developer compile-test the CUDA lane on any box.
+    //
+    // To enforce real GPU attachment, see F67s below: set FRAMECORE_GPU_STRICT=1 in the
+    // environment (run_gpu_gate.ps1 sets this automatically when cuDSS DLLs resolve) and
+    // F67s will FAIL if the diagnostic doesn't carry the success substring. This split
+    // catches "silent CPU fallback in CI" without breaking dev-box compile tests.
     //
     // This fixture only runs in the optional CUDA-enabled standalone build
     // (build_sn_cuda.bat -> Standalone\frametest_cuda.exe). The default standalone gate
@@ -4013,6 +4023,74 @@ int main() {
                   Rg.memberForces.size() == Rc.memberForces.size(),
                   "got=" + std::to_string(Rg.memberForces.size()) + " expect=" +
                   std::to_string(Rc.memberForces.size()));
+    }
+
+    // ---------- F67s (strict): GPU MUST be attached -- silent CPU fallback FAILS ----------
+    // F67 above tolerates a silent fallback to CPU (good for dev-box compile tests). F67s
+    // is the inverse: when FRAMECORE_GPU_STRICT=1 the diagnostic must carry the SUCCESS
+    // substring ("[GPU] cuDSS factor ready"), not just the bare "[GPU]" tag that every
+    // fallback path also emits ("[GPU] cuDSS context create failed; CPU lane used", etc.).
+    //
+    // The flag is set automatically by Scripts/run_gpu_gate.ps1 when it has resolved the
+    // cuDSS runtime DLL on the box. F67s SKIPs (prints, no failure) when the flag is unset
+    // or 0; under -Strict mode the run_gpu_gate.ps1 itself refuses to run without cuDSS,
+    // so the SKIP can never reach a strict CI run.
+    {
+        const char* strictRaw = std::getenv("FRAMECORE_GPU_STRICT");
+        const bool strictOn = strictRaw && std::string(strictRaw) == "1";
+        if (!strictOn) {
+            // F-03 audit: use checkTrue(true) so SKIP appears in the unified PASS/FAIL
+            // stream rather than diverging into a raw printf. The note also tells the
+            // reader that FRAMECORE_GPU_STRICT must be literal "1" -- "true"/"yes"/"on"
+            // are silent SKIP per D-04 audit.
+            checkTrue("F67s SKIP (FRAMECORE_GPU_STRICT != \"1\" -- see Scripts/run_gpu_gate.ps1; literal '1' only)",
+                      true);
+        } else {
+            // A-03 audit: 3-arg Material(E, G, rho=7850) matches F67 + UE smoke/strict exactly
+            // (Material default rho=0 doesn't affect this static fixture but mirrors the others
+            // so a future rho-dependent code path keeps the four fixtures bit-equivalent).
+            Material mat67s(200000.0, 76923.07692307692, 7850.0);
+            Section sec67s = Section::Rectangular(150.0, 200.0);
+            sec67s.J = 1.5e8;
+            FrameModel m; fixtures::cantileverTipLoad(m, 1000.0, 2000.0, mat67s, sec67s);
+            SolveOptions optSn; optSn.useSupernodalPrimary = true;
+            PreparedSystem psS = assembleAndFactor(m, optSn);
+            checkTrue("F67s SnPrimary prepared non-singular",
+                      !psS.isSingular(), psS.diagnostic());
+
+            SnSessionOptions sGpu; sGpu.useGpuBacksub = true;
+            SnSession sessGpu(psS, sGpu);
+            checkTrue("F67s GPU-mode SnSession valid", sessGpu.valid(), sessGpu.diagnostic());
+
+            // Success substring -- SnSession::cpp emits this only when cuDSS analysis/factor
+            // succeeded on the device. Any fallback path emits a different substring.
+            const std::string diag = sessGpu.diagnostic();
+            const bool factorOnGpu = diag.find("[GPU] cuDSS factor ready") != std::string::npos;
+            // D-01 audit: cuDSS factor success does NOT guarantee Phase-1 cuSPARSE SpMV
+            // reactions succeeded. SnSession.cpp:333/337 emit "reactions on CPU" when the
+            // SpMV setup fails AFTER cuDSS factor is ready -- the diag then contains BOTH
+            // "cuDSS factor ready" AND "reactions on CPU", and a substring-only strict
+            // check would silently green-wash the reactions fallback. Strict mode rejects
+            // any reactions-on-CPU path too.
+            const bool reactionsOnCpu = diag.find("reactions on CPU") != std::string::npos;
+            const bool reallyOnGpu = factorOnGpu && !reactionsOnCpu;
+            checkTrue("F67s GPU strict-attached (cuDSS factor + SpMV reactions on device, no CPU fallback)",
+                      reallyOnGpu, diag);
+
+            // Solving still must work and match CPU within tolerance (this is the same
+            // physics check as F67, gated on strict attach).
+            SnSessionOptions sCpuS;  SnSession sessCpuS(psS, sCpuS);
+            const SolveResult RcS = sessCpuS.solveFrame(m);
+            const SolveResult RgS = sessGpu.solveFrame(m);
+            double dMaxS = 0, mMaxS = 0;
+            for (size_t k = 0; k < RcS.u.size(); ++k) {
+                mMaxS = std::max(mMaxS, std::fabs((double)RcS.u[k]));
+                dMaxS = std::max(dMaxS, std::fabs((double)RgS.u[k] - (double)RcS.u[k]));
+            }
+            const double relS = (mMaxS > 0) ? dMaxS / mMaxS : dMaxS;
+            checkTrue("F67s GPU.u == CPU.u (rel<1e-8) under strict attach",
+                      relS < 1e-8, "rel=" + std::to_string(relS));
+        }
     }
 #endif // FRAMECORE_SUPERNODAL && FRAMECORE_CUDA
 

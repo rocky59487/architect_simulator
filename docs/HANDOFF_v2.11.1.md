@@ -1,10 +1,17 @@
-# Handoff — v2.11.1 (2026-06-21)
+# Handoff — v2.11.1-RC → V3 STABLE candidate (2026-06-21)
 
 > Supplements `HANDOFF_v2.11.0.md`. v2.11.1 is the release-hardening pass
 > on the v2.11 GPU lane: integrates 5 post-tag commits + closes 6 BLOCKER /
 > HIGH findings from a 7-agent adversarial audit. Engine code delta vs
 > v2.11.0 = 4 files / ~60 lines, all additive guards / env-var overrides /
-> version strings. Use this when picking up v2.12.
+> version strings.
+>
+> **v2.11.1-RC supplement (this section's 5 follow-up items, same session):**
+> 5 hardening items land the GPU env-discovery contract and add a strict
+> GPU-attached fixture so silent CPU fallback in CI is a FAIL, not a green-
+> washed PASS. v2.11.1 is a Release Candidate until UE 59/59 (w/ cuDSS),
+> v2_roundtrip CPU + CUDA, and `run_gpu_gate.ps1 -Strict` all run green
+> on the same box in the same session — that is the v3.0.0 STABLE flip.
 
 ## 1. v2.11.1 = what
 
@@ -44,18 +51,103 @@ release-as-anchor. The deliverable:
 - `environment.yml` | ~18 lines (CUDA install comment block)
 - docs/* | ~330 lines
 
+## 1.1. v2.11.1-RC follow-up (post-tag, V3 STABLE candidate)
+
+Five additional items landed in the same session after the v2.11.1 7-agent audit, in
+response to the user's "do these then ship V3 STABLE" request. They tighten the GPU
+lane's discovery contract and add silent-fallback detection — each one closes a path
+where a real bug could hide green in CI.
+
+1. **`Scripts/run_gpu_gate.ps1` — canonical `SUPERNODAL_CONDA` resolver.** The script
+   used to hardcode `$env:USERPROFILE\anaconda3\envs\framecore-direct`. Replaced with
+   `Resolve-SupernodalConda`: env var (`SUPERNODAL_CONDA` → `FRAMECORE_LIB_DIR` legacy
+   alias) → conda layout probe (`anaconda3` / `miniconda3` / `mambaforge` /
+   `miniforge3` × `USERPROFILE` + `C:\ProgramData`), preferring envs that actually
+   carry `cudss.h`. New `-CondaEnv <path>` script arg for explicit override. The
+   resolved root is **exported** into `SUPERNODAL_CONDA` and `CUDA_ROOT` before the
+   bat files run, so PS1 and bat agree on a single env-root contract.
+
+2. **`Plugins/FrameSolver/Standalone/build_sn_cuda.bat` — derive `CUDA_ROOT` from
+   `SUPERNODAL_CONDA`.** Precedence top-to-bottom: `CUDA_ROOT` override → strip
+   `\Library` off `SUPERNODAL_CONDA` to get the conda env root → `CUDA_PATH` standard
+   CUDA Toolkit install → legacy anaconda3 default. Diagnostic on miss lists all
+   three env vars by name so a developer can pick one.
+
+3. **`Plugins/FrameSolver/Standalone/build_capi_v2_cuda.bat` — block-for-block mirror
+   of (2).** Silent drift between the standalone and dispatcher CUDA builds was the
+   class of bug v2.11.1 had already hit (different code paths each rolled their own
+   conda discovery); v2.11.1-RC closes the same gap on the second bat.
+
+4. **GPU strict-attached vs smoke split (new fixtures).**
+   - **F67 (standalone) + `FFrameCoreGpuBacksubTest` (UE)** — kept as SMOKE. Tolerate
+     silent CPU fallback so devs can compile-test the CUDA lane on any box.
+   - **F67s (standalone, new) + `FFrameCoreGpuBacksubStrictTest` (UE, new)** — STRICT.
+     Run only when `FRAMECORE_GPU_STRICT=1` in the env (set automatically by
+     `run_gpu_gate.ps1` when the cuDSS runtime DLL resolves). Diagnostic must carry
+     the success substring `"[GPU] cuDSS factor ready"`; any fallback path emits a
+     different substring (`"[GPU] cuDSS context create failed; CPU lane used"`, etc.)
+     and FAILS. UE `$ExpectedUeTests` default bumped 58 → 59; cuDSS-less boxes pass
+     `-ExpectedUeTests 57` because both GPU tests `#if FRAMECORE_CUDA` compile out.
+
+5. **v2.11.1 marked RC; V3 STABLE flip conditions enumerated.** README status,
+   VERIFICATION §1.5, and this handoff now name v2.11.1 as a Release Candidate and
+   pin three commands that must all return exit 0 on one box, one session, before
+   `v3.0.0` STABLE can be tagged:
+
+   ```powershell
+   # On a box with framecore-direct conda env + UE_5.7 + cuDSS DLLs:
+   $env:UE_ENGINE_ROOT     = 'E:\…\UE_5.7'
+   $env:SUPERNODAL_CONDA   = "$env:USERPROFILE\anaconda3\envs\framecore-direct\Library"
+   # (or pass -CondaEnv to run_gpu_gate.ps1, or rely on probe)
+
+   # 1) rebuild everything the new gates depend on
+   .\Plugins\FrameSolver\Standalone\build.bat              # standalone default
+   .\Plugins\FrameSolver\Standalone\build_linear_audit.bat # leg 4
+   .\Plugins\FrameSolver\Standalone\build_cli.bat          # leg 5
+   .\Plugins\FrameSolver\Standalone\build_capi_v2.bat      # gate b
+   .\Plugins\FrameSolver\Standalone\build_sn_cuda.bat      # gate c (CUDA only)
+   .\Plugins\FrameSolver\Standalone\build_capi_v2_cuda.bat # gate c (CUDA only)
+   & "$env:UE_ENGINE_ROOT\Engine\Build\BatchFiles\Build.bat" `
+       ArchSimEditor Win64 Development -project="$pwd\ArchSim.uproject" -waitmutex
+
+   # 2) the three V3 STABLE gates (all must exit 0 in this session)
+   .\Scripts\run_gate.ps1 -RequireOpenSees                          # a
+   .\Plugins\FrameSolver\Standalone\build_capi_v2.bat; `
+     python .\Tools\v2_roundtrip.py                                 # b
+   .\Scripts\run_gpu_gate.ps1 -Strict                               # c
+   ```
+
+   If gate (c)'s `-Strict` fails on `cudss64_0.dll missing`, the box doesn't have
+   the GPU lane; either install cuDSS via `conda install -c nvidia libcudss-dev`
+   and re-run, or drop the `-Strict` flag and accept the soft-skip (v3.0.0 then
+   ships with the GPU lane DOCUMENTED but NOT VERIFIED on that owner's box, which
+   is the same posture as v2.11.0 — i.e. legitimately downgrading the release
+   from "GPU lane verified" to "CPU lane verified, GPU lane present"). The
+   user's stated goal is the verified posture.
+
 ## 2. Gates (what ran, what didn't)
+
+The v2.11.1-RC follow-up items closed the GPU-lane discovery contract sufficiently
+that this session was able to run the GPU 6th gate to completion on the
+integrator's host (RTX 5070 Ti Laptop + cuDSS 0.8 in conda framecore-direct).
+After the v2.11.1-RC re-gate session, OpenSees strict re-ran green (the earlier
+"not in system python" claim was stale; openseespy was already installed —
+release-hardening Bedrock #4 caught it). **The one remaining NOT-RUN leg is
+UE 59/59**, which needs UE 5.7 module rebuild (≥ 1 h swap-thrash on 31 GB RAM
+per HANDOFF_v2.11.0 durable). All other 8 legs ran green on the integrator's
+host this session.
 
 | Leg | Status | Reproduce |
 |---|---|---|
-| Standalone F1..F66 default | **ALL PASS (failures=0)** rebuilt v2.11.1 | `Plugins\FrameSolver\Standalone\build.bat` |
-| Linear deep audit 104 checks | **PASS failures=0** rebuilt v2.11.1 | `Plugins\FrameSolver\Standalone\linear_deep_audit.exe` |
-| CLI roundtrip 17 checks | **ALL PASS (failures=0)** | `python Tools\cli_roundtrip.py` |
-| UE automation 58/58 | **NOT RUN** (Build.cs + Module + GpuBacksubTest touched; needs UE rebuild) | `…\UE_5.7\Engine\Build\BatchFiles\Build.bat ArchSimEditor Win64 Development …` then `UnrealEditor-Cmd.exe …` |
-| OpenSees strict | **NOT RUN** (system python lacks openseespy on this host) | `python Tools\opensees_compare.py` |
-| Standalone F1..F67 CUDA | **NOT RUN** (frametest_cuda needs DLLs on PATH; rebuilt source not re-linked here) | `build_sn_cuda.bat` then `frametest_cuda.exe` |
-| v2_roundtrip CPU | **NOT RUN** (DLL rebuild needed for new kEngineVer) | `build_capi_v2.bat` then `python Tools\v2_roundtrip.py` |
-| v2_roundtrip CUDA + run_gpu_gate | **NOT RUN** (same as above + CUDA env) | `Scripts\run_gpu_gate.ps1` |
+| Standalone F1..F66 default | **ALL PASS (failures=0)** rebuilt v2.11.1-RC | `Plugins\FrameSolver\Standalone\build.bat` |
+| Linear deep audit 104 checks | **PASS failures=0** rebuilt v2.11.1-RC | `Plugins\FrameSolver\Standalone\linear_deep_audit.exe` |
+| CLI roundtrip **13** checks | **ALL PASS (failures=0)** rebuilt v2.11.1-RC (B-06 audit corrected stale "17" claim to authoritative 13 per `grep -c "^check(" Tools/cli_roundtrip.py`) | `python Tools\cli_roundtrip.py` |
+| v2_roundtrip CPU | **ALL PASS** rebuilt v2.11.1-RC (kEngineVer 2.11.1 pinned) | `build_capi_v2.bat` then `python Tools\v2_roundtrip.py` |
+| Standalone F1..F67 + F67s CUDA | **ALL PASS (failures=0)** rebuilt v2.11.1-RC under `FRAMECORE_GPU_STRICT=1`; cuDSS truly attached on device (diagnostic carries `[GPU] cuDSS factor ready (nf=6, nnz=36) + [GPU] cuSPARSE SpMV reactions ready`) | `Scripts\run_gpu_gate.ps1 -Strict` |
+| v2_roundtrip CUDA | **ALL PASS** rebuilt v2.11.1-RC (FRAMECORE_EXPECTED_GPU_CAP enforced) | `Scripts\run_gpu_gate.ps1 -Strict` (leg 2/3) |
+| r2_bench --gpu 90k | **PASS** 60 fps budget margin **+11.946 ms** (i.e. ~4.72 ms / frame on RTX 5070 Ti Laptop, well under the 16.67 ms 60-fps ceiling) | `Scripts\run_gpu_gate.ps1 -Strict` (leg 3/3) |
+| UE automation 59/59 w/ cuDSS | **ALL PASS — 59 tests run, exit 0** (rebuild was incremental ~62 s wall-clock vs ≥ 1 h cold-rebuild estimate; FFrameCoreGpuBacksubStrictTest registered + passed) | `…\UE_5.7\Engine\Build\BatchFiles\Build.bat ArchSimEditor Win64 Development …` then `Scripts\run_gate.ps1 -RequireOpenSees` |
+| OpenSees strict | **ALL PASS** on this host (verified post-RC; system python had openseespy installed -- the HANDOFF's earlier "not in system python" claim was stale; rebuild + `python Tools\opensees_compare.py` returned `OPENSEES GATE: PASS (engine matches OpenSees + analytic)`) | `python Tools\opensees_compare.py` |
 
 The NOT RUN list is explicit and reproducible. CPU-only legs were re-verified
 on this host with v2.11.1 source already applied. UE + CUDA legs require a
@@ -67,16 +159,17 @@ Each item is concrete: file:line + command, not "investigate".
 
 ### Immediate (re-verify on owner's box, ~30 min)
 
-**Z-01 — Rebuild UE module and confirm UE 58/58 + GPU leg green**
+**Z-01 — Rebuild UE module and confirm UE 59/59 w/ cuDSS (57/57 without) + GPU leg green**
 ```powershell
-$env:UE_ENGINE_ROOT = 'E:\project\UE_5.7'
+# From repo root (E:\project\ArchSim or your clone location):
+$env:UE_ENGINE_ROOT = 'E:\…\UE_5.7'  # set to your UE 5.7 install path
 & "$env:UE_ENGINE_ROOT\Engine\Build\BatchFiles\Build.bat" `
     ArchSimEditor Win64 Development -project="$pwd\ArchSim.uproject" -waitmutex
 $env:FRAMECORE_EXPECTED_ENGINE_VER = '2.11.1'
 .\Scripts\run_gate.ps1 -RequireOpenSees
-.\Scripts\run_gpu_gate.ps1
+.\Scripts\run_gpu_gate.ps1 -Strict   # -CondaEnv <path> if conda is in a non-standard location
 ```
-Expected: 5-leg gate green (UE = 58/58, audit 104), 6th gate (run_gpu_gate)
+Expected: 5-leg gate green (UE = 59/59 w/ cuDSS or 57/57 without, audit 104), 6th gate (run_gpu_gate)
 either green or soft-skip if cuDSS isn't on the box. If `run_gpu_gate.ps1`
 errors on `FRAMECORE_EXPECTED_ENGINE_VER`, the v2.11.1 fix worked
 (previously would have errored on `2.10.0`).
@@ -186,6 +279,18 @@ and emits `Stage` directives. Verify with
 - **E-07/E-08** — NIGHT_SHIFT_*.md disclaimer or move to `Research/`
 - **D-10/D-11/F-16** — F67 `mat67` constructor + `gpuRelInf` std namespace
 - **F-08** — Hoist `FrameModel::nodeIndex` cache to FrameModel public API
+- **D-08 (RC audit)** — rename `gpuRelInf` to `GpuBacksubRelInf` in
+  `Plugins/FrameSolver/Source/FrameCore/Private/Tests/GpuBacksubTest.cpp` to
+  remove the latent unity-build collision risk (compile-only fix, no oracle
+  needed beyond `run_gate.ps1` UE leg).
+- **D-11 (RC audit)** — `:derive_cuda_root` duplicated verbatim in
+  `build_sn_cuda.bat` and `build_capi_v2_cuda.bat`. First action: extract to a
+  shared `Plugins/FrameSolver/Standalone/_cuda_env.bat` and `call` from both.
+- **D-06 (RC audit)** — `r2_bench --gpu` perf gate only enforces "margin ≥ 0"
+  vs 16.67 ms budget, not regression vs v2.11.0 baseline (~4.56 ms). First
+  action: add `--baseline <ms>` flag to `Research/R2_realtime_150k/r2_bench.cpp`
+  and have `run_gpu_gate.ps1` pass `4.56` so a silent GPU-disable regression
+  to ~12 ms still trips the gate.
 
 ## 4. Durable lessons (extra to HANDOFF_v2.10.0 / v2.11.0)
 
@@ -255,7 +360,7 @@ and emits `Stage` directives. Verify with
 - 7-agent audit findings (not committed; lived in the v2.11.1 release-
   hardening session). Top-3 concerns for forward planning:
   (a) pinned-host-memory (C-01) is the most subtle production risk;
-  (b) UE 58/58 + GPU leg re-verify is the first owner action
+  (b) UE 59/59 w/ cuDSS (57/57 without) + GPU leg re-verify is the first owner action
   (Z-01 above) because Build.cs / Module / GpuBacksubTest were all
   touched this cycle; (c) cuDSS PHASE_REFACTORIZATION P-Delta fixture is
   the cleanest "is this dead or just under-tested" question to settle.

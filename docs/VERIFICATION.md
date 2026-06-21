@@ -23,13 +23,13 @@ Plugins\FrameSolver\Standalone\build.bat
 
 | Leg | What runs | Count | What it proves |
 |---|---|---|---|
-| 1. Standalone | `frametest.exe` (fixtures **F1..F66** default / **F1..F67** in CUDA build, built UE-free) | `ALL PASS (failures=0)` | every capability against analytic / literature / invariance oracles, on the pure-C++ build |
-| 2. UE automation | headless `FrameCore.*` tests | **58** tests | UE-side mirrors of the standalone oracles across the same subsystems — the dual-build contract holds (v2.11.1 bumped 57→58: `FFrameCoreGpuBacksubTest` mirrors standalone F67 GPU vs CPU bit-equivalence) |
+| 1. Standalone | `frametest.exe` (fixtures **F1..F66** default / **F1..F67 + F67s** in CUDA build, built UE-free) | `ALL PASS (failures=0)` | every capability against analytic / literature / invariance oracles, on the pure-C++ build. F67 is a smoke fixture (tolerates silent CPU fallback for dev-box compile tests); F67s is strict (FAILS on silent fallback) and runs only when `FRAMECORE_GPU_STRICT=1` is set in the env — `Scripts\run_gpu_gate.ps1` sets it automatically when the cuDSS DLL resolves. |
+| 2. UE automation | headless `FrameCore.*` tests | **59** tests w/ cuDSS, **57** without | UE-side mirrors of the standalone oracles across the same subsystems — the dual-build contract holds (v2.11.1-RC bumped 58→59 with `FFrameCoreGpuBacksubStrictTest`; v2.11 Phase 7 bumped 57→58 for `FFrameCoreGpuBacksubTest`, the UE mirror of standalone F67. Both GPU tests are `#if FRAMECORE_CUDA` gated so a non-cuDSS build emits 57.) |
 | 3. OpenSees | `Tools/opensees_compare.py` + `pdelta_compare.py` | strict `1e-8` default | agreement with an independent, widely-used FEM code (validation only; never linked) |
 | 4. Deep audit | `linear_deep_audit.exe` | **104** checks | independent re-derivations (sympy/numpy-sourced constants), bit-identity no-op proofs, element-spectrum oracles |
-| 5. CLI round-trip | `Tools/cli_roundtrip.py` | 13 checks | the text/daemon/C-API bridge reproduces engine results bit-for-bit and surfaces modal/dynamic precondition failures |
+| 5. CLI round-trip | `Tools/cli_roundtrip.py` | **13** checks | the text/daemon/C-API bridge reproduces engine results bit-for-bit and surfaces modal/dynamic precondition failures |
 
-Guard rails: `run_gate.ps1` hard-fails if fewer than `$ExpectedUeTests = 58` UE tests run
+Guard rails: `run_gate.ps1` hard-fails if fewer than `$ExpectedUeTests = 59` UE tests run (v2.11.1-RC bump; 57 on non-cuDSS builds — pass `-ExpectedUeTests 57`)
 (catches "new test silently not compiled"); the audit prints its own check count rather than
 a hard-coded number; `-RequireOpenSees` turns a missing OpenSeesPy into a failure instead of
 a soft skip. Fixture numbering is append-only; **F41 and F60 are unassigned** (F41: S3 ended
@@ -66,6 +66,34 @@ GH bridge + C-09/C-10), [`RELEASE_v2.7.md`](RELEASE_v2.7.md) (live frames + canc
 [`RELEASE_v2.8.1.md`](RELEASE_v2.8.1.md) (audit-driven hardening). The previously cited
 `docs/POST_V2_5_HARDENING.md` was never authored; the v2.8.1 audit pass replaces both
 dead-link sites with the canonical release trail.
+
+## 1.5. Release Candidate vs STABLE (v2.11.1-RC → v3.0.0)
+
+**v2.11.1 is a Release Candidate.** On the integrator's host, 7 of 9 legs ran
+green against the rebuilt v2.11.1-RC source (standalone F1..F66 + audit 104 + CLI
+13 + v2_roundtrip CPU + standalone F1..F67 + F67s CUDA strict + v2_roundtrip CUDA +
+r2_bench --gpu 90k margin +11.946 ms). The **two** remaining NOT-RUN legs (UE 59/59
+and OpenSees strict) need an environment the integrator doesn't have available:
+UE 5.7 module rebuild (≥ 1 h swap-thrash on 31 GB RAM) and `openseespy` in the
+system python. v3.0.0 STABLE flips the moment all six gate suites land green in a
+single owner session:
+
+| Gate | Command | What it covers |
+|---|---|---|
+| **a.** 5-leg | `Scripts\run_gate.ps1 -RequireOpenSees` | standalone + UE (`-ExpectedUeTests 59` with cuDSS, `57` without) + OpenSees + deep audit + CLI |
+| **b.** v2 CPU | `build_capi_v2.bat` + `python Tools\v2_roundtrip.py` | dispatcher round-trip without GPU |
+| **c.** GPU 6th | `Scripts\run_gpu_gate.ps1 -Strict` (use `-CondaEnv <path>` to override the auto-probe) | frametest_cuda F1..F67 + F67s strict + v2_roundtrip CUDA + r2_bench --gpu 90k ≤ 16.67 ms. Requires cuDSS DLLs on PATH for `-Strict`; soft-skips otherwise. |
+
+The `-Strict` flag on (c) is the key add: when `FRAMECORE_GPU_STRICT=1` reaches
+the test binaries, **silent CPU fallback FAILS** instead of green-washing as a
+PASS. Strict is auto-armed by `run_gpu_gate.ps1` whenever the cuDSS runtime DLL
+resolves on the box; passing `-Strict` to the script itself fails hard if any of
+the env / DLL prerequisites are missing.
+
+The honesty layer is the NOT-RUN list in
+[`docs/HANDOFF_v2.11.1.md` §2](HANDOFF_v2.11.1.md#2-gates-what-ran-what-didnt) —
+the V3 STABLE flip is the moment that table reads all green on the same line of
+a single owner session. RC has narrowed it to two rows (UE + OpenSees).
 
 ## 2. Oracle taxonomy
 
