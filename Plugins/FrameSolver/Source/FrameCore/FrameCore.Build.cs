@@ -70,16 +70,32 @@ public class FrameCore : ModuleRules
                                          "; supernodal lane stays OFF in UE (LDLT fallback).");
             }
 
-            // ---- Opt-in cuDSS GPU lane (Phase 7, v2.11): same conda env, headers + libs in
+            // ---- Opt-in cuDSS GPU lane (Phase 7, v2.11.1): same conda env, headers + libs in
             // %CONDA_ROOT% rather than %CONDA_ROOT%/Library. cuDSS is NVIDIA-only and the
             // runtime DLL set is large (~600 MB), so the educational-game packaged build does
             // NOT bundle them automatically -- v2.12 will add a UE packaging recipe. For now
-            // the lane is dev-only: enable bCudaEnabled if cuDSS is present in the conda env,
-            // copy the runtime DLLs into TargetOutputDir for the Editor, and use PublicDelayLoad
-            // so a missing DLL in a packaged game is a graceful runtime fallback to the CPU lane.
-            string cudaRoot = Path.Combine(
-                Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
-                "anaconda3", "envs", "framecore-direct");
+            // the lane is dev-only: detect cuDSS in the conda env, copy the runtime DLLs into
+            // TargetOutputDir for the Editor, and use PublicDelayLoad so a missing DLL in a
+            // packaged game is a graceful runtime fallback to the CPU lane.
+            // v2.11.1 (D-01 / G-1 audit): derive cudaRoot from SUPERNODAL_CONDA when set --
+            // previously the cuDSS block ignored the env-var override that the supernodal block
+            // honoured, so a stranger with Miniconda or a custom env name got a silent GPU-off.
+            string cudaRoot;
+            string cudaRootEnv = Environment.GetEnvironmentVariable("SUPERNODAL_CONDA");
+            if (!string.IsNullOrEmpty(cudaRootEnv))
+            {
+                // SUPERNODAL_CONDA points at <env>/Library; strip the suffix to get <env> root.
+                string trimmed = cudaRootEnv.TrimEnd('\\', '/');
+                cudaRoot = (Path.GetFileName(trimmed).Equals("Library", StringComparison.OrdinalIgnoreCase))
+                    ? Path.GetDirectoryName(trimmed)
+                    : trimmed;
+            }
+            else
+            {
+                cudaRoot = Path.Combine(
+                    Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
+                    "anaconda3", "envs", "framecore-direct");
+            }
             string cudssHdr   = Path.Combine(condaSS, "include", "cudss.h");
             string cudssLib   = Path.Combine(condaSS, "lib",     "cudss.lib");
             string cudartLib  = Path.Combine(cudaRoot, "lib", "x64", "cudart.lib");

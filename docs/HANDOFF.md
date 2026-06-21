@@ -1,5 +1,15 @@
 # FrameCore 交接指南 — v2.1 後接手 owner
 
+> **⚠ Superseded — read newer handoffs first.** This v2.1-era doc still has
+> useful early context (CLI tour, scope boundaries), but its "next stage" and
+> gate counts are obsolete. Current state docs:
+> - `docs/HANDOFF_v2.11.1.md` — current release-hardening handoff (gates 8 / 58 UE / F1..F67)
+> - `docs/HANDOFF_v2.11.0.md` — v2.10 → v2.11 GPU lane jump
+> - `docs/HANDOFF_v2.10.0.md` — v2.9 → v2.10 cuDSS lane production-integrate
+> - `docs/RELEASE_v2.11.1.md`, `docs/RELEASE_v2.11.md`, `docs/RELEASE_v2.10.0.md` — version-level release notes
+>
+> Use this v2.1 doc only for context predating the supernodal + GPU lanes.
+
 > v2.1 在 2026-06-18 發布,tag `v2.1.0` = commit `4e660de`。本檔給「明天才接到這專案」的人:在哪入手、怎麼跑、踩過什麼雷、下一步是什麼。
 
 ---

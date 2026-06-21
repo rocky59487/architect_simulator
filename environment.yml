@@ -68,3 +68,23 @@ dependencies:
       - "openseespy>=3.5,<3.8"
       - "numpy>=1.26,<2.4"
       - "scipy>=1.11,<1.16"
+
+# ---- Optional: CUDA + cuDSS GPU lane (v2.10/v2.11.x) ----
+# The cuDSS GPU backsub lane (SnSessionOptions::useGpuBacksub + the standalone
+# `frametest_cuda.exe` / `frame_capi_v2_cuda.dll` / `run_gpu_gate.ps1` legs) needs
+# the NVIDIA CUDA Toolkit (runtime + development headers) plus cuDSS, cuSPARSE,
+# and cuBLAS. These ship via the `nvidia` conda channel and are NOT pinned in this
+# `dependencies:` block because they are large (~600 MB) and only an opt-in
+# concern for the GPU lane.
+#
+# Install into the SAME framecore-direct env after `conda env create`:
+#   conda activate framecore-direct
+#   conda install -c nvidia cuda-runtime cuda-cudart-dev cuda-cudart cusparse cublas
+#   conda install -c nvidia libcudss libcudss-dev
+# Tested: cuda 12.x, cudss 0.8.0.10, RTX 5070 Ti Laptop (Blackwell, SM 12.0). See
+# RELEASE_v2.11.md §7 for the exact verified versions and HANDOFF_v2.11.1.md for the
+# v2.12 packaging recipe roadmap.
+#
+# Without these packages, the GPU lane stays cleanly OFF (FRAMECORE_CUDA=0 in
+# both standalone and UE builds); `run_gpu_gate.ps1` soft-skips with exit 0,
+# and the five-leg `run_gate.ps1` is unaffected.

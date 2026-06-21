@@ -35,13 +35,38 @@ public:
         if (FPaths::FileExists(openblasDll))
         {
             OpenBlasHandle = FPlatformProcess::GetDllHandle(*openblasDll);
+            if (!OpenBlasHandle)
+            {
+                UE_LOG(LogTemp, Warning, TEXT("[FrameCore] openblas.dll exists at '%s' but GetDllHandle returned null; supernodal lane will delay-fault on first use."), *openblasDll);
+            }
         }
 #if FRAMECORE_CUDA
         // cuDSS / cuSPARSE / cudart (GPU lane). The conda env keeps cudart64_12.dll under the
         // env root's bin/, while cuDSS + cuSPARSE + transitive deps sit under Library/bin/.
-        // Mirror the standalone build_sn_cuda.bat resolution.
-        const FString home = FPlatformMisc::GetEnvironmentVariable(TEXT("USERPROFILE"));
-        const FString envRoot = FPaths::Combine(home, TEXT("anaconda3"), TEXT("envs"), TEXT("framecore-direct"));
+        // Mirror the standalone build_sn_cuda.bat + Build.cs resolution.
+        // v2.11.1 (D-01b audit): derive envRoot from SUPERNODAL_CONDA when set instead of always
+        // pinning %USERPROFILE%\anaconda3\envs\framecore-direct -- otherwise Miniconda or a
+        // custom env name silently breaks the CUDA preload while the supernodal preload works.
+        FString envRoot;
+        if (!libraryRoot.IsEmpty())
+        {
+            FString trimmed = libraryRoot;
+            trimmed.RemoveFromEnd(TEXT("/"));
+            trimmed.RemoveFromEnd(TEXT("\\"));
+            if (FPaths::GetCleanFilename(trimmed).Equals(TEXT("Library"), ESearchCase::IgnoreCase))
+            {
+                envRoot = FPaths::GetPath(trimmed);
+            }
+            else
+            {
+                envRoot = trimmed;
+            }
+        }
+        else
+        {
+            const FString home = FPlatformMisc::GetEnvironmentVariable(TEXT("USERPROFILE"));
+            envRoot = FPaths::Combine(home, TEXT("anaconda3"), TEXT("envs"), TEXT("framecore-direct"));
+        }
         const TCHAR* dllNames[] = {
             TEXT("nvJitLink_120_0.dll"),
             TEXT("cublasLt64_12.dll"),
@@ -58,7 +83,16 @@ public:
             const FString src = FPaths::FileExists(libBin) ? libBin : (FPaths::FileExists(envBin) ? envBin : FString());
             if (!src.IsEmpty())
             {
-                CudaHandles.Add(FPlatformProcess::GetDllHandle(*src));
+                void* h = FPlatformProcess::GetDllHandle(*src);
+                if (!h)
+                {
+                    UE_LOG(LogTemp, Warning, TEXT("[FrameCore] CUDA DLL '%s' found at '%s' but GetDllHandle returned null; GPU lane will delay-fault."), name, *src);
+                }
+                CudaHandles.Add(h);
+            }
+            else
+            {
+                UE_LOG(LogTemp, Warning, TEXT("[FrameCore] CUDA DLL '%s' not found under '%s' or '%s'; GPU lane will fall back to CPU."), name, *libraryRoot, *envRoot);
             }
         }
 #endif

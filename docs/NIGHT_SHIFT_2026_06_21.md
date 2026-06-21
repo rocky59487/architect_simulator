@@ -1,5 +1,12 @@
 # Night-Shift Working Log — 2026-06-21 (00:11 → 09:00)
 
+> **Internal session log — not engineering specification.** Captures the
+> v2.9.0 → v2.10.0 night-shift narrative for posterity. Authoritative
+> engineering claims live in `RELEASE_v2.10.md` / `RELEASE_v2.11.md` /
+> `RELEASE_v2.11.1.md` and `HANDOFF_v2.10.0.md` / `HANDOFF_v2.11.0.md` /
+> `HANDOFF_v2.11.1.md`. First-person narration here is the author's own
+> session voice, not project documentation.
+
 > 約 9 小時夜班,使用者要求:持續工作到早上 9 點 / 用 SUBAGENT / 控制用量 / 維持 commit / 工程管理紀律 / 深入思考設計 / 大量查資料測試 / 一段落用 release-hardening / 避免上下文壓縮失憶 / 先實驗再進引擎 / 不堆奇怪技術 / 不靠想像 / 不為部分功能犧牲主體 / 沒驗證不做。
 >
 > **目標**:讓引擎使用前沿科技或改良版達到「真正實時 150K」(現況可達邊界 ~150k 即時/~390k 互動但未穩),並擇優補完現有缺陷。
@@ -187,8 +194,8 @@
 - `gh release create v2.9.0` + `framecore-v2.9.0-win64.zip` (1.7MB) 上傳
 - Release URL: <https://github.com/rocky59487/architect_simulator/releases/tag/v2.9.0>
 - 更新 `E:\project\CLAUDE.md`:HEAD v2.9.0 / fixture F1-F66
-- 更新 `~\.claude\projects\E--project\memory\frame-engine-next-plan.md`:v2.9.0 entry
-- 更新 `~\.claude\projects\E--project\memory\MEMORY.md`:索引條目
+- 更新 `~/.claude/projects/<project>/memory/frame-engine-next-plan.md`:v2.9.0 entry
+- 更新 `~/.claude/projects/<project>/memory/MEMORY.md`:索引條目
 
 ### Commits 總計 (夜班 8 個)
 1. `a307a0c` v2.8.2 audit closeouts (A1+A2+A5)

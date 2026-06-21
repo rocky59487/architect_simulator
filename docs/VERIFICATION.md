@@ -23,13 +23,13 @@ Plugins\FrameSolver\Standalone\build.bat
 
 | Leg | What runs | Count | What it proves |
 |---|---|---|---|
-| 1. Standalone | `frametest.exe` (fixtures **F1–F64**, built UE-free) | `ALL PASS (failures=0)` | every capability against analytic / literature / invariance oracles, on the pure-C++ build |
-| 2. UE automation | headless `FrameCore.*` tests | **57** tests | UE-side mirrors of the standalone oracles across the same subsystems — the dual-build contract holds |
+| 1. Standalone | `frametest.exe` (fixtures **F1..F66** default / **F1..F67** in CUDA build, built UE-free) | `ALL PASS (failures=0)` | every capability against analytic / literature / invariance oracles, on the pure-C++ build |
+| 2. UE automation | headless `FrameCore.*` tests | **58** tests | UE-side mirrors of the standalone oracles across the same subsystems — the dual-build contract holds (v2.11.1 bumped 57→58: `FFrameCoreGpuBacksubTest` mirrors standalone F67 GPU vs CPU bit-equivalence) |
 | 3. OpenSees | `Tools/opensees_compare.py` + `pdelta_compare.py` | strict `1e-8` default | agreement with an independent, widely-used FEM code (validation only; never linked) |
 | 4. Deep audit | `linear_deep_audit.exe` | **104** checks | independent re-derivations (sympy/numpy-sourced constants), bit-identity no-op proofs, element-spectrum oracles |
 | 5. CLI round-trip | `Tools/cli_roundtrip.py` | 13 checks | the text/daemon/C-API bridge reproduces engine results bit-for-bit and surfaces modal/dynamic precondition failures |
 
-Guard rails: `run_gate.ps1` hard-fails if fewer than `$ExpectedUeTests = 57` UE tests run
+Guard rails: `run_gate.ps1` hard-fails if fewer than `$ExpectedUeTests = 58` UE tests run
 (catches "new test silently not compiled"); the audit prints its own check count rather than
 a hard-coded number; `-RequireOpenSees` turns a missing OpenSeesPy into a failure instead of
 a soft skip. Fixture numbering is append-only; **F41 and F60 are unassigned** (F41: S3 ended

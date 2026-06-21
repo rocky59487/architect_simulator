@@ -1,11 +1,18 @@
 # 24-hour v2.11 development arc — 2026-06-21 09:30 → 12:25 (early stop)
 
+> **Internal session log — not engineering specification.** Authoritative
+> v2.11 / v2.11.1 engineering claims live in `RELEASE_v2.11.md`,
+> `RELEASE_v2.11.1.md`, `HANDOFF_v2.11.0.md`, and `HANDOFF_v2.11.1.md`.
+> First-person narration here is the session author's voice; numbers /
+> measurements should be cross-checked against the RELEASE notes.
+
 > The user asked for "continue until 09:00 tomorrow, plan that pushes BOTH
 > new technology AND existing technology to the limit." All plan deliverables
 > landed in ~3 hours; +1 hour spent on UE Phase 7 + 1 hour on research follow-up
 > (cuDSS REFACTORIZATION NEGATIVE) + ~30 min on stability stress + docs.
 > Total wall time ≈ 5 hours. Remaining time was banked rather than spent on
-> low-leverage work; the v2.12 priorities are documented in HANDOFF_v2.11.0.md.
+> low-leverage work; the v2.12 priorities are documented in HANDOFF_v2.11.0.md
+> and HANDOFF_v2.11.1.md.
 
 ## Commit-by-commit timeline (10 commits, v2.10.0 → v2.11.0)
 

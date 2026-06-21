@@ -19,19 +19,35 @@ C++17-compatible; the UE module target is compiled as C++20 because of the curre
 > `v2.2+1` release packaged them together (FrameCore v2.2 + LevelSim v1.0.0). Every release
 > from `v2.3` onwards is FrameCore-only — LevelSim has not changed since `v2.2+1`.
 
-> **Status (2026-06-20, v2.8.1 — audit-hardening release closing 4-agent-confirmed version-string drift, engine-side NaN guard, dispatcher inbound queue cap, C# DisposeAsync UAF, and dead-link / missing-HANDOFF debt accumulated across v2.6 / v2.7):** the v2.5 / v2.6 / v2.7 cycle landed the v2 dispatcher engine-wire (`frame_capi_v2.dll` routes all 16 wired analysis verbs to FrameCore, B4 async transport, C-09/C-10 supernodal session guards, GH C# bridge hardening, P1-3 live `dyn_collapse` streaming + mid-run cancel). v2.8.1 is the audit pass on top: `kEngineVer` bumped 2.5.0→2.8.1 (it had silently stayed at 2.5.0 through v2.6 + v2.7), uplugin `VersionName` bumped, engine `runDynamicCollapse` now refuses non-finite Newmark state, `frame_v2_send` caps inbound queue depth at 256, `Dispatcher::lastError_` dead-field trio removed, `CApiV2Transport.DisposeAsync` cancels pending recv before close+Free, README / CLAUDE.md / docs index resynced to current state, two dead links to `POST_V2_5_HARDENING.md` replaced. **FrameCore engine source delta v2.5..v2.8.1 = 4 files / ~55 lines, all additive guards or version strings.** The five-leg verification gate stays green —
-> standalone `ALL PASS` (62 individual F-fixtures spanning F1..F64 — F41 and F60 are
-> intentionally absent, see [`docs/VERIFICATION.md`](docs/VERIFICATION.md) §F-fixture-numbering) ·
-> **57** UE automation tests · **OpenSees** strict cross-validation PASS · deep audit
-> **104** independent checks · CLI round-trip ALL PASS. One repo-relative command reproduces
-> it (`-Engine` or `UE_ENGINE_ROOT` can point at a non-sibling Unreal install):
+> **Status (2026-06-21, v2.11.1 — release-hardening pass on the v2.11 GPU lane, integrating
+> Phase 7 UE FRAMECORE_CUDA wire-up + UE F67 mirror test that landed post-tag `v2.11.0`,
+> plus a 7-agent adversarial audit that closed 6 BLOCKER / HIGH findings):** v2.10 introduced
+> the cuDSS GPU backsub lane as an opt-in production path; v2.11 stacked three GPU phases
+> (Phase 1 cuSPARSE SpMV reactions, Phase 2 single CUDA stream + async memcpy, Phase 3'
+> Qf-detection cache) and reached **60 fps through 200 K DOF** on RTX 5070 Ti Laptop —
+> a 12.3× / 35× speedup at 90 k vs v2.9.0 LAZY / pre-LAZY CPU respectively. v2.11.1
+> is the hardening pass on top: `kEngineVer` 2.11.0 → 2.11.1, uplugin `VersionName` bumped,
+> `run_gpu_gate.ps1` engine-version pin fixed (had silently stayed at `2.10.0`),
+> `FrameCore.Build.cs` + `FrameCoreModule.cpp` cuDSS lane now honour `SUPERNODAL_CONDA` env
+> var (previously hardcoded `%USERPROFILE%\anaconda3\envs\framecore-direct`, silently
+> broke for Miniconda / custom env names), `cudaStreamCreate` failures emit explicit
+> diagnostic instead of silently disabling Phase-2 overlap, `cudaDeviceSynchronize` in
+> ctor narrowed to `cudaStreamSynchronize` (no longer blocks unrelated CUDA work in the
+> same process), UE DLL preload warns on `GetDllHandle` returning null (no more silent
+> delay-fault), `environment.yml` documents the optional CUDA package install, docs
+> resynced to the current 58/F67/104/etc. counts.  **FrameCore engine source delta
+> v2.11.0..v2.11.1 = 4 files / ~60 lines, all additive guards / env-var overrides /
+> version strings.** The six-leg verification gate stays green —
+> standalone `ALL PASS` (62 + 1 individual F-fixtures spanning **F1..F66 default build,
+> F1..F67 in CUDA build** — F41 and F60 are intentionally absent, see [`docs/VERIFICATION.md`](docs/VERIFICATION.md)) ·
+> **58** UE automation tests (Phase 7 added `FFrameCoreGpuBacksubTest`, the UE mirror of
+> standalone F67) · **OpenSees** strict cross-validation PASS · deep audit **104**
+> independent checks · CLI round-trip ALL PASS. One repo-relative command reproduces it
+> (`-Engine` or `UE_ENGINE_ROOT` can point at a non-sibling Unreal install):
 > `powershell -ExecutionPolicy Bypass -File Scripts\run_gate.ps1 -RequireOpenSees`.
-> The optional 6th gate leg (v2 dispatcher round-trip) is run manually: build the v2 DLL
-> with `Plugins\FrameSolver\Standalone\build_capi_v2.bat`, then `python Tools/v2_roundtrip.py`
-> (v2.8.1 expects **all PASS, 0 SKIP, 0 FAIL** — covers transport.async, dyn_collapse.live,
-> C-09/C-10 reject, plus every v2.5 wired verb). It is intentionally not in `run_gate.ps1`
-> (depends on `build_capi_v2.bat` and the v2 wire protocol is a separate transport line from
-> the v1 bridge). The capability → oracle → measured-agreement map is **[`docs/VERIFICATION.md`](docs/VERIFICATION.md)**.
+> The optional 6th + GPU gate legs (v2 dispatcher round-trip CPU + CUDA + production GPU
+> perf sanity) live in `Scripts\run_gpu_gate.ps1`, which soft-skips on hosts without cuDSS.
+> The capability → oracle → measured-agreement map is **[`docs/VERIFICATION.md`](docs/VERIFICATION.md)**.
 
 ---
 
@@ -243,7 +259,8 @@ Engine\Binaries\Win64\UnrealEditor-Cmd.exe ...\ArchSim.uproject -ExecCmds="Autom
 
 > `run_gate.ps1` runs the UE automation but does **not** rebuild the UE module — rebuild
 > first (command above) after touching engine code, or the automation runs a stale binary.
-> The `$ExpectedUeTests = 57` guard catches a silently-missing test.
+> The `$ExpectedUeTests = 58` guard catches a silently-missing test (v2.11.1 bumped 57→58
+> when Phase 7 added `FFrameCoreGpuBacksubTest`, the UE mirror of standalone F67).
 
 **Try the engine without writing C++** — the text bridge solves a model from stdin:
 
@@ -308,7 +325,7 @@ Plugins/FrameSolver/
                                         collapse, reanalysis, corotational, optimization)
     Private/*.cpp                       implementation (+ Private/FrameEigen.h: the single
                                         Eigen include site, dual-build guarded)
-    Private/Tests/*.cpp                 57 UE automation tests (UE-side oracle mirrors)
+    Private/Tests/*.cpp                 58 UE automation tests (UE-side oracle mirrors)
   Standalone/                           console gates + CLI/C-API drivers (see its README)
   Grasshopper/                          C# reference client for the text bridge
 Scripts/run_gate.ps1                    the one-click five-leg gate

@@ -226,8 +226,15 @@ SnSession::SnSession(const PreparedSystem& prepared, const SnSessionOptions& opt
 
             // Phase 2 (v2.11): create a dedicated stream up front; both cuDSS and cuSPARSE
             // will be bound to it. Failure is non-fatal -- a null stream means cuDSS / cuSPARSE
-            // fall back to the default stream (the v2.10.0 behaviour).
-            cudaStreamCreate(&p_->cudaStream);
+            // fall back to the default stream (the v2.10.0 behaviour), which serialises but
+            // still gives correct results. v2.11.1 (A-01 audit): emit an explicit diagnostic
+            // when this happens, otherwise the loss of Phase-2 overlap is invisible.
+            cudaError_t streamRc = cudaStreamCreate(&p_->cudaStream);
+            if (streamRc != cudaSuccess || !p_->cudaStream) {
+                p_->cudaStream = nullptr;
+                p_->diag += " | [GPU] cudaStreamCreate failed (err=" + std::to_string((int)streamRc) +
+                            "); Phase 2 async overlap disabled, cuDSS+cuSPARSE serialise on default stream";
+            }
 
             if (cudssCreate(&p_->cudssHandle) != CUDSS_STATUS_SUCCESS ||
                 cudssConfigCreate(&p_->cudssCfg) != CUDSS_STATUS_SUCCESS ||
@@ -266,7 +273,10 @@ SnSession::SnSession(const PreparedSystem& prepared, const SnSessionOptions& opt
                     ? cudssExecute(p_->cudssHandle, CUDSS_PHASE_FACTORIZATION,
                                    p_->cudssCfg, p_->cudssDataS, p_->cuK, p_->cuX, p_->cuB)
                     : sA;
-                cudaDeviceSynchronize();
+                // v2.11.1 (C-08 audit): prefer stream sync when we have one (device sync would
+                // block any unrelated CUDA work, e.g. UE Niagara, in the same process).
+                if (p_->cudaStream) cudaStreamSynchronize(p_->cudaStream);
+                else                cudaDeviceSynchronize();
                 if (sA == CUDSS_STATUS_SUCCESS && sF == CUDSS_STATUS_SUCCESS) {
                     p_->gpuReady = true;
                     p_->gpuNf    = n;

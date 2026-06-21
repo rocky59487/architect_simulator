@@ -87,7 +87,10 @@ if ($BuildV2RC -ne 0) {
     exit 1
 }
 
-$env:FRAMECORE_EXPECTED_ENGINE_VER  = '2.10.0'
+# v2.11.1: bumped from '2.10.0' (carried over since v2.10.0 release; B-03 / D-07 / G-1 audit).
+# When kEngineVer in Dispatcher.h moves, this pin moves too -- otherwise v2_roundtrip CUDA
+# leg silently mis-asserts engine version in hello.response.
+$env:FRAMECORE_EXPECTED_ENGINE_VER  = '2.11.1'
 $env:FRAMECORE_EXPECTED_GPU_CAP     = 'true'
 $env:FRAMECORE_V2_DLL               = (Join-Path $Root 'Plugins\FrameSolver\Standalone\frame_capi_v2_cuda.dll')
 $env:FRAMECORE_V2_DLL_DEPS_DIRS     = $DepsDirs

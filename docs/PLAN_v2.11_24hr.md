@@ -5,6 +5,30 @@
 > Each phase has a hard hour budget; if a phase overruns, the plan is rewritten,
 > not extended into the next phase.
 
+## OUTCOME (added by v2.11.1 release-hardening, 2026-06-21)
+
+The 24-hour plan finished in ~5 hours wall-clock — the front-loaded GPU
+phases compounded faster than budgeted. The actual landings:
+
+| Phase | Planned | Actual | Outcome |
+|---|---|---|---|
+| 1: GPU SPMV reactions (cuSPARSE) | 11:00-14:30 | `d467a28` ~11:00 | **PASS** — 60 fps @ 90 k via 3-4× SpMV speedup |
+| 2: CUDA stream + async memcpy | 14:30-17:00 | `5064194` ~11:24 | **PASS** — 60 fps @ 200 K cleared (bsub -2 ms) |
+| 3: OpenMP parallel RHS | 17:00-21:00 | `f1b9ba8` (opt-in flag) | **PASS as opt-in** — won't default-on; common-case Qf=0 fixture has nothing to parallelise |
+| 3': Qf-skip cache (added mid-plan) | n/a | `d633040` ~10:25 | **PASS** — 60 fps @ 150 K cleared via 5-6 ms reclaim |
+| 4: cuDSS PHASE_REFACTORIZATION | 21:00-00:30 (Round 4) | `4429f72` (post-tag research) | **NEGATIVE on frame-tower** (1.04-1.07× only); P-Delta fixture not measured — see `HANDOFF_v2.11.0.md §item 2` |
+| 5: Reorder benchmark | 00:30-04:00 | not started | **DEFERRED to v2.12** — factor cost is now small fraction of per-frame budget; leverage low |
+| 6: Stress curve through VRAM ceiling | 04:00-08:00 (subset of release) | included in scaling table | **PASS** — interactive ≤100 ms through 600 K |
+| 7: UE Build.cs FRAMECORE_CUDA + DLL preload + UE F67 mirror | (not in original plan) | `792b810` ~11:55 (post-tag) + `3d2c559` ~12:10 | **PASS** — Phase 7 above-and-beyond, integrated into v2.11.1 |
+| 8: release v2.11.0 | 04:00-08:00 | `3ae1cad` ~11:45 | **PASS** + v2.11.1 release-hardening on top |
+
+**Net assessment.** Plan-超出: ~2 hr 完成 plan 24 hr 全部主軸 + extra Phase 7
+UE wire-up. Round-4 cuDSS PHASE_REFACTORIZATION was the only NEGATIVE; the
+methodology limitation (uniform vs P-Delta non-uniform K_sigma update) leaves
+the question 50% open for v2.12. v2.11.1 release-hardening folded the 5
+post-tag commits + closed 6 BLOCKER/HIGH findings from a 7-agent adversarial
+audit (see `RELEASE_v2.11.1.md` for the full list).
+
 ## Standing constraints (carried from the earlier night-shift)
 
 - **Default-off**. The 5-leg main gate (standalone F1-F66 + UE 57 + OpenSees + audit

@@ -66,21 +66,24 @@ Predicted savings: 1.5-2 ms at 200 K → 60 fps margin of +3-4 ms (currently
 doesn't have. Implementation: CUDA kernel for Ff scatter + presc applied
 to d_b.
 
-### 2. cuDSS PHASE_REFACTORIZATION for P-Delta refactor
+### 2. cuDSS PHASE_REFACTORIZATION for P-Delta refactor — **NEGATIVE on frame-tower**
 
-P-Delta updates K with `K_sigma(P)`, a numerics-only change while the
-non-zero pattern stays the same. cuDSS's PHASE_REFACTORIZATION skips
-symbolic + ordering (which we cache at session ctor) and rebuilds the
-numeric factor 3-5× faster than full FACTORIZATION. At 160 k:
+**Status (updated 2026-06-21, v2.11.1 release-hardening pass):** measured
+NEGATIVE on the frame-tower fixture (1.04-1.07× only at 90 k-150 k DOF,
+see [`../Research/R2_realtime_150k/RESULTS_round4_step3_refactor_negative.md`](../Research/R2_realtime_150k/RESULTS_round4_step3_refactor_negative.md)).
+The measurement used a uniform `K' = K*(1+1e-3)` scaling as a proxy for
+"numerics-only update"; cuDSS 0.8 returns the numeric factor at near-full
+factorization cost on that fixture.
 
-- Full FACTORIZATION: ~1000 ms
-- REFACTORIZATION (predicted): 200-300 ms
+**The original P-Delta motivation is still open** because the fixture is
+uniform scaling, while P-Delta `K_sigma` is a non-uniform diagonal-leaning
+update on axial-loaded members. Whether `PHASE_REFACTORIZATION` wins on
+that pattern was not measured. **First action on day 1 if this gets
+re-prioritised:** extend `gpu_bench3_refactor.cpp` with a `K_sigma`-style
+perturbation (only stiffness rows of axial-loaded members) and re-measure.
 
-For the P-Delta 10-iteration refactor loop this turns a 10 s wait into
-~2-3 s. Not interactive yet, but a different UX.
-
-Fixture sketch: cuDSS-backed PDeltaAnalysis path, refactor branch hits
-PHASE_REFACTORIZATION; v2_roundtrip mirrors the comparison.
+Removed from v2.12 priority list pending that fixture; see
+HANDOFF_v2.11.1.md §A-12/D-2.
 
 ### 3. UE-side cuDSS lane verification
 

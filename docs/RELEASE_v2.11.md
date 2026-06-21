@@ -6,6 +6,33 @@
 **Repo:** <https://github.com/rocky59487/architect_simulator>
 **Base release tag:** `v2.10.0` at `cbd3aa5`
 
+> **⚠ Version boundary (added 2026-06-21 by v2.11.1 release-hardening):**
+> This release-notes file describes the **`v2.11.0` tag exactly** (commit
+> `3ae1cad`). Five commits landed AFTER the tag that are NOT covered by this
+> file: Phase 7 UE `FRAMECORE_CUDA` detection + DLL preload (`792b810`),
+> UE F67 mirror test `FFrameCoreGpuBacksubTest` that bumped
+> `$ExpectedUeTests` 57 → 58 (`3d2c559`), `HANDOFF_v2.11.0.md` (`cf810f8`),
+> R2 round-4 step-3 cuDSS PHASE_REFACTORIZATION research **NEGATIVE**
+> (`4429f72`), and the v2.11 24-hr night-shift summary (`33c00b9`). These
+> five ship in `v2.11.1` — see [`RELEASE_v2.11.1.md`](RELEASE_v2.11.1.md).
+>
+> If you `git checkout v2.11.0` and run `Scripts\run_gate.ps1`, the
+> default `$ExpectedUeTests = 58` guard will fail at this exact tag because
+> only 57 UE tests exist. Either checkout `v2.11.1` (recommended) or pass
+> `-ExpectedUeTests 57` for this tag.
+>
+> The headline performance numbers below (60 fps at 200K, 12.3× / 35× at
+> 90 k) cover GPU lane source that is unchanged in v2.11.1, so they apply
+> to both tags. The "12.3×" vs "35×" footnote: 12.3× is vs v2.9.0
+> **post-R2-LAZY-patch** baseline (56 ms / frame @ 90 k); 35× is vs
+> v2.9.0 **pre-R2-LAZY** unoptimised baseline (162 ms). Both are real
+> v2.9.0 numbers — different baselines.
+>
+> The "v2.12 deferred" list in §4 of this file lists "UE Build.cs
+> `bCudaEnabled` flag" as future work — Phase 7 auto-detect via conda env
+> landed in v2.11.1 commit `792b810`; the explicit `bCudaEnabled` plugin
+> flag itself is still v2.12 (D-03 in the v2.11.1 audit).
+
 ## 1. Headline
 
 **60 fps cleared through 200K DOF on production code.** The v2.10.0 cuDSS GPU
