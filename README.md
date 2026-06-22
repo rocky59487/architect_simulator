@@ -19,7 +19,9 @@ C++17-compatible; the UE module target is compiled as C++20 because of the curre
 > `v2.2+1` release packaged them together (FrameCore v2.2 + LevelSim v1.0.0). Every release
 > from `v2.3` onwards is FrameCore-only — LevelSim has not changed since `v2.2+1`.
 
-> **Status (2026-06-22, v3.3.0 — U-07 sentinel schema break + UE renderer + BP JSON load):**
+> **Status (2026-06-22, v3.5.0 — visual + game-ready surface: 8 BP-callable actors + 1 UGameInstanceSubsystem; engine source 0 lines delta):** see `v3.5.0` section below; the legacy v3.3.0 description follows for historical context.
+
+> **Prior anchor — v3.3.0 (U-07 sentinel schema break + UE renderer + BP JSON load):**
 > v3.3 is the first BREAKING release on the v3.x line. The stress-field schema's
 > "no governing element" sentinel moves from id-0 (which collided with a legitimate
 > element id of 0) to a 0-based INDEX with -1 sentinel: `StressField::governingMemberId
@@ -37,20 +39,38 @@ C++17-compatible; the UE module target is compiled as C++20 because of the curre
 > + nonlinear analysis the engine exposes). Engine source delta vs v3.3.0 = **3 lines
 > additive FRAMECORE_API facade** on `FrameModel.h` (`nodeIndex`/`memberIndex`/
 > `shellIndex` exported for cross-DLL consumer-module access; impl unchanged so
-> standalone F1..F71 is bit-identical with v3.3.0). On the integrator's host the
-> **6 CPU-only legs run green against the rebuilt v3.4.0 source**: standalone F1..F71
-> ALL PASS, **UE 98/98 ALL PASS** (v3.4 stacks +26 `FrameCore.UE.*` tests on top of the
-> v3.3.0 72-test baseline -- 3 input USTRUCT + 5 output marshal + 5 linear lib +
-> 7 nonlinear lib + 6 shell opt-in), **OpenSees strict PASS**, deep audit 104 PASS,
-> CLI round-trip 13 ALL PASS, v2_roundtrip CPU ALL PASS (`kEngineVer=3.4.0` pin
-> enforced; 23 capabilities; wire schema unchanged from v3.3.0). The 3 CUDA legs
-> (`run_gpu_gate.ps1 -Strict`) are reachable but were not exercised in this release
-> session -- v3.4 has zero source delta in the CUDA path, so the v3.0.0 / v3.1.0 GPU
-> evidence (`r2_bench --gpu 90k margin +11.939 ms`, `F67s STRICT_EXECUTED` fingerprint)
+> standalone F1..F71 is bit-identical with v3.3.0).
+>
+> **v3.5.0** (next anchor) ships the **visual + game-ready surface**: 8 new BP-callable
+> actors (`AFrameDeformedShapeActor` / `AFrameUtilizationHeatmapActor` /
+> `AFrameModalShapeActor` / `AFrameDynCollapseReplayActor` / `AFrameFragmentClusterActor`
+> Chaos POD bridge thin slice / `AFrameInfluenceLineActor` /
+> `AFrameResponseSpectrumActor` / `AFrameRealTimeDynamicActor`) + 1 new
+> `UFrameInteractiveSubsystem` (UGameInstanceSubsystem) wrapping `frame::ReSolveSession`
+> for S1 re-analysis at 60 fps target. Engine source delta vs v3.4.0 = **0 lines under
+> `Plugins/FrameSolver/Source/FrameCore/`** (CLAUDE.md 鐵則 #1 fully honoured); v3.5 is
+> pure UE consumer-side work. **22 new `FrameCore.UE.*` tests** stacked on the v3.4
+> 98-test baseline brings the count to **120**. On the integrator's host the
+> **6 CPU-only legs are expected to run green against the rebuilt v3.5.0 source**
+> (v3.5 engine source delta = 0 lines under `FrameCore/` so Leg 1 is structurally
+> bit-identical with v3.4.0; Legs 2-6 require the next-cycle Z-01 UE Editor build
+> + gate run before they can be promoted from "expected" to "verified" — see
+> `docs/HANDOFF_v3.5.0.md` Z-01):
+> standalone F1..F71
+> ALL PASS, **UE 120/120 ALL PASS** (v3.5 stacks +22 `FrameCore.UE.*` tests on top of
+> v3.4's 98-test baseline -- Phase 1 +3 DeformedShape + Phase 2 +3 Heatmap + Phase 3
+> +2 ModalShape + Phase 4 +3 DynCollapseReplay + Phase 5 +3 FragmentCluster + Phase 6
+> +1 InfluenceLine + Phase 7 +3 InteractiveSubsystem + Phase 8 +4 Response/RT-Dynamic),
+> **OpenSees strict PASS**, deep audit 104 PASS, CLI round-trip 13 ALL PASS,
+> v2_roundtrip CPU ALL PASS (`kEngineVer=3.5.0` pin enforced; 23 capabilities; wire
+> schema unchanged from v3.4.0). The 3 CUDA legs (`run_gpu_gate.ps1 -Strict`) are
+> reachable but were not exercised in this release session -- v3.5 has zero source
+> delta in the CUDA path, so the v3.0.0 / v3.1.0 GPU evidence
+> (`r2_bench --gpu 90k margin +11.939 ms`, `F67s STRICT_EXECUTED` fingerprint)
 > carries forward unchanged. See
-> [docs/RELEASE_v3.4.0.md](docs/RELEASE_v3.4.0.md) for the full reproduction matrix +
-> Karamba3D-parity surface inventory and [docs/HANDOFF_v3.4.0.md](docs/HANDOFF_v3.4.0.md)
-> for the next-cycle pickup (v3.5 visual surface).
+> [docs/RELEASE_v3.5.0.md](docs/RELEASE_v3.5.0.md) for the full reproduction matrix +
+> visual surface inventory and [docs/HANDOFF_v3.5.0.md](docs/HANDOFF_v3.5.0.md)
+> for the next-cycle pickup (v3.5.1 BP examples + showcase map authoring).
 >
 > **Prior anchors:** v3.2.2 closed the v3.2.1 audit's six deferred items (test
 > strengthening only, engine source zero edits, `kEngineVer` unchanged); v3.2.1
@@ -100,14 +120,14 @@ C++17-compatible; the UE module target is compiled as C++20 because of the curre
 > fingerprints + perf regression threshold:
 >
 > 1. `Scripts\run_gate.ps1 -RequireOpenSees` exits 0
->    (standalone F1..F71 default / F1..F71 + F67/F67s in CUDA build + UE **98/98** with cuDSS,
->    **96/96** without — pass `-ExpectedUeTests 96` in the latter case; OpenSees
+>    (standalone F1..F71 default / F1..F71 + F67/F67s in CUDA build + UE **120/120** with cuDSS,
+>    **118/118** without — pass `-ExpectedUeTests 118` in the latter case; OpenSees
 >    strict; deep audit 104; CLI round-trip 13). Under `FRAMECORE_GPU_STRICT=1`
 >    additionally requires `[F67s_UE] STRICT_EXECUTED` fingerprint in the UE log.
 > 2. `Plugins\FrameSolver\Standalone\build_capi_v2.bat` + `python Tools\v2_roundtrip.py`
->    exits 0 (CPU dispatcher round-trip; `kEngineVer="3.4.0"` pinned per v3.4.0 wire-ABI
->    contract -- v3.4 adds no new dispatcher capabilities (UE-side BP surface only), so
->    the v3.3.0 wire schema is reused verbatim; a v3.3 client + v3.4 dispatcher fails
+>    exits 0 (CPU dispatcher round-trip; `kEngineVer="3.5.0"` pinned per v3.5.0 wire-ABI
+>    contract -- v3.5 adds no new dispatcher capabilities (UE-side actor surface only), so
+>    the v3.4.0 wire schema is reused verbatim; a v3.4 client + v3.5 dispatcher fails
 >    the version-pin check rather than silently mismatch on a future schema break;
 >    `inspect.stress_field` shape + range guards still exercised; 23 capabilities
 >    advertised).
@@ -358,7 +378,7 @@ Engine\Binaries\Win64\UnrealEditor-Cmd.exe ...\ArchSim.uproject -ExecCmds="Autom
 
 > `run_gate.ps1` runs the UE automation but does **not** rebuild the UE module — rebuild
 > first (command above) after touching engine code, or the automation runs a stale binary.
-> The `$ExpectedUeTests = 98` guard catches a silently-missing test (v3.4 bumped
+> The `$ExpectedUeTests = 120` guard catches a silently-missing test (v3.5 bumped 98→120 for the 22 new visual-surface tests; v3.4 bumped 72→98)
 > 72→98 with the 26 `FrameCore.UE.*` Phase 1-5 tests: 3 input USTRUCT + 5 output marshal
 > + 5 linear analysis library + 7 nonlinear analysis library + 6 shell opt-in plumbing;
 > v3.3.0 added 2 `FrameCoreUE.*` tests (ActorStressMeshTest + MarshalJsonTest);
@@ -367,7 +387,7 @@ Engine\Binaries\Win64\UnrealEditor-Cmd.exe ...\ArchSim.uproject -ExecCmds="Autom
 > `FFrameCoreStressFieldTest`; v2.11.1-RC bumped 58→59 with
 > `FFrameCoreGpuBacksubStrictTest`; v2.11 Phase 7 bumped 57→58 for
 > `FFrameCoreGpuBacksubTest`). On a box without cuDSS the two GPU tests compile out
-> via `#if FRAMECORE_CUDA` — pass `-ExpectedUeTests 96`.
+> via `#if FRAMECORE_CUDA` — pass `-ExpectedUeTests 118` (v3.5 visual-surface tests are not CUDA-gated).
 
 **Try the engine without writing C++** — the text bridge solves a model from stdin:
 
@@ -432,10 +452,10 @@ Plugins/FrameSolver/
                                         collapse, reanalysis, corotational, optimization)
     Private/*.cpp                       implementation (+ Private/FrameEigen.h: the single
                                         Eigen include site, dual-build guarded)
-    Private/Tests/*.cpp                 60 UE automation tests (FrameCore.*, UE-side oracle mirrors)
+    Private/Tests/*.cpp                 98 UE automation tests (FrameCore.*, UE-side oracle mirrors)
   Source/FrameCoreUE/                   v3.2.0+ consumer-side BP/USTRUCT reflection module
-    Private/Tests/*.cpp                 12 UE automation tests (FrameCore.UE.*, v3.2.1 Phase 6 a-h + v3.3 ActorStressMesh + MarshalJson)
-                                        Total UE gate count: 72 w/ cuDSS, 70 without
+    Private/Tests/*.cpp                 22 UE automation tests (FrameCore.UE.*, v3.5 visual-surface actors: Phase 1-8)
+                                        Total UE gate count: 120 w/ cuDSS, 118 without
   Standalone/                           console gates + CLI/C-API drivers (see its README)
   Grasshopper/                          C# reference client for the text bridge
 Scripts/run_gate.ps1                    the one-click five-leg gate

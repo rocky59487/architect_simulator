@@ -1,6 +1,7 @@
 # UE5 Engine Surface Map — v3.4 spec
 
-> Status: **design locked** 2026-06-22 (HEAD `v3.3.0`). Implementation pending.
+> Status: **landed v3.4.0** 2026-06-22. See [`docs/RELEASE_v3.4.0.md`](../RELEASE_v3.4.0.md)
+> for the shipped surface inventory.
 > Companion spec: [`UE5_visual_surface_map.md`](UE5_visual_surface_map.md) (v3.5).
 > Cross-link bridge: [`docs/HANDOFF_v3.4_v3.5_design.md`](../HANDOFF_v3.4_v3.5_design.md).
 

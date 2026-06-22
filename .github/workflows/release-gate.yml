@@ -116,12 +116,13 @@ jobs:
         shell: pwsh
         run: |
           cmd /c "call Plugins\FrameSolver\Standalone\build_capi_v2.bat" *>&1 | Tee-Object -FilePath gate-capi-build.log
-          # v3.4.0: bumped from '3.3.0' alongside Dispatcher.h kEngineVer + uplugin Version
-          # for the v3.4 Karamba3D-parity numerical surface (every analysis BP-callable via
-          # UFrameAnalysisLibrary). Without the bump, a v3.3 client + v3.4 dispatcher would
-          # fail v2_roundtrip's version-pin check rather than the (worse) silent schema
-          # mismatch. Rule established v3.0.0 audit BLOCKER 1.
-          $env:FRAMECORE_EXPECTED_ENGINE_VER = '3.4.0'
+          # v3.5.0: bumped from '3.4.0' alongside Dispatcher.h kEngineVer + uplugin Version
+          # for the v3.5 visual + game-ready surface (8 new BP-callable actors +
+          # UGameInstanceSubsystem). Engine source delta = 0 lines under FrameCore/ (CLAUDE.md
+          # 鐵則 #1 fully honoured); v3.5 is pure UE consumer-side work. Without the bump, a
+          # v3.4 client + v3.5 dispatcher would fail v2_roundtrip's version-pin check rather
+          # than the (worse) silent schema mismatch. Rule established v3.0.0 audit BLOCKER 1.
+          $env:FRAMECORE_EXPECTED_ENGINE_VER = '3.5.0'
           python Tools\v2_roundtrip.py *>&1 | Tee-Object -FilePath gate-v2roundtrip.log
           if (-not (Select-String -Path gate-v2roundtrip.log -Pattern '=== summary: ALL PASS')) {
             Get-Content gate-v2roundtrip.log

@@ -137,4 +137,10 @@ struct FRAMECOREUE_API FFrameMemberGeometry
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="FrameCore") FVector End       = FVector(100.f, 0.f, 0.f);
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="FrameCore") float   Width     = 10.f;  // cross-section in member-local refY
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="FrameCore") float   Depth     = 10.f;  // cross-section in member-local refZ
+    // v3.5 (additive): node-index mapping into FFrameSolveResult::Displacements so the
+    // deformed-shape / replay actors can look up per-end displacement directly. Default
+    // -1 means "no mapping" (renderer treats displacement as zero); v3.3 stress-field
+    // actor doesn't read these fields so legacy callers stay bit-identical.
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="FrameCore") int32   EndINodeIdx = -1;
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="FrameCore") int32   EndJNodeIdx = -1;
 };

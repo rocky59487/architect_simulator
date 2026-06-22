@@ -243,15 +243,14 @@ if ($BuildV2RC -ne 0) {
     exit 1
 }
 
-# v3.4.0: bumped from '3.3.0' alongside Dispatcher.h kEngineVer + uplugin VersionName for the
-# v3.4 Karamba3D-parity numerical surface (every analysis BP-callable via UFrameAnalysisLibrary).
-# Engine source delta = 3 lines FRAMECORE_API facade on FrameModel.h id->idx helpers; no schema
-# break (v2 dispatcher wire unchanged), but v3.4 USTRUCT consumers in BP graphs see new BP
-# entries that did not exist in v3.3.0. The release-hardening rule is unchanged: this pin MUST
-# move every time kEngineVer moves -- v3.0.0 audit caught a stale "2.11.1" runtime version while
-# tag said v3.0.0; v2.11.1 audit caught the same pattern between 2.10.0 and 2.11.1. Bake into
-# release-hardening Phase 2 checklist.
-$env:FRAMECORE_EXPECTED_ENGINE_VER  = '3.4.0'
+# v3.5.0: bumped from '3.4.0' alongside Dispatcher.h kEngineVer + uplugin VersionName for the
+# v3.5 visual + game-ready surface (8 new BP-callable actors + UGameInstanceSubsystem). Engine
+# source delta = 0 lines under Plugins/FrameSolver/Source/FrameCore/ (CLAUDE.md 鐵則 #1 fully
+# honoured); v3.5 is pure UE consumer-side work. The release-hardening rule is unchanged:
+# this pin MUST move every time kEngineVer moves -- v3.0.0 audit caught a stale "2.11.1"
+# runtime version while tag said v3.0.0; v2.11.1 audit caught the same pattern between
+# 2.10.0 and 2.11.1. Bake into release-hardening Phase 2 checklist.
+$env:FRAMECORE_EXPECTED_ENGINE_VER  = '3.5.0'
 $env:FRAMECORE_EXPECTED_GPU_CAP     = 'true'
 $env:FRAMECORE_V2_DLL               = (Join-Path $Root 'Plugins\FrameSolver\Standalone\frame_capi_v2_cuda.dll')
 $env:FRAMECORE_V2_DLL_DEPS_DIRS     = $DepsDirs

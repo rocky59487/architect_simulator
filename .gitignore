@@ -5,6 +5,9 @@ DerivedDataCache/
 Intermediate/
 Saved/
 
+# Release bundle staging area (per-release framecore-vX.Y.Z/ subdir + zip)
+build/
+
 # IDE / build
 .vs/
 .vscode/

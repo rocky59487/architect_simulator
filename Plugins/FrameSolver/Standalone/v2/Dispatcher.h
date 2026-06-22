@@ -99,7 +99,7 @@ inline constexpr uint32_t kAbiVersion   = 2;
 // v3.1.0 (S11): added inspect.stress_field capability + per-fiber / per-shell-corner
 // stress sampling. Engine numerics unchanged vs 3.0.1 (StressKernel.h is the single
 // source of truth shared with ElasticAllowable, F70 D/C interlock bit-exact).
-inline constexpr const char* kEngineVer = "3.4.0";
+inline constexpr const char* kEngineVer = "3.5.0";
 inline constexpr const char* kSchemaVer = "2026.06";
 
 enum class Profile { Simple, Advanced };
