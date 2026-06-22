@@ -23,10 +23,7 @@
 
 #if WITH_DEV_AUTOMATION_TESTS
 
-namespace FrameCoreUE
-{
-    FFrameStressField ToBlueprint(const frame::StressField& field);
-}
+#include "FrameCoreUETestHelpers.h"  // V321-05: shared forward decl for FrameCoreUE::ToBlueprint
 
 namespace {
 

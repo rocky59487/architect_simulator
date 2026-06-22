@@ -10,6 +10,7 @@
 
 #include "CoreMinimal.h"
 #include "Misc/AutomationTest.h"
+#include "Modules/ModuleManager.h"
 #include "Framework/Docking/TabManager.h"
 
 #if WITH_DEV_AUTOMATION_TESTS
@@ -20,6 +21,13 @@ IMPLEMENT_SIMPLE_AUTOMATION_TEST(FFrameCoreUEEditorTabSpawnerTest,
 
 bool FFrameCoreUEEditorTabSpawnerTest::RunTest(const FString& /*Parameters*/)
 {
+    // V321-04: ensure FrameCoreUE module is loaded BEFORE querying the tab manager.
+    // Without this guard, lazy automation contexts may run RunTest() before StartupModule()
+    // fires -> HasTabSpawner returns false -> silent false-negative pass (the spawner
+    // would register later in the same session). LoadModuleChecked is idempotent: a
+    // second call after the first load is a cheap lookup.
+    FModuleManager::Get().LoadModuleChecked<IModuleInterface>(TEXT("FrameCoreUE"));
+
     // The tab name string here MUST match FrameCoreUEModule.cpp's
     // `GFrameCoreStressFieldTabName` literal. If the constant ever moves, both must move
     // together; this test catches the divergence.

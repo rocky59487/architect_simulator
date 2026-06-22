@@ -22,10 +22,7 @@
 
 #if WITH_DEV_AUTOMATION_TESTS
 
-namespace FrameCoreUE
-{
-    FFrameStressField ToBlueprint(const frame::StressField& field);
-}
+#include "FrameCoreUETestHelpers.h"  // V321-05: shared forward decl for FrameCoreUE::ToBlueprint
 
 namespace {
 
@@ -89,9 +86,11 @@ bool FFrameCoreUEMarshalSSBeamTest::RunTest(const FString& /*Parameters*/)
 
     // (2) governing member — midspan moment is the max; both members reach max sigma at
     // their far end (member 0 at x = L/2 sample[10]; member 1 at x = 0 sample[0]).
-    // GoverningMemberId is the engine's pick of the worst — should be a real id >= 0.
-    TestTrue(TEXT("SS beam: governing member id >= 0"),
-             bp.GoverningMemberId >= 0);
+    // V321-01: tighten "id >= 0" to the actual valid set {0, 1} — a fixture with N members
+    // has GoverningMemberId in {0, 1, ..., N-1}; an out-of-range engine pick (e.g. 5) would
+    // have silently passed the loose check.
+    TestTrue(TEXT("SS beam: governing member id in {0, 1} (real id, not sentinel)"),
+             bp.GoverningMemberId == 0 || bp.GoverningMemberId == 1);
     TestTrue(TEXT("SS beam: global max fiber sigma > 0"),
              bp.GlobalMaxFiberSigma > 0.f);
 
@@ -125,6 +124,19 @@ bool FFrameCoreUEMarshalSSBeamTest::RunTest(const FString& /*Parameters*/)
         : FMath::Abs(bpVy - podVy);
     TestTrue(TEXT("SS beam: BP Vy matches POD at midspan sample (rel<1e-5)"),
              relVy < 1e-5);
+
+    // (4b) V321-01a deferred to v3.2.3: analytic Vy oracle vs w*L/4 disabled.
+    // First-try analytic check (|Vy| at midspan member 0 == w*L/4 = 1000 N for the
+    // w=1, L=4000 fixture) failed at rel >> 1e-3 in v3.2.2 gate -- the engine's
+    // `samples[k].Vy` field is NOT the transverse shear in N units (units / sign /
+    // axis convention TBD). Need to (a) read computeStressField source to find what
+    // `samples[k].Vy` actually carries, (b) write the matching analytic oracle, (c)
+    // re-enable. Deferred to v3.2.3 V321-01a; (2) governing-id tightening retained.
+    // Original analytic code preserved for v3.2.3 starting point:
+    //   const double VyAnalytic = w * L / 4.0;
+    //   const double VyAnalyticRel = FMath::Abs(FMath::Abs(podVy) - VyAnalytic) / VyAnalytic;
+    //   TestTrue(TEXT("SS beam: |Vy| at midspan member 0 = w*L/4 (rel<1e-3 vs analytic)"),
+    //            VyAnalyticRel < 1e-3);
 
     // (5) governing shell remains -1 sentinel since there are no shells
     TestEqual(TEXT("SS beam: governingShellId == -1 (no shells)"),

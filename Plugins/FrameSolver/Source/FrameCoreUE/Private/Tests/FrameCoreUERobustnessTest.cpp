@@ -27,10 +27,7 @@
 
 #if WITH_DEV_AUTOMATION_TESTS
 
-namespace FrameCoreUE
-{
-    FFrameStressField ToBlueprint(const frame::StressField& field);
-}
+#include "FrameCoreUETestHelpers.h"  // V321-05: shared forward decl for FrameCoreUE::ToBlueprint
 
 namespace {
 
@@ -136,17 +133,44 @@ bool FFrameCoreUERobustnessTest::RunTest(const FString& /*Parameters*/)
             UFrameCoreStressFieldLibrary::ComputeCantileverFixture(1000.f, 2000.f, 11);
         const float refMax = reference.GlobalMaxFiberSigma;
 
+        // V321-02: extend bit-exact compare from "global max + array sizes" to per-sample
+        // internal-force fields at the midspan sample (index 5). A state leak that corrupts
+        // an interior sigma/internal-force value without changing the global max would
+        // otherwise slip through the loose check.
+        if (reference.Members.Num() < 1 || reference.Members[0].Samples.Num() < 11)
+        {
+            AddError(TEXT("Robustness: reference fixture malformed (expected 1 member, 11 samples)"));
+            return false;
+        }
+        const FFrameStressFieldSample& refSample = reference.Members[0].Samples[5];
+        const float refN  = refSample.N;
+        const float refVy = refSample.Vy;
+        const float refMz = refSample.Mz;
+        const float refSc = refSample.SigmaCompMax;
+        const float refSt = refSample.SigmaTensMax;
+
         bool allConsistent = true;
+        int failingIter = -1;
         for (int i = 0; i < 100; ++i)
         {
             const FFrameStressField bp =
                 UFrameCoreStressFieldLibrary::ComputeCantileverFixture(1000.f, 2000.f, 11);
             // Bit-exact reproducibility: same inputs => same engine POD => same USTRUCT.
-            if (bp.GlobalMaxFiberSigma != refMax) { allConsistent = false; break; }
-            if (bp.Members.Num() != 1)            { allConsistent = false; break; }
-            if (bp.Members[0].Samples.Num() != 11){ allConsistent = false; break; }
+            if (bp.GlobalMaxFiberSigma != refMax)   { allConsistent = false; failingIter = i; break; }
+            if (bp.Members.Num() != 1)              { allConsistent = false; failingIter = i; break; }
+            if (bp.Members[0].Samples.Num() != 11)  { allConsistent = false; failingIter = i; break; }
+            const FFrameStressFieldSample& s = bp.Members[0].Samples[5];
+            if (s.N != refN)                        { allConsistent = false; failingIter = i; break; }
+            if (s.Vy != refVy)                      { allConsistent = false; failingIter = i; break; }
+            if (s.Mz != refMz)                      { allConsistent = false; failingIter = i; break; }
+            if (s.SigmaCompMax != refSc)            { allConsistent = false; failingIter = i; break; }
+            if (s.SigmaTensMax != refSt)            { allConsistent = false; failingIter = i; break; }
         }
-        TestTrue(TEXT("Robustness: 100 repeat calls produce bit-exact USTRUCT"),
+        if (!allConsistent)
+        {
+            AddError(FString::Printf(TEXT("Robustness: per-sample bit-exact diverged at iter %d"), failingIter));
+        }
+        TestTrue(TEXT("Robustness: 100 repeat calls produce bit-exact USTRUCT (sample[5] N/Vy/Mz/SigmaCompMax/SigmaTensMax)"),
                  allConsistent);
     }
 

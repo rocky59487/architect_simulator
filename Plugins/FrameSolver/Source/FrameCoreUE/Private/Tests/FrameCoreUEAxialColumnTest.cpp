@@ -21,10 +21,7 @@
 
 #if WITH_DEV_AUTOMATION_TESTS
 
-namespace FrameCoreUE
-{
-    FFrameStressField ToBlueprint(const frame::StressField& field);
-}
+#include "FrameCoreUETestHelpers.h"  // V321-05: shared forward decl for FrameCoreUE::ToBlueprint
 
 namespace {
 
@@ -98,6 +95,12 @@ bool FFrameCoreUEAxialColumnTest::RunTest(const FString& /*Parameters*/)
              relN510 < 1e-4);
     TestTrue(TEXT("Axial column: |N| approximately equals tip load P (rel<1e-3)"),
              FMath::Abs(absN0 - P) / P < 1e-3);
+
+    // (2b) Sign convention -- F4 standalone fixture asserts N > 0 (compression-positive).
+    // The UE test uses FMath::Abs() to compare magnitudes so a sign flip would silently
+    // pass; assert the sign explicitly to mirror the standalone F4 contract.
+    TestTrue(TEXT("Axial column: N > 0 (compression-positive, mirrors standalone F4)"),
+             s0.N > 0.f && s5.N > 0.f && s10.N > 0.f);
 
     // (3) Transverse shear and bending should be essentially zero for pure axial load.
     // Use absolute tolerance scaled to the engine's natural precision.

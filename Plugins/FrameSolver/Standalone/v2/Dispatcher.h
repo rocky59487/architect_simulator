@@ -41,7 +41,9 @@
 //   * cancel — wired (per-id atomic tombstone, consumed on first match)
 //
 // Still deferred (return NOT_IMPLEMENTED):
-//   * model.patch — schema TBD
+//   * model.patch — schema TBD (audit ID B-06, open since v2.4). v3.2.2 confirms
+//     no v3.3 plan to land; out of v3.x scope unless an explicit design decision
+//     authors a spec at docs/specs/S6c_model_patch.md.
 
 #pragma once
 
@@ -142,8 +144,8 @@ struct Context {
 /// returns useful data today. The analysis and inspect verbs below run real FrameCore code
 /// and return spec-shape responses (or a structured engine error frame on failure).
 ///
-/// Still NOT advertised here: model.patch (schema TBD), binary.modes,
-/// dyn_collapse.fragment_detail, diagnostic.stream.
+/// Still NOT advertised here: model.patch (B-06, schema TBD, no v3.3 plan),
+/// binary.modes, dyn_collapse.fragment_detail, diagnostic.stream.
 inline std::vector<std::string> Capabilities() {
     return {
         // Connection-mgmt (WIRED).
