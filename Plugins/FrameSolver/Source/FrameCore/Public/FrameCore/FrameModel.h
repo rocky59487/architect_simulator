@@ -30,9 +30,12 @@ struct FrameModel {
     int dofCount() const { return DOF_PER_NODE * static_cast<int>(nodes.size()); }
 
     // Index into nodes[] / members[] / shells[] for a given id, or -1 if not found.
-    int nodeIndex(NodeId id) const;
-    int memberIndex(MemberId id) const;
-    int shellIndex(int id) const;
+    // v3.4 Phase 2: FRAMECORE_API added so the FrameCoreUE consumer module (separate
+    // DLL) can resolve the engine id -> slot lookup needed for SolveResult marshal.
+    // Pure facade annotation, no behaviour change.
+    FRAMECORE_API int nodeIndex(NodeId id) const;
+    FRAMECORE_API int memberIndex(MemberId id) const;
+    FRAMECORE_API int shellIndex(int id) const;
 
     // Structural sanity (ids resolve, non-null mat/sec, positive A/I/E/L). On
     // failure returns false and fills `why`.
