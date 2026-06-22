@@ -1,8 +1,25 @@
-# FrameCoreUE Quick-Start (v3.2.0)
+# FrameCoreUE Quick-Start (v3.2.x)
 
-> 5-minute guide for using the v3.2.0 `FrameCoreUE` reflection module in Blueprint,
-> editor utility code, or your own UE module. Engine numerics are NOT covered here —
-> see [`docs/ARCHITECTURE.md`](ARCHITECTURE.md) for the analytical foundations.
+> 5-minute guide for using the `FrameCoreUE` reflection module (introduced v3.2.0,
+> hardened in v3.2.1) in Blueprint, editor utility code, or your own UE module.
+> Engine numerics are NOT covered here — see [`docs/ARCHITECTURE.md`](ARCHITECTURE.md)
+> for the analytical foundations. Test surface area: 10 `FrameCore.UE.*` tests across
+> the marshal layer, robustness, theta-range, zero-load, axial-column, and editor tab
+> spawner (v3.2.1 Phase 6 a-h additions on top of v3.2.0's two smoke tests).
+
+## Prerequisites (before any of the use cases below works)
+
+1. **UE 5.7 install** at `$env:UE_ENGINE_ROOT` (or edit the example commands to point
+   at your install).
+2. **Editor module built**:
+   ```bat
+   "%UE_ENGINE_ROOT%\Engine\Build\BatchFiles\Build.bat" ArchSimEditor Win64 Development ^
+       -project="%cd%\ArchSim.uproject" -waitmutex
+   ```
+   `run_gate.ps1` does NOT build UE — adding a new test or pulling a new commit
+   requires this incremental rebuild first; otherwise the count guard short-falls.
+3. **conda env `framecore-direct`** for native deps (OpenBLAS / METIS, optionally cuDSS).
+   See [`docs/HANDOFF_v3.2.0.md` §2](HANDOFF_v3.2.0.md) for the PATH-prepend recipe.
 
 ## What FrameCoreUE is
 

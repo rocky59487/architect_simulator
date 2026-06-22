@@ -18,10 +18,12 @@
 # so the 5-leg gate (run_gate.ps1) stays the canonical CI surface.
 #
 # What it does:
-#   [1/3] Builds frametest_cuda.exe (build_sn_cuda.bat) and runs F1-F67.
-#         When cuDSS DLLs resolve, FRAMECORE_GPU_STRICT=1 is exported so F67s
-#         (strict GPU-attached fixture) FAILS instead of skipping on a silent
-#         fallback to CPU -- the smoke fixture F67 still passes either way.
+#   [1/3] Builds frametest_cuda.exe (build_sn_cuda.bat) and runs F1..F70 default
+#         + F67 (smoke) + F67s (strict) -- CUDA build adds F67/F67s on top of the
+#         F1..F70 fixture set that the default build runs. When cuDSS DLLs resolve,
+#         FRAMECORE_GPU_STRICT=1 is exported so F67s (strict GPU-attached fixture)
+#         FAILS instead of skipping on a silent fallback to CPU -- the smoke fixture
+#         F67 still passes either way.
 #         FRAMECORE_GPU_STRICT must be the literal "1" string -- "true", "yes",
 #         "on" are treated as unset (SILENT SKIP). Set explicitly in CI scripts.
 #   [2/3] Builds frame_capi_v2_cuda.dll (build_capi_v2_cuda.bat) and runs

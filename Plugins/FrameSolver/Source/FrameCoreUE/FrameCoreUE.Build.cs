@@ -15,7 +15,12 @@ public class FrameCoreUE : ModuleRules
     {
         PCHUsage    = PCHUsageMode.UseExplicitOrSharedPCHs;
         CppStandard = CppStandardVersion.Cpp20;
-        bUseUnity   = true;
+        // bUseUnity=false because Private/Tests/*.cpp use anonymous namespaces for fixture
+        // helpers; on a clean (cold) build with all .cpp out of UBT's adaptive working set,
+        // UE would merge them into one unity TU and the anon-namespace helpers would
+        // shadow each other. Adaptive build only protects in-flight edits — committed
+        // files re-enter unity on the next clean build. CLAUDE.md 踩雷 #4.
+        bUseUnity   = false;
 
         PublicDependencyModuleNames.AddRange(new string[] {
             "Core",

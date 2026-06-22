@@ -59,7 +59,8 @@ CUDA lane / LevelSim / 所有 v3.1.0 deferred 項。
 ### 五腿基本 gate(秒~分鐘級)
 
 ```powershell
-# 一鍵全綠驗證(standalone F1..F70 + UE 62/62 + OpenSees + audit 104 + CLI):
+# 一鍵全綠驗證(standalone F1..F70 + UE 70/70 + OpenSees + audit 104 + CLI):
+# (v3.2.0 tag-time 是 62/62;HEAD 含 v3.2.1 Phase 6 a-h 的 8 個 FrameCoreUE 測試 = 70/70)
 $env:PATH = "$env:USERPROFILE\anaconda3\envs\framecore-direct\Library\bin;$env:PATH"
 $env:UE_ENGINE_ROOT = "E:\project\UE_5.7"
 powershell -ExecutionPolicy Bypass -File Scripts\run_gate.ps1 -RequireOpenSees

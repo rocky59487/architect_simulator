@@ -56,7 +56,7 @@ Write-Host '======================================================'
 Write-Host ' FrameSolver verification gate'
 Write-Host '======================================================'
 
-# ---- [1/3] standalone gate ----
+# ---- [1/5] standalone gate ----
 Write-Host ''
 Write-Host '[1/5] standalone FrameCore gate (build.bat)...'
 & (Join-Path $Root 'Plugins\FrameSolver\Standalone\build.bat') | Tee-Object -Variable StandaloneOut | Out-Null
@@ -64,7 +64,7 @@ $StandaloneRC = $LASTEXITCODE
 $StandaloneLine = ($StandaloneOut | Select-String -Pattern 'ALL PASS|FAILURES' | Select-Object -Last 1)
 Write-Host ("       standalone: {0} (exit {1})" -f $StandaloneLine, $StandaloneRC)
 
-# ---- [2/3] UE headless automation ----
+# ---- [2/5] UE headless automation ----
 Write-Host ''
 Write-Host '[2/5] UE headless automation...'
 $ExecCmds = 'Automation RunTests FrameCore; Quit'
@@ -102,7 +102,7 @@ if ($env:FRAMECORE_GPU_STRICT -eq '1' -and (Test-Path $Log)) {
     $UeStrictRC = 0   # not in strict mode
 }
 
-# ---- [3/3] OpenSees offline cross-validation (#14; skipped if openseespy absent) ----
+# ---- [3/5] OpenSees offline cross-validation (#14; skipped if openseespy absent) ----
 Write-Host ''
 Write-Host '[3/5] OpenSees offline cross-validation...'
 $OsRC = 0; $OsState = 'skipped'
@@ -113,7 +113,7 @@ elseif ($OsRC -eq 2) { $OsState = 'skipped (openseespy not installed)' }
 else                 { $OsState = 'FAIL' }
 Write-Host ("       OpenSees compare: {0} (exit {1})" -f $OsState, $OsRC)
 
-# ---- [4/4] linear-analysis deep audit (post F17-F25 strengthening) ----
+# ---- [4/5] linear-analysis deep audit (post F17-F25 strengthening) ----
 Write-Host ''
 Write-Host '[4/5] linear-analysis deep audit...'
 & (Join-Path $Root 'Plugins\FrameSolver\Standalone\build_linear_audit.bat') | Tee-Object -Variable AuditOut | Out-Null

@@ -98,10 +98,13 @@ bool FFrameCoreUEThetaRangeTest::RunTest(const FString& /*Parameters*/)
 
     int totalChecked = 0;
     bool allInRange = true;
-    auto checkThetaRange = [&](const FFrameShellStressPoint& p)
+    // Contract is open lower / closed upper: theta in (-π/2, π/2]. A passing sample must
+    // satisfy theta > -halfPi (so we reject when <= -halfPi, widened by epsTol on the
+    // tolerable-noise side) and theta <= halfPi + epsTol on the closed upper bound.
+    auto assertThetaInRange = [&](const FFrameShellStressPoint& p)
     {
         ++totalChecked;
-        if (p.ThetaRad <= -halfPi - epsTol || p.ThetaRad > halfPi + epsTol)
+        if (p.ThetaRad <= -halfPi + epsTol || p.ThetaRad > halfPi + epsTol)
         {
             allInRange = false;
         }
@@ -109,13 +112,13 @@ bool FFrameCoreUEThetaRangeTest::RunTest(const FString& /*Parameters*/)
 
     for (int s = 0; s < bp.ShellsTop.Num(); ++s)
     {
-        checkThetaRange(bp.ShellsTop[s].Center);
-        for (int c = 0; c < bp.ShellsTop[s].Corners.Num(); ++c) { checkThetaRange(bp.ShellsTop[s].Corners[c]); }
+        assertThetaInRange(bp.ShellsTop[s].Center);
+        for (int c = 0; c < bp.ShellsTop[s].Corners.Num(); ++c) { assertThetaInRange(bp.ShellsTop[s].Corners[c]); }
     }
     for (int s = 0; s < bp.ShellsBot.Num(); ++s)
     {
-        checkThetaRange(bp.ShellsBot[s].Center);
-        for (int c = 0; c < bp.ShellsBot[s].Corners.Num(); ++c) { checkThetaRange(bp.ShellsBot[s].Corners[c]); }
+        assertThetaInRange(bp.ShellsBot[s].Center);
+        for (int c = 0; c < bp.ShellsBot[s].Corners.Num(); ++c) { assertThetaInRange(bp.ShellsBot[s].Corners[c]); }
     }
 
     // 4 shells × 5 points × 2 layers = 40 points

@@ -44,8 +44,13 @@ repository [README](../../README.md) for the honest accuracy envelope of every c
 
 - `Source/FrameCore/`: pure C++17 core. Public headers are POD/std-only; Eigen stays in
   private implementation files behind the single include site `Private/FrameEigen.h`.
-- `Source/FrameCore/Private/Tests/`: UE automation tests for `FrameCore.*` (57 tests,
+- `Source/FrameCore/Private/Tests/`: UE automation tests for `FrameCore.*` (60 tests,
   UE-side oracle mirrors across the same subsystems).
+- `Source/FrameCoreUE/Private/Tests/`: UE automation tests for `FrameCore.UE.*` (10 tests
+  as of v3.2.1: the v3.2.0 BlueprintSmokeTest + EditorSmokeTest pair plus the v3.2.1
+  Phase 6 marshal/robustness/spawner/theta/zero-load/axial-column suite). Together with
+  `FrameCore/Private/Tests/` they total **70** UE tests with cuDSS (**68** without —
+  the 2 GPU smoke tests are `#if FRAMECORE_CUDA`-gated).
 - `Standalone/`: console gates and CLI drivers used by the Python audits — see
   [Standalone/README.md](Standalone/README.md).
 - `Grasshopper/`: the C# client (`FrameCoreClient.cs`) that drives `frame_cli.exe` /

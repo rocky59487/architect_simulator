@@ -30,8 +30,9 @@ C++17-compatible; the UE module target is compiled as C++20 because of the curre
 > standalone F1..F70 bit-identical); v3.2 net delta is 10 new files (`FrameCoreUE/`
 > module shell + USTRUCT + library + panel + 2 smoke tests) + 4 lockstep version pins.
 > On the integrator's host the **6 CPU-only legs run green against the rebuilt v3.2.0
-> source**: standalone F1..F70 ALL PASS, **UE 62/62 ALL PASS** (incl. new
-> `FFrameCoreUEBlueprintSmokeTest` and `FFrameCoreUEEditorSmokeTest`), **OpenSees strict
+> source**: standalone F1..F70 ALL PASS, **UE 70/70 ALL PASS** (v3.2.1 adds 8
+> `FrameCore.UE.*` Phase 6 a-h tests on top of v3.2.0's BlueprintSmokeTest +
+> EditorSmokeTest pair), **OpenSees strict
 > PASS**, deep audit 104 PASS, CLI round-trip 13 ALL PASS, v2_roundtrip CPU ALL PASS
 > (`kEngineVer=3.2.0` pin enforced; capability list unchanged). The 3 CUDA legs
 > (`run_gpu_gate.ps1 -Strict`) are reachable but were not exercised in this release
@@ -82,16 +83,17 @@ C++17-compatible; the UE module target is compiled as C++20 because of the curre
 > fingerprints + perf regression threshold:
 >
 > 1. `Scripts\run_gate.ps1 -RequireOpenSees` exits 0
->    (standalone F1..F70 default / F1..F70 + F67s CUDA + UE **60/60** with cuDSS,
->    **60/60** without — pass `-ExpectedUeTests 60` in the latter case; OpenSees
+>    (standalone F1..F70 default / F1..F70 + F67/F67s in CUDA build + UE **70/70** with cuDSS,
+>    **68/68** without — pass `-ExpectedUeTests 68` in the latter case; OpenSees
 >    strict; deep audit 104; CLI round-trip 13). Under `FRAMECORE_GPU_STRICT=1`
 >    additionally requires `[F67s_UE] STRICT_EXECUTED` fingerprint in the UE log.
 > 2. `Plugins\FrameSolver\Standalone\build_capi_v2.bat` + `python Tools\v2_roundtrip.py`
->    exits 0 (CPU dispatcher round-trip; `kEngineVer="3.1.0"` pinned; `inspect.stress_field`
->    shape + range guards exercised).
+>    exits 0 (CPU dispatcher round-trip; `kEngineVer="3.2.0"` pinned per v3.2.0 wire-ABI
+>    contract — v3.2.x patches leave kEngineVer unchanged; `inspect.stress_field` shape +
+>    range guards exercised; 23 capabilities advertised).
 > 3. `Scripts\run_gpu_gate.ps1 -Strict` exits 0 on a box with cuDSS installed
->    (frametest_cuda F1..F67 + F67s strict with STRICT_EXECUTED fingerprint,
->    v2_roundtrip CUDA, r2_bench --gpu 90k margin ≥ +8 ms hard regression gate).
+>    (frametest_cuda F1..F70 default + F67 smoke + F67s strict with STRICT_EXECUTED
+>    fingerprint, v2_roundtrip CUDA, r2_bench --gpu 90k margin ≥ +8 ms hard regression gate).
 >
 > v2.10 introduced
 > the cuDSS GPU backsub lane as an opt-in production path; v2.11 stacked three GPU phases
@@ -336,11 +338,13 @@ Engine\Binaries\Win64\UnrealEditor-Cmd.exe ...\ArchSim.uproject -ExecCmds="Autom
 
 > `run_gate.ps1` runs the UE automation but does **not** rebuild the UE module — rebuild
 > first (command above) after touching engine code, or the automation runs a stale binary.
-> The `$ExpectedUeTests = 62` guard catches a silently-missing test (v3.2.0 bumped
-> 59→60 when `FFrameCoreStressFieldTest` was added; v2.11.1-RC bumped 58→59 with
+> The `$ExpectedUeTests = 70` guard catches a silently-missing test (v3.2.1 bumped
+> 62→70 with the 8 `FrameCore.UE.*` Phase 6 a-h tests; v3.2.0 bumped 60→62 with
+> `BlueprintSmokeTest` + `EditorSmokeTest`; v3.1.0 bumped 59→60 with
+> `FFrameCoreStressFieldTest`; v2.11.1-RC bumped 58→59 with
 > `FFrameCoreGpuBacksubStrictTest`; v2.11 Phase 7 bumped 57→58 for
 > `FFrameCoreGpuBacksubTest`, the UE mirror of standalone F67). On a box without cuDSS
-> the two GPU tests compile out via `#if FRAMECORE_CUDA` — pass `-ExpectedUeTests 60`.
+> the two GPU tests compile out via `#if FRAMECORE_CUDA` — pass `-ExpectedUeTests 68`.
 
 **Try the engine without writing C++** — the text bridge solves a model from stdin:
 
@@ -405,7 +409,10 @@ Plugins/FrameSolver/
                                         collapse, reanalysis, corotational, optimization)
     Private/*.cpp                       implementation (+ Private/FrameEigen.h: the single
                                         Eigen include site, dual-build guarded)
-    Private/Tests/*.cpp                 62 UE automation tests w/ cuDSS, 60 without (UE-side oracle mirrors)
+    Private/Tests/*.cpp                 60 UE automation tests (FrameCore.*, UE-side oracle mirrors)
+  Source/FrameCoreUE/                   v3.2.0+ consumer-side BP/USTRUCT reflection module
+    Private/Tests/*.cpp                 10 UE automation tests (FrameCore.UE.*, v3.2.1 Phase 6 a-h)
+                                        Total UE gate count: 70 w/ cuDSS, 68 without
   Standalone/                           console gates + CLI/C-API drivers (see its README)
   Grasshopper/                          C# reference client for the text bridge
 Scripts/run_gate.ps1                    the one-click five-leg gate

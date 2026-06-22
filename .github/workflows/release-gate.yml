@@ -7,7 +7,7 @@ name: release-gate
 # docs/HANDOFF_v3.2.0.md (latest handoff in the chain).
 #
 # Reachable CPU legs on GitHub-hosted windows-latest:
-#   * standalone build.bat + frametest.exe (F1..F66 default)
+#   * standalone build.bat + frametest.exe (F1..F70 default)
 #   * build_linear_audit.bat + linear_deep_audit.exe (104 checks)
 #   * build_cli.bat + python Tools/cli_roundtrip.py (13 checks)
 #   * build_capi_v2.bat + python Tools/v2_roundtrip.py (CPU dispatcher)
@@ -171,4 +171,4 @@ jobs:
           Write-Host "v2_roundtrip:  ${{ steps.v2roundtrip.outcome }}"
           Write-Host "OpenSees:      ${{ steps.opensees.outcome }}"
           Write-Host "GPU + UE legs run manually on the integrator's box."
-          Write-Host "See docs/HANDOFF_v2.11.1.md and docs/gate-logs/<tag>/ for evidence."
+          Write-Host "See docs/HANDOFF_v3.2.0.md (and any newer HANDOFF_v*.md in the chain) plus docs/gate-logs/<tag>/ for evidence."

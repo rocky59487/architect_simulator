@@ -84,6 +84,11 @@ S 系列之前的線性套件(8 段)與崩塌 C 線(6 階段)沒有獨立 PROGRE
 | [`RELEASE_v2.7.md`](RELEASE_v2.7.md) | v2.7 release notes — P1-3 `dyn_collapse.live` mid-run streaming + cancel |
 | [`RELEASE_v2.8.1.md`](RELEASE_v2.8.1.md) | **v2.8.1 release notes** — audit-hardening pass (7-agent finding,版本字串 / engine NaN / queue cap / dead field / DisposeAsync UAF / dead-link / handoff debt) |
 | [`HANDOFF_v2.8.1.md`](HANDOFF_v2.8.1.md) | **v2.8.1 後接手 owner 交接** — 補齊 v2.6/v2.7 漏的 handoff,含每項 deferred 的「第一個動作」 |
+| [`RELEASE_v3.0.0.md`](RELEASE_v3.0.0.md) | v3.0.0 STABLE — 9/9 gate legs green anchor + r2_bench 90k 60-fps margin |
+| [`RELEASE_v3.0.1.md`](RELEASE_v3.0.1.md) | v3.0.1 — post-3.0.0 hardening (version sync + strict fingerprint + regression gate + CI workflow) |
+| [`RELEASE_v3.1.0.md`](RELEASE_v3.1.0.md) | v3.1.0 — S11 stress-field post-process + 7-agent audit closeouts (F68/F69/F70) |
+| [`RELEASE_v3.2.0.md`](RELEASE_v3.2.0.md) | v3.2.0 — FrameCoreUE thin slice (USTRUCT marshal + BP node + Slate panel) |
+| [`HANDOFF_v3.1.0.md`](HANDOFF_v3.1.0.md) / [`HANDOFF_v3.2.0.md`](HANDOFF_v3.2.0.md) | 對應 v3.1.0 / v3.2.0 接手 owner 交接(每項 deferred 含 first action) |
 
 ## 課程素材 / Learning(v2.4 加入)
 
