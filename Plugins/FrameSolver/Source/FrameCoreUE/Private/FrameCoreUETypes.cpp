@@ -80,8 +80,10 @@ FFrameStressField ToBlueprint(const frame::StressField& field)
 
     out.GlobalMaxFiberSigma     = (float)field.globalMaxFiberSigma;
     out.GlobalMaxVonMises       = (float)field.globalMaxVonMises;
-    out.GoverningMemberId       = field.governingMemberId;
-    out.GoverningShellId        = field.governingShellId;
+    // v3.3 (U-07): engine emits -1 sentinel directly; verbatim pass-through is now safe
+    // (no more "clamps to -1" work-around). Both POD and USTRUCT sides agree on -1 sentinel.
+    out.GoverningMemberIdx      = field.governingMemberIdx;
+    out.GoverningShellIdx       = field.governingShellIdx;
     out.GoverningShellCorner    = field.governingShellCorner;
     out.bGoverningShellLayerIsTop = (field.governingShellLayer == frame::ShellLayer::Top);
 

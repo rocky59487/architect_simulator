@@ -4276,9 +4276,19 @@ int main() {
         const StressField   fld = computeStressField(m, r, 11);
 
         checkTrue("F70 worstUtilization.valid", dm.valid, "");
-        checkTrue("F70 governingMemberId match",
-                  fld.governingMemberId == dm.governingMember,
-                  "fld=" + std::to_string(fld.governingMemberId)
+        // v3.3 (U-07): fld now reports an INDEX into m.members; the D/C summary
+        // still reports a user ID. Cross-resolve via the index so the interlock
+        // catches a real divergence rather than silently passing when both paths
+        // happen to return the same number.
+        checkTrue("F70 governing member index in range",
+                  fld.governingMemberIdx >= 0
+               && fld.governingMemberIdx < (int)m.members.size(),
+                  "idx=" + std::to_string(fld.governingMemberIdx));
+        checkTrue("F70 governing member id (resolved via idx) matches D/C",
+                  fld.governingMemberIdx >= 0
+               && m.members[(size_t)fld.governingMemberIdx].id == dm.governingMember,
+                  "fld.id=" + std::to_string(fld.governingMemberIdx >= 0
+                                ? m.members[(size_t)fld.governingMemberIdx].id : -1)
                 + " ea=" + std::to_string(dm.governingMember));
 
         // Sweep the trace for the worst raw fiber sigma vs ElasticAllowable's endI/endJ sigmas.
@@ -4305,9 +4315,16 @@ int main() {
         const ShellDemandSummary ds = worstShellUtilization(ms, rs);
         const StressField fldS = computeStressField(ms, rs, 11);
         checkTrue("F70 worstShellUtilization.valid", ds.valid, "");
-        checkTrue("F70 governingShellId match",
-                  fldS.governingShellId == ds.governingShell,
-                  "fld=" + std::to_string(fldS.governingShellId)
+        // v3.3 (U-07): same idx -> id resolution as the member side.
+        checkTrue("F70 governing shell index in range",
+                  fldS.governingShellIdx >= 0
+               && fldS.governingShellIdx < (int)ms.shells.size(),
+                  "idx=" + std::to_string(fldS.governingShellIdx));
+        checkTrue("F70 governing shell id (resolved via idx) matches D/C",
+                  fldS.governingShellIdx >= 0
+               && ms.shells[(size_t)fldS.governingShellIdx].id == ds.governingShell,
+                  "fld.id=" + std::to_string(fldS.governingShellIdx >= 0
+                                ? ms.shells[(size_t)fldS.governingShellIdx].id : -1)
                 + " ea=" + std::to_string(ds.governingShell));
 
         // Recompute ElasticAllowable's vM at its governing sample directly and match against
@@ -4316,6 +4333,91 @@ int main() {
         const real ea_vM = ds.maxDC * smat.cap.vm;
         checkClose("F70 globalMaxVonMises matches ElasticAllowable D/C * cap.vm (bit-exact)",
                    fldS.globalMaxVonMises, ea_vM, 1e-12);
+    }
+
+    // ---------- F71: U-07 sentinel edge case (no governing member / shell) ----------
+    // v3.3 introduces the governingMemberIdx/governingShellIdx schema with -1 as the
+    // "no governing element" sentinel (replacing the v3.2 in-class default of 0 that
+    // collided with a legitimate element whose user-assigned id == 0). This fixture
+    // pins the contract for three cases the pre-v3.3 schema could not distinguish.
+    // See docs/specs/S11_v3.3_schema_migration.md for the rationale.
+    {
+        std::printf("[F71] U-07 sentinel: -1 idx on empty / all-inactive models\n");
+
+        // (a) Empty model: no members, no shells, no nodes. computeStressField must
+        //     return a default StressField with sentinel indices and zero globals.
+        {
+            FrameModel m;  // intentionally empty (no nodes / members / shells)
+            SolveResult r;  // default-constructed (no memberForces / shellForces)
+            const StressField fld = computeStressField(m, r, 11);
+            checkTrue("F71(a) empty model: members vector empty",
+                      fld.members.empty(),
+                      "size=" + std::to_string(fld.members.size()));
+            checkTrue("F71(a) empty model: shellsTop vector empty",
+                      fld.shellsTop.empty(),
+                      "size=" + std::to_string(fld.shellsTop.size()));
+            checkTrue("F71(a) empty model: governingMemberIdx == -1",
+                      fld.governingMemberIdx == -1,
+                      "got=" + std::to_string(fld.governingMemberIdx));
+            checkTrue("F71(a) empty model: governingShellIdx == -1",
+                      fld.governingShellIdx == -1,
+                      "got=" + std::to_string(fld.governingShellIdx));
+            checkClose("F71(a) empty model: globalMaxFiberSigma == 0",
+                       fld.globalMaxFiberSigma, real(0), 1e-15);
+            checkClose("F71(a) empty model: globalMaxVonMises == 0",
+                       fld.globalMaxVonMises, real(0), 1e-15);
+        }
+
+        // (b) Populated model with EVERY member/shell marked inactive: the solver
+        //     produces forces (active is a stress-field-level filter, not a solver
+        //     gate), but computeStressField must skip them and report sentinels.
+        {
+            const real P = 1000.0, L = 2000.0;
+            FrameModel m; fixtures::cantileverTipLoad(m, P, L, mat, sec);
+            SolveResult r = solve(m);
+            checkTrue("F71(b) source fixture non-singular", !r.singular, r.diagnostic);
+            // Deactivate every member AFTER solve so memberForces is still populated.
+            for (auto& mem : m.members) mem.active = false;
+            const StressField fld = computeStressField(m, r, 11);
+            checkTrue("F71(b) all-inactive members: members vector empty",
+                      fld.members.empty(),
+                      "size=" + std::to_string(fld.members.size()));
+            checkTrue("F71(b) all-inactive: governingMemberIdx == -1",
+                      fld.governingMemberIdx == -1,
+                      "got=" + std::to_string(fld.governingMemberIdx));
+            checkClose("F71(b) all-inactive: globalMaxFiberSigma == 0",
+                       fld.globalMaxFiberSigma, real(0), 1e-15);
+        }
+
+        // (c) Populated model with id == 0 actually governing. Pre-v3.3, this
+        //     case was indistinguishable from "no governing" because the sentinel
+        //     and the id collided at 0. Post-v3.3 the idx is the element's slot
+        //     (0 here, since cantileverTipLoad places its sole member at members[0]),
+        //     and the per-element record's .id (also 0) is recoverable via lookup
+        //     -- the two never alias again.
+        {
+            const real P = 1000.0, L = 2000.0;
+            FrameModel m; fixtures::cantileverTipLoad(m, P, L, mat, sec);
+            // Confirm the fixture really uses id == 0 (the precondition for the
+            // pre-v3.3 ambiguity). If the fixture is ever changed, this guard
+            // turns the silent assumption into a loud test failure.
+            checkTrue("F71(c) precondition: cantilever member id == 0",
+                      m.members.size() == 1 && m.members[0].id == 0,
+                      "id=" + std::to_string(m.members.empty() ? -999 : m.members[0].id));
+            SolveResult r = solve(m);
+            checkTrue("F71(c) cantilever non-singular", !r.singular, r.diagnostic);
+            const StressField fld = computeStressField(m, r, 11);
+            checkTrue("F71(c) idx points to a real slot, not the sentinel",
+                      fld.governingMemberIdx == 0,
+                      "got=" + std::to_string(fld.governingMemberIdx));
+            checkTrue("F71(c) per-element record still carries the user id (== 0)",
+                      !fld.members.empty() && fld.members[0].memberId == 0,
+                      "id=" + std::to_string(fld.members.empty() ? -999 : fld.members[0].memberId));
+            checkTrue("F71(c) idx -> id lookup recovers the governing id (== 0)",
+                      fld.governingMemberIdx >= 0
+                   && m.members[(size_t)fld.governingMemberIdx].id == 0,
+                      "");
+        }
     }
 
     std::printf("\n%s  (failures=%d)\n", g_fail == 0 ? "ALL PASS" : "FAILURES", g_fail);

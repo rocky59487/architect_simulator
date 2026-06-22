@@ -55,8 +55,9 @@ bool FFrameCoreUEZeroLoadTest::RunTest(const FString& /*Parameters*/)
     // (4) no shells in this fixture, so shell sentinels stay -1
     TestEqual(TEXT("Zero-load: ShellsTop empty"), bp.ShellsTop.Num(), 0);
     TestEqual(TEXT("Zero-load: ShellsBot empty"), bp.ShellsBot.Num(), 0);
-    TestEqual(TEXT("Zero-load: governingShellId == -1 (no shells)"),
-              bp.GoverningShellId, -1);
+    // v3.3 (U-07): renamed; semantics unchanged (-1 sentinel for absent category).
+    TestEqual(TEXT("Zero-load: governingShellIdx == -1 (no shells)"),
+              bp.GoverningShellIdx, -1);
 
     return true;
 }

@@ -145,17 +145,19 @@ The following are deferred to v3.3 or later (see
 
 ## Verification matrix
 
-5-leg gate at v3.2.0 + Phase 6 post-tag strengthening: **all green on the integrator
+5-leg gate at v3.3.0 + Phase 6 post-tag strengthening: **all green on the integrator
 host**.
 
-- Standalone F1..F70 ALL PASS
-- **UE 70/70 tests** (60 base + S11 + 2 GPU smoke + 2 v3.2 Phase 2/3 + 3 Phase 6a
+- Standalone F1..F71 ALL PASS (v3.3.0 added F71 U-07 sentinel edge fixture)
+- **UE 72/72 tests** (60 base + S11 + 2 GPU smoke + 2 v3.2 Phase 2/3 + 3 Phase 6a
   marshal + 2 Phase 6e spawner+robustness + 2 Phase 6f theta+zero-load + 1 Phase 6
-  closeout axial column = 70)
+  closeout axial column + 2 v3.3 Phase 3/4 ActorStressMesh + MarshalJson = 72;
+  without cuDSS: 70/70 — pass `-ExpectedUeTests 70`)
 - OpenSees PASS
 - linear deep audit 104 checks PASS
 - CLI roundtrip 13 checks PASS
-- v2_roundtrip CPU ALL PASS (kEngineVer=3.2.0 pin enforced)
+- v2_roundtrip CPU ALL PASS (kEngineVer=3.3.0 pin enforced; legacy
+  `governingMember*Id` keys absent per v3.3 U-07 schema break)
 
 Stability stress (3x repeat 五腿 gate): timing drift 0.7% across 353.9 / 352.0 / 351.4 s.
 No flaky tests.

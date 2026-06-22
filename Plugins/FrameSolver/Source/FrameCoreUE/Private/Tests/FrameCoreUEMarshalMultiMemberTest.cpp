@@ -2,9 +2,9 @@
 // cantilever (4 nodes, 3 members in series) under tip load. Verifies:
 //   1. USTRUCT carries 3 member traces (vs 1 in cantilever, 2 in SS beam)
 //   2. MemberId is the user-set engine ID (100/200/300), NOT the array index
-//   3. GoverningMemberId resolves to one of the real user IDs (not 0, which would be
-//      the array-index lie -- v3.1.0 C-07/C-08 audit established that 0 vs sentinel
-//      ambiguity is the trap)
+//   3. v3.3 BREAKING (U-07): GoverningMemberIdx is the slot index (0 for root in this
+//      fixture); the resolved user id (Members[Idx].MemberId == 100) is looked up
+//      explicitly so an off-by-one engine pick can't slip through aliasing.
 //   4. The governing trace contains the worst sample (sigCompMax == GlobalMaxFiberSigma
 //      within float-lossy budget)
 
@@ -103,12 +103,18 @@ bool FFrameCoreUEMarshalMultiMemberTest::RunTest(const FString& /*Parameters*/)
     TestEqual(TEXT("Multi-member: Members[2].MemberIdx == 2"),
               bp.Members[2].MemberIdx, 2);
 
-    // (4) GoverningMemberId resolves to a real user ID -- root member (100) carries
-    // the max moment under cantilever tip load.
+    // (4) v3.3 (U-07): GoverningMemberIdx resolves to a slot index, not a user id.
+    // Root member sits at slot 0 (first push_back in BuildCantileverFixtureLocal),
+    // and the per-member record carries its real id (100). Both are checked so a
+    // mistaken engine-side off-by-one (idx in {1,2} mapping to wrong user id) would
+    // fail the lookup chain, not just be alias-masked.
     TestTrue(TEXT("Multi-member: globalMaxFiberSigma > 0"),
              bp.GlobalMaxFiberSigma > 0.f);
-    TestEqual(TEXT("Multi-member: governingMemberId == 100 (root member is worst)"),
-              bp.GoverningMemberId, 100);
+    TestEqual(TEXT("Multi-member: governingMemberIdx == 0 (root member is slot 0)"),
+              bp.GoverningMemberIdx, 0);
+    TestEqual(TEXT("Multi-member: lookup Members[GoverningMemberIdx].MemberId == 100"),
+              bp.GoverningMemberIdx >= 0 && bp.GoverningMemberIdx < bp.Members.Num()
+              ? bp.Members[bp.GoverningMemberIdx].MemberId : -1, 100);
 
     // (5) The governing trace contains the GlobalMaxFiberSigma sample (sample[0] of
     // member id 100 is the root x=0 location with max sigma).
@@ -124,9 +130,9 @@ bool FFrameCoreUEMarshalMultiMemberTest::RunTest(const FString& /*Parameters*/)
     TestTrue(TEXT("Multi-member: max sample in governing trace == GlobalMaxFiberSigma (rel<1e-5)"),
              relGov < 1e-5);
 
-    // (6) -1 sentinels for absent governing categories
-    TestEqual(TEXT("Multi-member: governingShellId == -1 (no shells)"),
-              bp.GoverningShellId, -1);
+    // (6) -1 sentinels for absent governing categories (v3.3 rename, semantics unchanged)
+    TestEqual(TEXT("Multi-member: governingShellIdx == -1 (no shells)"),
+              bp.GoverningShellIdx, -1);
     TestEqual(TEXT("Multi-member: governingShellCorner == -1"),
               bp.GoverningShellCorner, -1);
     TestEqual(TEXT("Multi-member: ShellsTop empty"), bp.ShellsTop.Num(), 0);

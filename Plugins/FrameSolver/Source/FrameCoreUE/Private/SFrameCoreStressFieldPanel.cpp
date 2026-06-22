@@ -47,10 +47,17 @@ FReply SFrameCoreStressFieldPanel::OnComputeClicked()
 
     if (ResultText.IsValid())
     {
+        // v3.3 (U-07): governing pointer is now an INDEX; surface both the index and
+        // (when valid) the resolved user id so the panel keeps showing meaningful info.
+        const int32 GovIdx = CurrentField.GoverningMemberIdx;
+        const int32 GovId  = (GovIdx >= 0 && GovIdx < CurrentField.Members.Num())
+            ? CurrentField.Members[GovIdx].MemberId
+            : -1;
         const FString Summary = FString::Printf(
-            TEXT("Global max fiber sigma: %.4f MPa   Governing member id: %d   Members: %d"),
+            TEXT("Global max fiber sigma: %.4f MPa   Governing member idx=%d (id=%d)   Members: %d"),
             CurrentField.GlobalMaxFiberSigma,
-            CurrentField.GoverningMemberId,
+            GovIdx,
+            GovId,
             CurrentField.Members.Num());
         ResultText->SetText(FText::FromString(Summary));
     }

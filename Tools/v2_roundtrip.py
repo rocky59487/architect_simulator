@@ -488,12 +488,24 @@ def main() -> int:
                         if not check("stress_field.members[0].memberId == 0",
                                       mems[0].get("memberId") == 0,
                                       f"got={mems[0].get('memberId')}"): failures += 1
-                    if not check("stress_field.governingMemberId == 0 (cantilever id)",
-                                  sf.get("governingMemberId") == 0,
-                                  f"got={sf.get('governingMemberId')}"): failures += 1
-                    if not check("stress_field.governingShellId == -1 (no-shell sentinel)",
-                                  sf.get("governingShellId") == -1,
-                                  f"got={sf.get('governingShellId')}"): failures += 1
+                    # v3.3 BREAKING (U-07): key renamed from `governingMemberId/...ShellId`
+                    # to `...Idx`; value is now an INDEX into model.members / model.shells
+                    # (-1 sentinel) rather than the user id. cantilever fixture has its
+                    # sole member at slot 0, so the index is 0; the user id (also 0 here,
+                    # but for a different reason -- see docs/specs/S11_v3.3_schema_migration.md)
+                    # lives on the per-member record (mems[0].memberId, already checked above).
+                    if not check("stress_field.governingMemberIdx == 0 (cantilever slot 0)",
+                                  sf.get("governingMemberIdx") == 0,
+                                  f"got={sf.get('governingMemberIdx')}"): failures += 1
+                    if not check("stress_field.governingShellIdx == -1 (no-shell sentinel)",
+                                  sf.get("governingShellIdx") == -1,
+                                  f"got={sf.get('governingShellIdx')}"): failures += 1
+                    if not check("stress_field schema break: legacy `governingMemberId` key absent",
+                                  "governingMemberId" not in sf,
+                                  f"got_keys={sorted(sf.keys())}"): failures += 1
+                    if not check("stress_field schema break: legacy `governingShellId` key absent",
+                                  "governingShellId" not in sf,
+                                  f"got_keys={sorted(sf.keys())}"): failures += 1
                     if not check("stress_field.shellsTop/shellsBot are empty (no shells)",
                                   sf.get("shellsTop") == [] and sf.get("shellsBot") == [],
                                   f"top={len(sf.get('shellsTop',[]))} bot={len(sf.get('shellsBot',[]))}"):

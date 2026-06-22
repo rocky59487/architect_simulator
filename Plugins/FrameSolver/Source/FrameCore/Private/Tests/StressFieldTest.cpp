@@ -56,8 +56,13 @@ bool FFrameCoreStressFieldTest::RunTest(const FString& /*Parameters*/)
     TestTrue(TEXT("analytic sigma(x) = |P|*(L-x)/Wz at 11 samples (rel<1e-9)"),
              worstRel < 1e-9);
 
-    // Governing id propagates.
-    TestEqual(TEXT("governingMemberId == 0"), (int)fld.governingMemberId, 0);
+    // v3.3 (U-07): the field reports an INDEX (cantilever member sits at members[0]),
+    // not the user id (which also happens to be 0 here -- that aliasing is exactly
+    // what U-07 fixes by separating the two). Verify the idx points at slot 0 and
+    // the per-element record still carries the user id for downstream renderers.
+    TestEqual(TEXT("governingMemberIdx == 0"), (int)fld.governingMemberIdx, 0);
+    TestTrue(TEXT("per-element record carries user id"),
+             !fld.members.empty() && fld.members[0].memberId == 0);
     TestTrue(TEXT("globalMaxFiberSigma > 0"), fld.globalMaxFiberSigma > 0);
 
     return true;

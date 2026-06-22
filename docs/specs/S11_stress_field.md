@@ -3,6 +3,15 @@
 > Status: **landed v3.1.0** (engine), default-ON post-process. Pure numerical layer;
 > no Eigen leak; no UE coupling. Visualisation / colour band rendering is consumer-side.
 
+> ⚠ **BREAKING (v3.3.0)**: the governing-element pointer fields were renamed
+> `governingMemberId / governingShellId` → `governingMemberIdx / governingShellIdx`,
+> and the value semantics changed from "user id with sentinel 0" to "internal index
+> with sentinel -1". The struct field names and JSON key examples below already
+> reflect the v3.3 schema. **A v3.2 consumer reading these names assuming the old
+> semantics will silently mis-resolve every governing pointer** — read
+> [`S11_v3.3_schema_migration.md`](S11_v3.3_schema_migration.md) before consuming the
+> new wire on a pre-v3.3 client base.
+
 ## What this is
 
 The visualisation stress field is the numerical post-process that a renderer
@@ -39,8 +48,9 @@ elastic D/C screen (`ElasticAllowable`) and the field post-process
                        sigma1, sigma2, vonMises, thetaRad}`.
   - `ShellStressLayer {shellIdx, shellId, layer, center, corners[4]}`.
   - `StressField {members, shellsTop, shellsBot, globalMaxFiberSigma,
-                  globalMaxVonMises, governingMemberId, governingShellId,
-                  governingShellLayer, governingShellCorner}`.
+                  globalMaxVonMises, governingMemberIdx, governingShellIdx,
+                  governingShellLayer, governingShellCorner}` (v3.3+; see migration
+                  doc for the pre-v3.3 `...Id` form and the value-semantics change).
 - `Private/StressField.cpp` -- implementation. No allocations beyond the
   returned vectors; UDL lookup is a linear scan over `model.memberUDLs`.
 
@@ -73,8 +83,8 @@ elastic D/C screen (`ElasticAllowable`) and the field post-process
       "samplesPerSpan": 11,
       "globalMaxFiberSigma": <real>,
       "globalMaxVonMises":   <real>,
-      "governingMemberId":   <int>,
-      "governingShellId":    <int>,
+      "governingMemberIdx":  <int>,   // v3.3+; pre-v3.3 was "governingMemberId" (user id, 0 = no governing)
+      "governingShellIdx":   <int>,   // v3.3+; pre-v3.3 was "governingShellId"  (user id, 0 = no governing)
       "governingShellLayer": "top"|"bot",
       "governingShellCorner": -1|0|1|2|3,
       "members": [ { "memberId", "memberIdx",
@@ -101,7 +111,7 @@ elastic D/C screen (`ElasticAllowable`) and the field post-process
 
 ### OpenSees note
 
-F71 (OpenSees direct sigma comparison) was deliberately not added. The
+An OpenSees direct sigma comparison was deliberately not added in v3.1.0. The
 StressField output for a shell sample is `Nxx/t +/- 6Mxx/t^2` -- a textbook
 identity over `ShellElementForces`. `Nxx`/`Mxx` themselves are covered by the
 existing OpenSees gate (Tools/opensees_compare.py over the shell milestone
@@ -109,6 +119,13 @@ fixtures). Combined with F70's bit-exact interlock against `ElasticAllowable`
 (whose vM was always Nxx/t +/- 6Mxx/t^2 internally), the StressField path is
 *transitively* OpenSees-verified. Adding a direct sigma_xx sample on the OSPy
 side is future work if a real divergence is ever suspected.
+
+> **F71 reassigned in v3.3**: the v3.1.0 spec reserved `F71` as a placeholder
+> for the OpenSees direct sigma fixture above. v3.3 reassigns `F71` to a
+> sentinel edge fixture (no-governing-member / all-inactive) for the
+> `governingMemberIdx` schema migration; see
+> [`S11_v3.3_schema_migration.md`](S11_v3.3_schema_migration.md). An
+> OpenSees direct sigma fixture, if ever added, will take a later slot.
 
 ## Honest boundaries
 

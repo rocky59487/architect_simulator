@@ -954,8 +954,13 @@ inline bool packStressField(const frame::StressField& fld, int samplesPerSpan,
     dest.emplace("samplesPerSpan",      Json(static_cast<int64_t>(samplesPerSpan)));
     dest.emplace("globalMaxFiberSigma", Json(static_cast<double>(fld.globalMaxFiberSigma)));
     dest.emplace("globalMaxVonMises",   Json(static_cast<double>(fld.globalMaxVonMises)));
-    dest.emplace("governingMemberId",   Json(static_cast<int64_t>(fld.governingMemberId)));
-    dest.emplace("governingShellId",    Json(static_cast<int64_t>(fld.governingShellId)));
+    // v3.3 BREAKING (U-07): key renamed from `governingMemberId / governingShellId`
+    // to `...Idx`. The value is now a 0-based INDEX into model.members / model.shells
+    // (sentinel -1 for "no governing"), not the element's user-assigned id. To recover
+    // the user id, clients look up `model.members[idx].id`. See docs/specs/
+    // S11_v3.3_schema_migration.md for the migration guide.
+    dest.emplace("governingMemberIdx",  Json(static_cast<int64_t>(fld.governingMemberIdx)));
+    dest.emplace("governingShellIdx",   Json(static_cast<int64_t>(fld.governingShellIdx)));
     dest.emplace("governingShellLayer",
                  Json(std::string(fld.governingShellLayer == frame::ShellLayer::Top ? "top" : "bot")));
     dest.emplace("governingShellCorner", Json(static_cast<int64_t>(fld.governingShellCorner)));

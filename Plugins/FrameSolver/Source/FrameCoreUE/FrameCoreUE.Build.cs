@@ -27,6 +27,14 @@ public class FrameCoreUE : ModuleRules
             "CoreUObject",
             "Engine",
             "FrameCore",
+            // v3.3 (U-03): AFrameCoreStressFieldActor uses UProceduralMeshComponent for the
+            // runtime-built sigma-band box mesh along each member. PMC is a UE built-in
+            // Runtime plugin enabled transitively via FrameSolver.uplugin's Plugins block.
+            "ProceduralMeshComponent",
+            // v3.3 (U-01): UFrameCoreStressFieldLibrary::ComputeFromJsonModel parses JSON
+            // model files using UE's Json + JsonUtilities modules.
+            "Json",
+            "JsonUtilities",
         });
 
         // Phase 3 (Slate panel + nomad tab spawner registered under Tools workspace menu).

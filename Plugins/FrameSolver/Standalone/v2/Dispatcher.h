@@ -81,6 +81,14 @@ inline constexpr uint32_t kAbiVersion   = 2;
 // constant was never bumped for v2.6 or v2.7 -- hello.response.version reported "2.5.0"
 // for two full releases. Wire ABI is still 2 (unchanged); kEngineVer is the human-facing
 // engine string clients use for capability/version negotiation.
+// v3.3.0 (U-07, BREAKING): inspect.stress_field response renames
+// `governingMemberId / governingShellId` -> `governingMemberIdx / governingShellIdx`.
+// Value semantics change from "user-assigned element id, 0 if no governing" to
+// "internal index into model.members / model.shells, -1 if no governing". Fixes
+// the id-0 / sentinel-0 collision (audit U-07). Wire ABI still 2; capability list
+// unchanged; only `inspect.stress_field` response body differs. See
+// docs/specs/S11_v3.3_schema_migration.md for the migration guide.
+//
 // v3.2.0: FrameCoreUE reflection module — added UE-side USTRUCT mirrors of frame::StressField
 // + UBlueprintFunctionLibrary (UFrameCoreStressFieldLibrary::ComputeCantileverFixture) +
 // editor Slate panel (SFrameCoreStressFieldPanel). Engine numerics and v2 dispatcher schema
@@ -91,7 +99,7 @@ inline constexpr uint32_t kAbiVersion   = 2;
 // v3.1.0 (S11): added inspect.stress_field capability + per-fiber / per-shell-corner
 // stress sampling. Engine numerics unchanged vs 3.0.1 (StressKernel.h is the single
 // source of truth shared with ElasticAllowable, F70 D/C interlock bit-exact).
-inline constexpr const char* kEngineVer = "3.2.0";
+inline constexpr const char* kEngineVer = "3.3.0";
 inline constexpr const char* kSchemaVer = "2026.06";
 
 enum class Profile { Simple, Advanced };

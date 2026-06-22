@@ -113,8 +113,9 @@ bool FFrameCoreUEAxialColumnTest::RunTest(const FString& /*Parameters*/)
              FMath::Abs((double)s5.Mz) < absTol);
 
     // (4) Marshal sanity -- shell counters stay at sentinel for member-only model
-    TestEqual(TEXT("Axial column: governingShellId == -1 (no shells)"),
-              bp.GoverningShellId, -1);
+    // v3.3 (U-07): renamed from GoverningShellId; sentinel value unchanged (-1).
+    TestEqual(TEXT("Axial column: governingShellIdx == -1 (no shells)"),
+              bp.GoverningShellIdx, -1);
     TestEqual(TEXT("Axial column: ShellsTop empty"), bp.ShellsTop.Num(), 0);
 
     return true;

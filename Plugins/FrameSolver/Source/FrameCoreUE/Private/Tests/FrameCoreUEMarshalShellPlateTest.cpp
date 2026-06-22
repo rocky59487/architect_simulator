@@ -143,15 +143,16 @@ bool FFrameCoreUEMarshalShellPlateTest::RunTest(const FString& /*Parameters*/)
     }
     TestTrue(TEXT("Shell plate: shell center VonMises BP vs POD rel<1e-5"), maxRelVM < 1e-5);
 
-    // (6) governing shell id is real (>= 0)
+    // (6) v3.3 (U-07): governing shell idx is a real slot (>= 0). Cross-check the
+    // resolved user id via ShellsTop / ShellsBot (the per-layer record carries ShellId).
     TestTrue(TEXT("Shell plate: globalMaxVonMises > 0"),
              bp.GlobalMaxVonMises > 0.f);
-    TestTrue(TEXT("Shell plate: governingShellId >= 0 (someone governs)"),
-             bp.GoverningShellId >= 0);
+    TestTrue(TEXT("Shell plate: governingShellIdx >= 0 (someone governs)"),
+             bp.GoverningShellIdx >= 0);
 
     // (7) Member governing remains -1 sentinel since there are no members
-    TestEqual(TEXT("Shell plate: governingMemberId == -1 (no members)"),
-              bp.GoverningMemberId, -1);
+    TestEqual(TEXT("Shell plate: governingMemberIdx == -1 (no members)"),
+              bp.GoverningMemberIdx, -1);
 
     return true;
 }

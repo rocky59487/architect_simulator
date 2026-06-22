@@ -82,15 +82,16 @@ bool FFrameCoreUEBlueprintSmokeTest::RunTest(const FString& /*Parameters*/)
 
     // Governing member id propagates. v3.2 audit A-2 (MEDIUM) note: the engine POD
     // convention is `0 if no member governs` (StressField.h L78); the USTRUCT default
-    // is `-1` (v3.1.0 C-07/C-08 sentinel pattern). For this cantilever fixture member
-    // id 0 IS the governing member, so the value 0 is correct here -- but we assert
-    // robustly (>= 0 means "someone governs") AND value-specifically (== 0 because we
-    // know which id) so that the test remains valid if/when the engine sentinel is
-    // unified to -1 (deferred v3.3 U-07).
-    TestTrue(TEXT("BP marshal: someone governs (id >= 0)"),
-             UFrameCoreStressFieldLibrary::GetGoverningMemberId(BpField) >= 0);
-    TestEqual(TEXT("BP marshal: governing member id == 0 (fixture has 1 member, id 0)"),
-              UFrameCoreStressFieldLibrary::GetGoverningMemberId(BpField), 0);
+    // v3.3 (U-07): unified -1 sentinel + INDEX semantics. The cantilever fixture has
+    // its sole member at slot 0, so the governing index is 0. The per-member record's
+    // MemberId (also 0 here, by fixture coincidence) is recoverable via lookup. The
+    // two values are no longer aliased.
+    TestTrue(TEXT("BP marshal: someone governs (idx >= 0)"),
+             UFrameCoreStressFieldLibrary::GetGoverningMemberIdx(BpField) >= 0);
+    TestEqual(TEXT("BP marshal: governing member idx == 0 (cantilever slot 0)"),
+              UFrameCoreStressFieldLibrary::GetGoverningMemberIdx(BpField), 0);
+    TestEqual(TEXT("BP marshal: per-member record carries the user id (== 0 by fixture)"),
+              BpField.Members.Num() > 0 ? BpField.Members[0].MemberId : -999, 0);
     TestTrue(TEXT("BP marshal: globalMaxFiberSigma > 0"),
              UFrameCoreStressFieldLibrary::GetGlobalMaxFiberSigma(BpField) > 0.f);
 

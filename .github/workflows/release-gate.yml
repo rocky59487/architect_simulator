@@ -4,10 +4,10 @@ name: release-gate
 # 5-leg gate (+ v2 CPU dispatcher roundtrip) on every push to main and every PR. The
 # GPU legs (cuDSS) and UE automation require GPU hardware + UE 5.7 install and are
 # NOT in scope here -- those are run manually on the integrator's box per
-# docs/HANDOFF_v3.2.0.md (latest handoff in the chain).
+# docs/HANDOFF_v3.3.0.md (latest handoff in the chain).
 #
 # Reachable CPU legs on GitHub-hosted windows-latest:
-#   * standalone build.bat + frametest.exe (F1..F70 default)
+#   * standalone build.bat + frametest.exe (F1..F71 default)
 #   * build_linear_audit.bat + linear_deep_audit.exe (104 checks)
 #   * build_cli.bat + python Tools/cli_roundtrip.py (13 checks)
 #   * build_capi_v2.bat + python Tools/v2_roundtrip.py (CPU dispatcher)
@@ -68,7 +68,7 @@ jobs:
           tar -xzf eigen.tar.gz
           echo "EIGEN_DIR=$pwd\eigen-3.4.0" | Out-File -FilePath $env:GITHUB_ENV -Append
 
-      - name: "Leg 1 - standalone F1..F70 (v3.2.0 = v3.1.0 fixtures unchanged; FrameCoreUE is UE-only)"
+      - name: "Leg 1 - standalone F1..F71 (v3.3.0 adds F71 U-07 sentinel edge fixture; FrameCoreUE is UE-only)"
         id: standalone
         shell: cmd
         run: |
@@ -116,10 +116,12 @@ jobs:
         shell: pwsh
         run: |
           cmd /c "call Plugins\FrameSolver\Standalone\build_capi_v2.bat" *>&1 | Tee-Object -FilePath gate-capi-build.log
-          # v3.2.0: bumped from '3.1.0' alongside Dispatcher.h kEngineVer + uplugin Version
-          # for the FrameCoreUE thin-slice UE reflection module. This pin moves with every
-          # kEngineVer bump (rule established v3.0.0 audit BLOCKER 1).
-          $env:FRAMECORE_EXPECTED_ENGINE_VER = '3.2.0'
+          # v3.3.0: bumped from '3.2.0' alongside Dispatcher.h kEngineVer + uplugin Version
+          # for the U-07 sentinel schema break (governingMemberId/governingShellId ->
+          # governingMemberIdx/Idx). Without the bump, a v3.2 client + v3.3 dispatcher
+          # would fail v2_roundtrip's version-pin check rather than the (worse) silent
+          # schema mismatch. Rule established v3.0.0 audit BLOCKER 1.
+          $env:FRAMECORE_EXPECTED_ENGINE_VER = '3.3.0'
           python Tools\v2_roundtrip.py *>&1 | Tee-Object -FilePath gate-v2roundtrip.log
           if (-not (Select-String -Path gate-v2roundtrip.log -Pattern '=== summary: ALL PASS')) {
             Get-Content gate-v2roundtrip.log
@@ -171,4 +173,4 @@ jobs:
           Write-Host "v2_roundtrip:  ${{ steps.v2roundtrip.outcome }}"
           Write-Host "OpenSees:      ${{ steps.opensees.outcome }}"
           Write-Host "GPU + UE legs run manually on the integrator's box."
-          Write-Host "See docs/HANDOFF_v3.2.0.md (and any newer HANDOFF_v*.md in the chain) plus docs/gate-logs/<tag>/ for evidence."
+          Write-Host "See docs/HANDOFF_v3.3.0.md (and any newer HANDOFF_v*.md in the chain) plus docs/gate-logs/<tag>/ for evidence."

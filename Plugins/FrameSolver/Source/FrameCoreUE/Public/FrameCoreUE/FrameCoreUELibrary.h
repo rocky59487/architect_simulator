@@ -29,12 +29,30 @@ public:
         float L = 2000.f,
         int32 SamplesPerSpan = 11);
 
+    // v3.3 (U-01): load a model from disk in the dispatcher's `model.set` JSON schema,
+    // solve it, and return the marshalled FFrameStressField. Supports the subset
+    // {materials, sections, nodes, members, nodalLoads, memberUDLs} -- enough for any
+    // beam-only fixture. Shells, member releases / tensionOnly / prescribed displacements,
+    // and per-fixture solver options are out of scope for v3.3 (use ComputeCantileverFixture
+    // or call the engine directly until v3.4 widens the schema). On parse / solve failure
+    // the function logs a warning and returns a default-constructed FFrameStressField
+    // (governing indices == -1).
+    UFUNCTION(BlueprintCallable, Category="FrameCore|StressField",
+              meta=(DisplayName="Compute Stress Field From JSON"))
+    static FFrameStressField ComputeFromJsonModel(
+        const FString& JsonPath,
+        int32 SamplesPerSpan = 11);
+
     // Convenience accessors so BP graphs don't have to break struct + index.
+    // v3.3 BREAKING (U-07): renamed from GetGoverningMemberId / GetGoverningShellId.
+    // Return value is now an INDEX into the field's Members / ShellsTop+ShellsBot
+    // lists, with INDEX_NONE (-1) for "no governing element". To get the element's
+    // user-assigned id, use Field.Members[Idx].MemberId (or .ShellId for shells).
     UFUNCTION(BlueprintPure, Category="FrameCore|StressField")
-    static int32 GetGoverningMemberId(const FFrameStressField& Field);
+    static int32 GetGoverningMemberIdx(const FFrameStressField& Field);
 
     UFUNCTION(BlueprintPure, Category="FrameCore|StressField")
-    static int32 GetGoverningShellId(const FFrameStressField& Field);
+    static int32 GetGoverningShellIdx(const FFrameStressField& Field);
 
     UFUNCTION(BlueprintPure, Category="FrameCore|StressField")
     static float GetGlobalMaxFiberSigma(const FFrameStressField& Field);

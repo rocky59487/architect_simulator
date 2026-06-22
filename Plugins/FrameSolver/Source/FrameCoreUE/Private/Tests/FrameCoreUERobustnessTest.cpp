@@ -115,8 +115,13 @@ bool FFrameCoreUERobustnessTest::RunTest(const FString& /*Parameters*/)
             TestEqual(TEXT("Robustness: trace[19].MemberId == 19"),
                       bp.Members[19].MemberId, 19);
         }
-        TestEqual(TEXT("Robustness: governingMemberId == 0 (root)"),
-                  bp.GoverningMemberId, 0);
+        // v3.3 (U-07): root member sits at slot 0 (the fixture builds members with
+        // id == idx, so the resolved id is also 0; verify both to ensure the lookup
+        // chain still pins the right element).
+        TestEqual(TEXT("Robustness: governingMemberIdx == 0 (root)"),
+                  bp.GoverningMemberIdx, 0);
+        TestEqual(TEXT("Robustness: root member's user id == 0"),
+                  bp.Members.Num() > 0 ? bp.Members[0].MemberId : -1, 0);
         TestTrue(TEXT("Robustness: globalMaxFiberSigma > 0"),
                  bp.GlobalMaxFiberSigma > 0.f);
     }

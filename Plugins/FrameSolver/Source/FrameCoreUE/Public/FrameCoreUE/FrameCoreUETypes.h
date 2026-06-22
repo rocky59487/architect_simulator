@@ -102,19 +102,15 @@ struct FRAMECOREUE_API FFrameStressField
 
     // -1 sentinel when no governing element (v3.1.0 C-07/C-08 audit pattern).
     //
-    // v3.2 audit A-1 NOTE / deferred v3.3 U-07: the engine POD frame::StressField uses
-    // 0 as its "no governing" sentinel (StressField.h L78-79: `int governingMemberId = 0`).
-    // ToBlueprint() in FrameCoreUETypes.cpp passes the engine value through verbatim,
-    // so this USTRUCT field carries the engine 0 sentinel when nobody governs --
-    // ambiguous with real member id 0. For a model where member id 0 is non-existent
-    // or non-governing the engine writes 0 here and the USTRUCT shows 0 (interpreted
-    // by a careful BP consumer as "real id 0 governs" -- incorrect). The proper fix
-    // (engine-side default -1 + writer setting actual id) is deferred to v3.3 to keep
-    // v3.2 honouring engine rule #1 (zero edits under FrameCore/). For now, consumers
-    // should rely on Field.GlobalMaxFiberSigma > 0 to confirm that any governing
-    // member actually contributes, before trusting GoverningMemberId.
-    UPROPERTY(BlueprintReadOnly, Category="FrameCore|StressField") int32 GoverningMemberId     = -1;
-    UPROPERTY(BlueprintReadOnly, Category="FrameCore|StressField") int32 GoverningShellId      = -1;
+    // v3.3 BREAKING (U-07): renamed from GoverningMemberId / GoverningShellId. The value
+    // is now the INTERNAL INDEX into the model's element list (0-based), with -1 as the
+    // sentinel for "no governing element". The pre-v3.3 schema returned the element's
+    // user-assigned id with 0 as the sentinel, which silently collided with a legitimate
+    // element whose user id == 0. To recover the user id from a v3.3 governing index,
+    // look up the per-element record: Field.Members[GoverningMemberIdx].MemberId. See
+    // docs/specs/S11_v3.3_schema_migration.md for the full migration guide.
+    UPROPERTY(BlueprintReadOnly, Category="FrameCore|StressField") int32 GoverningMemberIdx    = INDEX_NONE;
+    UPROPERTY(BlueprintReadOnly, Category="FrameCore|StressField") int32 GoverningShellIdx     = INDEX_NONE;
     UPROPERTY(BlueprintReadOnly, Category="FrameCore|StressField") int32 GoverningShellCorner  = -1;
     UPROPERTY(BlueprintReadOnly, Category="FrameCore|StressField") bool  bGoverningShellLayerIsTop = true;
 };
@@ -126,3 +122,19 @@ namespace FrameCoreUE
 {
     FRAMECOREUE_API FFrameStressField ToBlueprint(const frame::StressField& Field);
 }
+
+// v3.3 (U-03): per-member geometry needed to render the stress field as a 3D mesh.
+// The engine's FrameModel knows node positions and member end indices, but FFrameStressField
+// alone does not — to keep the engine consumer-side clean, the renderer (AFrameCoreStressFieldActor)
+// takes geometry as a separate input. One entry per member; MemberIdx pairs the geometry
+// to the matching FFrameStressFieldMemberTrace via FFrameStressField::Members[MemberIdx].
+USTRUCT(BlueprintType)
+struct FRAMECOREUE_API FFrameMemberGeometry
+{
+    GENERATED_BODY()
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="FrameCore") int32   MemberIdx = -1;
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="FrameCore") FVector Start     = FVector::ZeroVector;
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="FrameCore") FVector End       = FVector(100.f, 0.f, 0.f);
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="FrameCore") float   Width     = 10.f;  // cross-section in member-local refY
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="FrameCore") float   Depth     = 10.f;  // cross-section in member-local refZ
+};

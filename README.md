@@ -19,28 +19,46 @@ C++17-compatible; the UE module target is compiled as C++20 because of the curre
 > `v2.2+1` release packaged them together (FrameCore v2.2 + LevelSim v1.0.0). Every release
 > from `v2.3` onwards is FrameCore-only — LevelSim has not changed since `v2.2+1`.
 
-> **Status (2026-06-22, v3.2.0 — FrameCoreUE thin-slice UE reflection module):** the v3.0.0
-> STABLE anchor + v3.0.1 hardening + v3.1.0 S11 visualisation numerical layer + v3.2.0
-> UE-side reflection layer. v3.2.0 adds a new `FrameCoreUE` plugin module that exposes
-> `FRAMECORE_API computeStressField` to Blueprint designers (USTRUCT mirrors of
-> `frame::StressField`, `UFrameCoreStressFieldLibrary`) and editor dev tools (a Slate
-> utility panel `SFrameCoreStressFieldPanel` registered as a nomad tab under
-> WorkspaceMenu/Tools). **Engine source delta v3.1.0..v3.2.0 = 0 lines under
-> `Plugins/FrameSolver/Source/FrameCore/`** (engine rule #1 preserved; verified by
-> standalone F1..F70 bit-identical); v3.2 net delta is 10 new files (`FrameCoreUE/`
-> module shell + USTRUCT + library + panel + 2 smoke tests) + 4 lockstep version pins.
-> On the integrator's host the **6 CPU-only legs run green against the rebuilt v3.2.0
-> source**: standalone F1..F70 ALL PASS, **UE 70/70 ALL PASS** (v3.2.1 adds 8
-> `FrameCore.UE.*` Phase 6 a-h tests on top of v3.2.0's BlueprintSmokeTest +
-> EditorSmokeTest pair), **OpenSees strict
-> PASS**, deep audit 104 PASS, CLI round-trip 13 ALL PASS, v2_roundtrip CPU ALL PASS
-> (`kEngineVer=3.2.0` pin enforced; capability list unchanged). The 3 CUDA legs
+> **Status (2026-06-22, v3.3.0 — U-07 sentinel schema break + UE renderer + BP JSON load):**
+> v3.3 is the first BREAKING release on the v3.x line. The stress-field schema's
+> "no governing element" sentinel moves from id-0 (which collided with a legitimate
+> element id of 0) to a 0-based INDEX with -1 sentinel: `StressField::governingMemberId
+> / governingShellId` rename to `governingMemberIdx / governingShellIdx`, with matching
+> renames in the dispatcher v2 JSON wire (`body.stressField.governingMember*Idx`), the
+> USTRUCT `FFrameStressField` BP layer, and v3.2 BP accessor helpers. Pre-v3.3 GH /
+> Rhino clients reading `governingMemberId` from the wire will now see a missing key
+> rather than a silently-aliased value -- see [docs/specs/S11_v3.3_schema_migration.md]
+> (docs/specs/S11_v3.3_schema_migration.md) for the migration guide. v3.3 also closes
+> the v3.2.2-deferred U-03 (real UE renderer: `AFrameCoreStressFieldActor` builds a
+> sigma-band procedural mesh along every member via `UProceduralMeshComponent`) and U-01
+> (BP load JSON model: `UFrameCoreStressFieldLibrary::ComputeFromJsonModel(JsonPath,
+> SamplesPerSpan)` parses the dispatcher's `model.set` schema subset and returns a
+> solved FFrameStressField), plus V321-01a (SS-beam Vy analytic oracle reopened with
+> sign-agnostic conservation + reaction checks). Engine source delta v3.2.2..v3.3.0
+> covers `StressField.h` (struct field rename, default 0 -> -1) + `StressField.cpp`
+> (writer switches from `mem.id` to `(int)e`) + F71 sentinel-edge fixture; native gate
+> count moves F1..F70 -> F1..F71. v3.3 ALSO closes V321-01a with sign-agnostic Vy
+> conservation+reaction checks. On the integrator's host the **6 CPU-only legs run
+> green against the rebuilt v3.3.0 source**: standalone F1..F71 ALL PASS, **UE 72/72
+> ALL PASS** (v3.3 adds `FFrameCoreUEActorStressMeshTest` + `FFrameCoreUEMarshalJsonTest`
+> on top of the v3.2.x 70-test baseline), **OpenSees strict PASS**, deep audit 104 PASS,
+> CLI round-trip 13 ALL PASS, v2_roundtrip CPU ALL PASS (`kEngineVer=3.3.0` pin enforced;
+> 23 capabilities; `inspect.stress_field` schema break asserted: legacy `governingMember*Id`
+> keys absent, new `...Idx` keys present and resolve to slot indices). The 3 CUDA legs
 > (`run_gpu_gate.ps1 -Strict`) are reachable but were not exercised in this release
-> session — v3.2.0 has zero source delta in the CUDA path, so the v3.0.0 / v3.1.0 GPU
+> session — v3.3 has zero source delta in the CUDA path, so the v3.0.0 / v3.1.0 GPU
 > evidence (`r2_bench --gpu 90k margin +11.939 ms`, `F67s STRICT_EXECUTED` fingerprint)
 > carries forward unchanged. See
-> [docs/RELEASE_v3.2.0.md](docs/RELEASE_v3.2.0.md) for the full reproduction matrix and
-> [docs/HANDOFF_v3.2.0.md](docs/HANDOFF_v3.2.0.md) for the next-cycle pickup guide.
+> [docs/RELEASE_v3.3.0.md](docs/RELEASE_v3.3.0.md) for the full reproduction matrix +
+> migration guide and [docs/HANDOFF_v3.3.0.md](docs/HANDOFF_v3.3.0.md) for the
+> next-cycle pickup.
+>
+> **Prior anchors:** v3.2.2 closed the v3.2.1 audit's six deferred items (test
+> strengthening only, engine source zero edits, `kEngineVer` unchanged); v3.2.1
+> bumped UE coverage 62 -> 70 with the 8 `FrameCore.UE.*` Phase 6 a-h tests; v3.2.0
+> added the `FrameCoreUE` thin-slice UE reflection module (USTRUCT mirrors of
+> `frame::StressField`, `UFrameCoreStressFieldLibrary`, Slate utility panel
+> `SFrameCoreStressFieldPanel`).
 >
 > v3.1.0 (S11 stress-field post-process) shipped `StressKernel.h` as the single source
 > of truth shared between `ElasticAllowable` (D/C screen) and the new `StressField`
@@ -83,16 +101,18 @@ C++17-compatible; the UE module target is compiled as C++20 because of the curre
 > fingerprints + perf regression threshold:
 >
 > 1. `Scripts\run_gate.ps1 -RequireOpenSees` exits 0
->    (standalone F1..F70 default / F1..F70 + F67/F67s in CUDA build + UE **70/70** with cuDSS,
->    **68/68** without — pass `-ExpectedUeTests 68` in the latter case; OpenSees
+>    (standalone F1..F71 default / F1..F71 + F67/F67s in CUDA build + UE **72/72** with cuDSS,
+>    **70/70** without — pass `-ExpectedUeTests 70` in the latter case; OpenSees
 >    strict; deep audit 104; CLI round-trip 13). Under `FRAMECORE_GPU_STRICT=1`
 >    additionally requires `[F67s_UE] STRICT_EXECUTED` fingerprint in the UE log.
 > 2. `Plugins\FrameSolver\Standalone\build_capi_v2.bat` + `python Tools\v2_roundtrip.py`
->    exits 0 (CPU dispatcher round-trip; `kEngineVer="3.2.0"` pinned per v3.2.0 wire-ABI
->    contract — v3.2.x patches leave kEngineVer unchanged; `inspect.stress_field` shape +
->    range guards exercised; 23 capabilities advertised).
+>    exits 0 (CPU dispatcher round-trip; `kEngineVer="3.3.0"` pinned per v3.3.0 wire-ABI
+>    contract -- the U-07 schema break renamed `governingMember*Id` -> `...Idx` in the
+>    `inspect.stress_field` response, so v3.2 clients that pin `kEngineVer="3.2.0"` will
+>    fail the pin check rather than silently read a missing key; `inspect.stress_field`
+>    shape + range guards exercised; 23 capabilities advertised).
 > 3. `Scripts\run_gpu_gate.ps1 -Strict` exits 0 on a box with cuDSS installed
->    (frametest_cuda F1..F70 default + F67 smoke + F67s strict with STRICT_EXECUTED
+>    (frametest_cuda F1..F71 default + F67 smoke + F67s strict with STRICT_EXECUTED
 >    fingerprint, v2_roundtrip CUDA, r2_bench --gpu 90k margin ≥ +8 ms hard regression gate).
 >
 > v2.10 introduced
@@ -411,8 +431,8 @@ Plugins/FrameSolver/
                                         Eigen include site, dual-build guarded)
     Private/Tests/*.cpp                 60 UE automation tests (FrameCore.*, UE-side oracle mirrors)
   Source/FrameCoreUE/                   v3.2.0+ consumer-side BP/USTRUCT reflection module
-    Private/Tests/*.cpp                 10 UE automation tests (FrameCore.UE.*, v3.2.1 Phase 6 a-h)
-                                        Total UE gate count: 70 w/ cuDSS, 68 without
+    Private/Tests/*.cpp                 12 UE automation tests (FrameCore.UE.*, v3.2.1 Phase 6 a-h + v3.3 ActorStressMesh + MarshalJson)
+                                        Total UE gate count: 72 w/ cuDSS, 70 without
   Standalone/                           console gates + CLI/C-API drivers (see its README)
   Grasshopper/                          C# reference client for the text bridge
 Scripts/run_gate.ps1                    the one-click five-leg gate

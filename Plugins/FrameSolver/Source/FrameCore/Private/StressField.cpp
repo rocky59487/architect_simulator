@@ -99,7 +99,10 @@ StressField computeStressField(const FrameModel& model,
     const size_t nM = std::min(model.members.size(), sr.memberForces.size());
     fld.members.reserve(nM);
     real worstMemberSigma = 0;
-    int  worstMemberId    = -1;        // sentinel: -1 = no governing member (no active member with valid section)
+    // v3.3 (U-07): track the governing element by its INTERNAL INDEX (size_t e),
+    // not its user-assigned id. -1 sentinel is unambiguous against valid indices,
+    // unlike id-0 which previously collided. See StressField.h.
+    int  worstMemberIdx   = -1;
 
     // Sum ALL UDL entries for a member: the solver aggregates them via equivalent nodal
     // loads in the assembler, so a load-combination builder that appends rather than
@@ -146,21 +149,22 @@ StressField computeStressField(const FrameModel& model,
                                             trace.samples[(size_t)k].sigmaTensMax);
             if (worstHere > worstMemberSigma) {
                 worstMemberSigma = worstHere;
-                worstMemberId    = mem.id;
+                worstMemberIdx   = static_cast<int>(e);
             }
         }
         fld.members.push_back(std::move(trace));
     }
 
     fld.globalMaxFiberSigma = worstMemberSigma;
-    fld.governingMemberId   = worstMemberId;
+    fld.governingMemberIdx  = worstMemberIdx;
 
     // -------- Shell sweep ---------------------------------------------------
     const size_t nS = std::min(model.shells.size(), sr.shellForces.size());
     fld.shellsTop.reserve(nS);
     fld.shellsBot.reserve(nS);
     real worstVM     = 0;
-    int  worstShellId = -1;            // sentinel: -1 = no governing shell (no active shell with valid mat)
+    // v3.3 (U-07): index, not id. See member sweep above.
+    int  worstShellIdx = -1;
     ShellLayer worstLayer = ShellLayer::Top;
     int  worstCorner = -1;
 
@@ -184,7 +188,7 @@ StressField computeStressField(const FrameModel& model,
                            fc.Mxx, fc.Myy, fc.Mxy,
                            sh.t, layer);
             if (slr.center.vonMises > worstVM) {
-                worstVM = slr.center.vonMises; worstShellId = sh.id;
+                worstVM = slr.center.vonMises; worstShellIdx = static_cast<int>(s);
                 worstLayer = layer; worstCorner = -1;
             }
 
@@ -194,7 +198,7 @@ StressField computeStressField(const FrameModel& model,
                                fc.MxxC[kc], fc.MyyC[kc], fc.MxyC[kc],
                                sh.t, layer);
                 if (slr.corners[kc].vonMises > worstVM) {
-                    worstVM = slr.corners[kc].vonMises; worstShellId = sh.id;
+                    worstVM = slr.corners[kc].vonMises; worstShellIdx = static_cast<int>(s);
                     worstLayer = layer; worstCorner = kc;
                 }
             }
@@ -205,7 +209,7 @@ StressField computeStressField(const FrameModel& model,
     }
 
     fld.globalMaxVonMises     = worstVM;
-    fld.governingShellId      = worstShellId;
+    fld.governingShellIdx     = worstShellIdx;
     fld.governingShellLayer   = worstLayer;
     fld.governingShellCorner  = worstCorner;
     return fld;

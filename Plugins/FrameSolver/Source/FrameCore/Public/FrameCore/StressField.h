@@ -75,8 +75,13 @@ struct StressField {
     // Worst values across the whole field (>= 0). 0 if no screenable element.
     real globalMaxFiberSigma  = 0;    // max(sigmaCompMax, sigmaTensMax) over members
     real globalMaxVonMises    = 0;    // max vM across all shell sample points
-    int  governingMemberId    = 0;    // 0 if no member governs
-    int  governingShellId     = 0;    // 0 if no shell governs
+    // v3.3 BREAKING (U-07): pointers below identify the governing element by its
+    // INTERNAL INDEX into FrameModel::members / ::shells, not by its user-assigned
+    // .id. Pre-v3.3 these fields stored the user id and used 0 for "no governing",
+    // which silently collided with a legitimate element whose id == 0. See
+    // docs/specs/S11_v3.3_schema_migration.md for the migration rationale.
+    int  governingMemberIdx   = -1;   // -1 if no member governs; else index into FrameModel::members
+    int  governingShellIdx    = -1;   // -1 if no shell  governs; else index into FrameModel::shells
     ShellLayer governingShellLayer = ShellLayer::Top;
     int  governingShellCorner = -1;
 };
