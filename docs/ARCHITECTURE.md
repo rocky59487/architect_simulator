@@ -308,14 +308,15 @@ plates/shells directly and converges to the exact solution.
 - **`Standalone/linear_deep_audit.cpp`** — **104** independent checks: sympy/numpy-derived
   references, bit-identity no-op proofs for every opt-in flag, the MITC4 element-spectrum
   oracle, and fresh-factorization references for every incremental method.
-- **`Private/Tests/*.cpp`** — UE automation mirrors (`FrameCore.*`), **72** tests across
-  the same oracle families as the standalone fixtures (the dual-build proof) — **70** when
-  the CUDA lane compiles out (the 2 GPU smoke tests are `#if FRAMECORE_CUDA`-gated).
-  v3.3.0 added 2 `FrameCoreUE.*` tests (ActorStressMeshTest closing U-03; MarshalJsonTest
-  closing U-01). v3.2.1 added 8 `FrameCoreUE.*` tests (Phase 6 a-h: MarshalSSBeam/ShellPlate/
-  MultiMember + Robustness + EditorTabSpawner + ThetaRange + ZeroLoad + AxialColumn),
-  v3.2.0 added 2 (`FFrameCoreUEBlueprintSmokeTest`, `FFrameCoreUEEditorSmokeTest`),
-  v3.1.0 added 1 (`FFrameCoreStressFieldTest`).
+- **`Private/Tests/*.cpp`** — UE automation mirrors (`FrameCore.*`), **98** tests across
+  the same oracle families as the standalone fixtures plus the v3.4 Karamba3D-parity BP
+  surface — **96** when the CUDA lane compiles out (the 2 GPU smoke tests are
+  `#if FRAMECORE_CUDA`-gated). v3.4.0 added 26 `FrameCore.UE.*` tests (Phase 1 input
+  USTRUCT 3 + Phase 2 output marshal 5 + Phase 3 linear lib 5 + Phase 4 nonlinear lib 7
+  + Phase 5 shell opt-in 6). v3.3.0 added 2 (ActorStressMeshTest closing U-03;
+  MarshalJsonTest closing U-01). v3.2.1 added 8 `FrameCoreUE.*` Phase 6 a-h, v3.2.0
+  added 2 (`FFrameCoreUEBlueprintSmokeTest`, `FFrameCoreUEEditorSmokeTest`), v3.1.0
+  added 1 (`FFrameCoreStressFieldTest`).
 - **`Tools/`** — `opensees_compare.py` (OpenSees cross-validation: beams strict 1e-8; prescribed
   settlement vs `sp()` to 0; the MITC4 shell vs OpenSees' own `ShellMITC4` to ~1e-10 on the
   flat/tilted plates gated here, ~1e-7–1e-8 on skewed/warped meshes in `shell_mitc4_deep_audit.py`;
@@ -327,8 +328,8 @@ plates/shells directly and converges to the exact solution.
   `complex_structure_benchmark.py`, `grillage_curve_audit.py` — all black-box the engine
   through `frame_cli.exe`.
 - **`Scripts/run_gate.ps1`** — runs all **five** legs (standalone, UE automation, OpenSees,
-  deep audit, CLI round-trip) and prints a combined verdict + exit code; `$ExpectedUeTests = 70`
-  guards against a silently-missing UE test (pass `-ExpectedUeTests 68` for non-cuDSS builds);
+  deep audit, CLI round-trip) and prints a combined verdict + exit code; `$ExpectedUeTests = 98`
+  guards against a silently-missing UE test (pass `-ExpectedUeTests 96` for non-cuDSS builds);
   `-RequireOpenSees` makes a missing OpenSees a hard failure for CI.
 
 ---
