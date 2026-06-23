@@ -19,7 +19,9 @@ C++17-compatible; the UE module target is compiled as C++20 because of the curre
 > `v2.2+1` release packaged them together (FrameCore v2.2 + LevelSim v1.0.0). Every release
 > from `v2.3` onwards is FrameCore-only — LevelSim has not changed since `v2.2+1`.
 
-> **Status (2026-06-23, v3.6.0 — FrameCore FINAL release; engine source FROZEN):** C6/C7/C8 along-span data line (InternalForceField + UtilizationField + RedundancyField actors) + U-11 cubic Hermite + U-12 incremental load patch + U-10 polarity flip + U-15 PerfBaseline tightened + new exit-test suite (D1 property sweep + D3 strict-mode oracle). 15 new UE tests → total 135. Engine source delta vs v3.5.1 = **0 lines** under `Plugins/FrameSolver/Source/FrameCore/`. See [`docs/RELEASE_v3.6.0.md`](docs/RELEASE_v3.6.0.md) + [`docs/HANDOFF_v3.6.0.md`](docs/HANDOFF_v3.6.0.md) + [`docs/V3_SERIES_RETROSPECTIVE.md`](docs/V3_SERIES_RETROSPECTIVE.md). v3.5.1 status block follows for historical context.
+> **Status (2026-06-23, v4.0.0 — stable long-term anchor; engine FROZEN):** Re-seal of v3.6.0 as **v4.0.0 stable**. `kEngineVer 3.6.0 → 4.0.0`; uplugin `VersionName 3.6.0 → 4.0.0`; `FRAMECORE_EXPECTED_ENGINE_VER` synced in `run_gpu_gate.ps1` + `release-gate.yml`; CLAUDE.md 鐵則 #1 carries a formal FROZEN marker. Engine source delta vs v3.6.0 = **0 lines** under `Plugins/FrameSolver/Source/FrameCore/`. No engine API or wire-ABI breaking changes; v4.0.0 is a "policy major bump" — the stability promise is that no v3.7 will ship and the engine algorithms are immutable from here. UE consumer code (`Plugins/FrameSolver/Source/FrameCoreUE/`) remains evolvable under v4.0.x patch / v4.1.x minor releases. See [`docs/RELEASE_v4.0.0.md`](docs/RELEASE_v4.0.0.md) + [`docs/HANDOFF_v4.0.0.md`](docs/HANDOFF_v4.0.0.md). v3.6.0 status block follows for historical context.
+
+> **Prior anchor — v3.6.0 (FrameCore FINAL release; engine source FROZEN):** C6/C7/C8 along-span data line (InternalForceField + UtilizationField + RedundancyField actors) + U-11 cubic Hermite + U-12 incremental load patch + U-10 polarity flip + U-15 PerfBaseline tightened + new exit-test suite (D1 property sweep + D3 strict-mode oracle). 15 new UE tests → total 135. Engine source delta vs v3.5.1 = **0 lines** under `Plugins/FrameSolver/Source/FrameCore/`. See [`docs/RELEASE_v3.6.0.md`](docs/RELEASE_v3.6.0.md) + [`docs/HANDOFF_v3.6.0.md`](docs/HANDOFF_v3.6.0.md) + [`docs/V3_SERIES_RETROSPECTIVE.md`](docs/V3_SERIES_RETROSPECTIVE.md). v3.5.1 status block follows for historical context.
 
 > **Prior anchor — v3.5.1 (v3.5.0 deferred-items closeout + first VERIFIED 5-leg gate on the integrator host):** PMC-DUP-01 (shared `FramePMCHelpers.h`, net −130 LOC) + TEST-DUP-01 (`FrameCoreUETestHelpers.h` for `GetSpawnWorld`/`TipCenter`) + U-13 (long-session float-precision modular phase reduction in ModalShape + ResponseSpectrum Tick) + U-14 (FragmentCluster `MaxDebrisActors` cap). Engine source delta vs v3.5.0 = **0 lines** under `Plugins/FrameSolver/Source/FrameCore/`; UE-side refactor + small fixes only. See [`docs/RELEASE_v3.5.1.md`](docs/RELEASE_v3.5.1.md) + [`docs/HANDOFF_v3.5.1.md`](docs/HANDOFF_v3.5.1.md). v3.5.0 status block follows for historical context.
 
@@ -456,10 +458,10 @@ Plugins/FrameSolver/
                                         collapse, reanalysis, corotational, optimization)
     Private/*.cpp                       implementation (+ Private/FrameEigen.h: the single
                                         Eigen include site, dual-build guarded)
-    Private/Tests/*.cpp                 98 UE automation tests (FrameCore.*, UE-side oracle mirrors)
+    Private/Tests/*.cpp                 60 UE automation tests (FrameCore.*, UE-side oracle mirrors)
   Source/FrameCoreUE/                   v3.2.0+ consumer-side BP/USTRUCT reflection module
-    Private/Tests/*.cpp                 22 UE automation tests (FrameCore.UE.*, v3.5 visual-surface actors: Phase 1-8)
-                                        Total UE gate count: 120 w/ cuDSS, 118 without
+    Private/Tests/*.cpp                 75 UE automation tests (FrameCore.UE.*, v3.5 visual-surface actors Phase 1-8 + v3.6 C6/C7/C8 along-span data line)
+                                        Total UE gate count: 135 w/ cuDSS, 133 without (FROZEN under v4.0.0 stable seal)
   Standalone/                           console gates + CLI/C-API drivers (see its README)
   Grasshopper/                          C# reference client for the text bridge
 Scripts/run_gate.ps1                    the one-click five-leg gate

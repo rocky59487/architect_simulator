@@ -20,7 +20,8 @@
 //              element active toggles and returns tier/rank diagnostics.
 //   [WIRED S11] inspect.stress_field -- calls computeStressField (pure post-process; reads
 //               sess.lastSolve, no engine recall). JSON shape pinned by S11_stress_field.md.
-//   [schema TBD] model.patch -- diff-format unsettled (carry-over from v2.5).
+//   [schema TBD] model.patch -- diff-format unsettled (B-06, permanent defer under the
+//                v4.0.0 stable seal; see docs/HANDOFF_v4.0.0.md).
 //
 //   Engine link: build_capi_v2.bat links FrameCore + SnSolver/SnSession objects
 //   (~600 KB DLL up from B2's ~105 KB stub).

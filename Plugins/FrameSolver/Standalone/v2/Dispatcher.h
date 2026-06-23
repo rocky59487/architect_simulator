@@ -41,9 +41,11 @@
 //   * cancel — wired (per-id atomic tombstone, consumed on first match)
 //
 // Still deferred (return NOT_IMPLEMENTED):
-//   * model.patch — schema TBD (audit ID B-06, open since v2.4). v3.2.2 confirms
-//     no v3.3 plan to land; out of v3.x scope unless an explicit design decision
-//     authors a spec at docs/specs/S6c_model_patch.md.
+//   * model.patch — schema TBD (audit ID B-06, open since v2.4). v3.6.0 marked the
+//     engine FROZEN; v4.0.0 stable seal carries the permanent-defer forward. The
+//     spec at docs/specs/S6c_model_patch.md may still be authored as a v4.0.x UE
+//     consumer-side patch (the model.patch wire path doesn't require touching
+//     FrameCore engine source), but is not part of v4.0.0.
 
 #pragma once
 
@@ -99,7 +101,18 @@ inline constexpr uint32_t kAbiVersion   = 2;
 // v3.1.0 (S11): added inspect.stress_field capability + per-fiber / per-shell-corner
 // stress sampling. Engine numerics unchanged vs 3.0.1 (StressKernel.h is the single
 // source of truth shared with ElasticAllowable, F70 D/C interlock bit-exact).
-inline constexpr const char* kEngineVer = "3.6.0";
+//
+// v3.6.0: C6/C7/C8 along-span UE consumer surface + exit-test suite + FROZEN contract
+// announced (engine source under Plugins/FrameSolver/Source/FrameCore/ marked immutable).
+// Engine source delta vs 3.5.1 = 0 lines; wire ABI + capability list unchanged.
+//
+// v4.0.0: stable long-term anchor. Re-seals v3.6.0 with the FROZEN marker formalised
+// in CLAUDE.md 鐵則 #1 and a "policy major bump" (API/ABI unchanged; semantic = "this
+// is the stable anchor; no v3.7 will ship"). Engine source delta vs 3.6.0 = 0 lines.
+// kEngineVer bump tracks the release tag per the rule established in v2.8.1 (audit
+// A-01 / B-04 / E-03 / F-01) — clients should never see a hello.response.version
+// behind the published release tag.
+inline constexpr const char* kEngineVer = "4.0.0";
 inline constexpr const char* kSchemaVer = "2026.06";
 
 enum class Profile { Simple, Advanced };
@@ -152,7 +165,8 @@ struct Context {
 /// returns useful data today. The analysis and inspect verbs below run real FrameCore code
 /// and return spec-shape responses (or a structured engine error frame on failure).
 ///
-/// Still NOT advertised here: model.patch (B-06, schema TBD, no v3.3 plan),
+/// Still NOT advertised here: model.patch (B-06, schema TBD, permanent defer under
+/// the v4.0.0 stable seal; spec may be authored as a v4.0.x UE-side follow-up),
 /// binary.modes, dyn_collapse.fragment_detail, diagnostic.stream.
 inline std::vector<std::string> Capabilities() {
     return {

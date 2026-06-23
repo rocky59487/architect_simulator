@@ -122,7 +122,7 @@ jobs:
           # 鐵則 #1 fully honoured); v3.5 is pure UE consumer-side work. Without the bump, a
           # v3.4 client + v3.5 dispatcher would fail v2_roundtrip's version-pin check rather
           # than the (worse) silent schema mismatch. Rule established v3.0.0 audit BLOCKER 1.
-          $env:FRAMECORE_EXPECTED_ENGINE_VER = '3.6.0'
+          $env:FRAMECORE_EXPECTED_ENGINE_VER = '4.0.0'
           python Tools\v2_roundtrip.py *>&1 | Tee-Object -FilePath gate-v2roundtrip.log
           if (-not (Select-String -Path gate-v2roundtrip.log -Pattern '=== summary: ALL PASS')) {
             Get-Content gate-v2roundtrip.log

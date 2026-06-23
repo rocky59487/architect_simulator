@@ -52,7 +52,7 @@ if ($RunBench) {
     Write-Host ''
     Write-Host '[D2/4] large-scale benchmark ladder (opt-in)'
     # Placeholder: integrate with frame_perf when its 10K/100K/500K paths are wired.
-    Write-Host '       D2: SKIPPED (frame_perf bench ladder is a v3.6.1 follow-up; placeholder dimension)'
+    Write-Host '       D2: SKIPPED (frame_perf bench ladder is a v4.0.x follow-up; placeholder dimension; FROZEN engine doesn''t need it)'
 } else {
     Write-Host ''
     Write-Host '[D2/4] large-scale benchmark ladder -- SKIPPED (pass -RunBench to include)'
@@ -62,7 +62,7 @@ if ($RunBench) {
 if ($RunFuzz) {
     Write-Host ''
     Write-Host '[D4/4] fuzz testing (opt-in; long-running)'
-    Write-Host '       D4: SKIPPED (Tools/exit_fuzz.py is v3.6.1 follow-up; placeholder dimension)'
+    Write-Host '       D4: SKIPPED (Tools/exit_fuzz.py is v4.0.x follow-up; placeholder dimension; FROZEN engine doesn''t need it)'
 } else {
     Write-Host ''
     Write-Host '[D4/4] fuzz testing -- SKIPPED (pass -RunFuzz to include)'

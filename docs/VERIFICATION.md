@@ -29,7 +29,7 @@ Plugins\FrameSolver\Standalone\build.bat
 | 4. Deep audit | `linear_deep_audit.exe` | **104** checks | independent re-derivations (sympy/numpy-sourced constants), bit-identity no-op proofs, element-spectrum oracles |
 | 5. CLI round-trip | `Tools/cli_roundtrip.py` | **13** checks | the text/daemon/C-API bridge reproduces engine results bit-for-bit and surfaces modal/dynamic precondition failures |
 
-Guard rails: `run_gate.ps1` hard-fails if fewer than `$ExpectedUeTests = 120` UE tests run (v3.5.0 bump for the 22 new `FrameCore.UE.*` Phase 1-8 visual-surface tests stacked on top of the v3.4 98-test baseline; 118 on non-cuDSS builds — pass `-ExpectedUeTests 118`). **v3.5.1 update: the 5-leg gate (Legs 1-5 + Leg 6 v2 round-trip) was actually run end-to-end on the integrator host; the v3.5.0 "Projected" disclosure no longer applies. See [`docs/RELEASE_v3.5.1.md`](RELEASE_v3.5.1.md).**
+Guard rails: `run_gate.ps1` hard-fails if fewer than `$ExpectedUeTests = 135` UE tests run (v3.6.0 bump +15 final-release tests on top of the v3.5 visual-surface 120 baseline; 133 on non-cuDSS builds — pass `-ExpectedUeTests 133`). **v4.0.0 stable seal: count unchanged at 135/133 (engine FROZEN; the v4.0.0 stable seal carries the v3.6.0 5-leg verified result forward — the v3.6.0 gate run on the integrator host bit-identically reproduces under the v4.0.0 tag since the engine source delta is 0 lines).** **v3.5.1 update (preserved for context): the 5-leg gate (Legs 1-5 + Leg 6 v2 round-trip) was actually run end-to-end on the integrator host; the v3.5.0 "Projected" disclosure no longer applies. See [`docs/RELEASE_v3.5.1.md`](RELEASE_v3.5.1.md).**
 (catches "new test silently not compiled"); the audit prints its own check count rather than
 a hard-coded number; `-RequireOpenSees` turns a missing OpenSeesPy into a failure instead of
 a soft skip. Fixture numbering is append-only; **F41 and F60 are unassigned** (F41: S3 ended
@@ -103,7 +103,7 @@ matching the bat resolver, CI workflow). The same three gate suites stay green:
 
 | Gate | Command | What it covers |
 |---|---|---|
-| **a.** 5-leg | `Scripts\run_gate.ps1 -RequireOpenSees` | standalone + UE (default 98 with cuDSS — pass `-ExpectedUeTests 96` without) + OpenSees + deep audit + CLI |
+| **a.** 5-leg | `Scripts\run_gate.ps1 -RequireOpenSees` | standalone + UE (default **135** with cuDSS — pass `-ExpectedUeTests 133` without) + OpenSees + deep audit + CLI |
 | **b.** v2 CPU | `build_capi_v2.bat` + `python Tools\v2_roundtrip.py` | dispatcher round-trip without GPU |
 | **c.** GPU 6th | `Scripts\run_gpu_gate.ps1 -Strict` (use `-CondaEnv <path>` to override the auto-probe) | frametest_cuda F1..F71 default + F67 smoke + F67s strict + v2_roundtrip CUDA + r2_bench --gpu 90k ≤ 16.67 ms. Requires cuDSS DLLs on PATH for `-Strict`; soft-skips otherwise. |
 

@@ -297,7 +297,7 @@ plates/shells directly and converges to the exact solution.
   circular arch; shells: square/clamped plate, plate & membrane patch, Scordelis-Lo roof, pinched
   cylinder, rigid model rotation). Shared by both the standalone gate and the UE automation tests,
   so a green standalone run exercises the *same* solver path UE compiles.
-- **`Standalone/main.cpp`** — fixtures **F1…F56** vs closed-form oracles, benchmark references,
+- **`Standalone/main.cpp`** — fixtures **F1…F71** (F41/F60 numbering gaps) vs closed-form oracles, benchmark references,
   patch tests, and per-stage drivers (collapse, reanalysis, P-Delta, tension-only, FSD, BESO,
   co-rotational, N–M hinges), printing `[PASS]/[FAIL]` and `ALL PASS (failures=n)`. The full
   fixture → capability → measured-agreement map is [`VERIFICATION.md`](VERIFICATION.md).
@@ -308,16 +308,21 @@ plates/shells directly and converges to the exact solution.
 - **`Standalone/linear_deep_audit.cpp`** — **104** independent checks: sympy/numpy-derived
   references, bit-identity no-op proofs for every opt-in flag, the MITC4 element-spectrum
   oracle, and fresh-factorization references for every incremental method.
-- **`Private/Tests/*.cpp`** — UE automation mirrors (`FrameCore.*`), **120** tests across
+- **`Private/Tests/*.cpp`** — UE automation mirrors (`FrameCore.*`), **135** tests across
   the same oracle families as the standalone fixtures plus the v3.4 Karamba3D-parity BP
-  surface and v3.5 visual-surface actors — **118** when the CUDA lane compiles out (the
-  2 GPU smoke tests are `#if FRAMECORE_CUDA`-gated). v3.5.1 closed v3.5.0 deferred items
-  PMC-DUP-01 (shared `Private/FramePMCHelpers.h` for the 6 renderer-actor TUs) +
-  TEST-DUP-01 (shared `Private/Tests/FrameCoreUETestHelpers.h` for `GetSpawnWorld` +
-  `TipCenter`); test count unchanged at 120. v3.5.0 added 22 `FrameCore.UE.*` tests
-  across the visual + game-ready surface (Phase 1 DeformedShape 3 + Phase 2 Heatmap 3 +
-  Phase 3 ModalShape 2 + Phase 4 DynCollapseReplay 3 + Phase 5 FragmentCluster 3 +
-  Phase 6 InfluenceLine 1 + Phase 7 InteractiveSubsystem 3 + Phase 8 ResponseSpectrum +
+  surface, v3.5 visual-surface actors, and the v3.6 C6/C7/C8 along-span data line —
+  **133** when the CUDA lane compiles out (the 2 GPU smoke tests are `#if FRAMECORE_CUDA`-gated).
+  v4.0.0 stable seal: count unchanged at 135/133 (engine FROZEN). v3.6.0 added 15
+  final-release tests: Hermite 3 (C6 cubic Hermite member-axis), LoadPatch 2 (U-12
+  incremental nodal-load patch), InternalForceField 4 (C6 BMD/SFD), UtilField 3 (C7
+  along-span D/C), Redundancy 2 (C8 deactivate→solve→reactivate), InfluencePolarity 1
+  (U-10). v3.5.1 closed v3.5.0 deferred items PMC-DUP-01 (shared
+  `Private/FramePMCHelpers.h` for the 6 renderer-actor TUs) + TEST-DUP-01 (shared
+  `Private/Tests/FrameCoreUETestHelpers.h` for `GetSpawnWorld` + `TipCenter`); test
+  count unchanged at 120 at that point. v3.5.0 added 22 `FrameCore.UE.*` tests across
+  the visual + game-ready surface (Phase 1 DeformedShape 3 + Phase 2 Heatmap 3 + Phase 3
+  ModalShape 2 + Phase 4 DynCollapseReplay 3 + Phase 5 FragmentCluster 3 + Phase 6
+  InfluenceLine 1 + Phase 7 InteractiveSubsystem 3 + Phase 8 ResponseSpectrum +
   RealTimeDynamic 4). v3.4.0 added 26 (Phase 1-5 input/output USTRUCT + analysis
   libraries). v3.3.0 added 2 (ActorStressMeshTest closing U-03; MarshalJsonTest closing
   U-01). v3.2.1 added 8 `FrameCoreUE.*` Phase 6 a-h, v3.2.0 added 2, v3.1.0 added 1
