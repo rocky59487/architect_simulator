@@ -1,25 +1,6 @@
 #include "FrameCoreUE/FrameDynCollapseReplayActor.h"
+#include "FramePMCHelpers.h"
 #include "ProceduralMeshComponent.h"
-
-namespace
-{
-    void MemberLocalAxes(const FVector& InAxis, FVector& OutAxis, FVector& OutRefY, FVector& OutRefZ)
-    {
-        OutAxis = InAxis.GetSafeNormal();
-        if (OutAxis.IsNearlyZero())
-        {
-            OutAxis  = FVector::ForwardVector;
-            OutRefY  = FVector::RightVector;
-            OutRefZ  = FVector::UpVector;
-            return;
-        }
-        const FVector GlobalUp = FVector::UpVector;
-        const float dotUp = FMath::Abs(FVector::DotProduct(OutAxis, GlobalUp));
-        const FVector RefSeed = (dotUp > 0.95f) ? FVector::ForwardVector : GlobalUp;
-        OutRefZ = FVector::CrossProduct(OutAxis, RefSeed).GetSafeNormal();
-        OutRefY = FVector::CrossProduct(OutRefZ, OutAxis).GetSafeNormal();
-    }
-}
 
 AFrameDynCollapseReplayActor::AFrameDynCollapseReplayActor()
 {
@@ -157,8 +138,8 @@ void AFrameDynCollapseReplayActor::BuildOneMemberSection(int32 SectionIdx,
     const FVector StartD = Geom.Start + UI;
     const FVector EndD   = Geom.End   + UJ;
 
-    const int32 NRings = 11;
-    const int32 NSeg   = NRings - 1;
+    constexpr int32 NRings = FrameCorePMC::kRings;
+    constexpr int32 NSeg   = NRings - 1;
 
     TArray<FVector>          Vertices;     Vertices.Reserve(NRings * 4);
     TArray<int32>            Indices;      Indices.Reserve(NSeg * 4 * 2 * 3 + 12);
@@ -168,19 +149,12 @@ void AFrameDynCollapseReplayActor::BuildOneMemberSection(int32 SectionIdx,
     TArray<FProcMeshTangent> Tangents;     Tangents.Reserve(NRings * 4);
 
     FVector Axis, RefY, RefZ;
-    MemberLocalAxes(EndD - StartD, Axis, RefY, RefZ);
+    FrameCorePMC::MemberLocalAxes(EndD - StartD, Axis, RefY, RefZ);
     const float halfW = Geom.Width  * 0.5f;
     const float halfD = Geom.Depth  * 0.5f;
     auto Corner = [&](int32 c) -> FVector
     {
-        switch (c)
-        {
-            case 0: return  RefY * halfW + RefZ * halfD;
-            case 1: return  RefY * halfW - RefZ * halfD;
-            case 2: return -RefY * halfW - RefZ * halfD;
-            case 3: return -RefY * halfW + RefZ * halfD;
-        }
-        return FVector::ZeroVector;
+        return FrameCorePMC::CornerOffset(c, RefY, RefZ, halfW, halfD);
     };
     const FLinearColor BaseColor(0.85f, 0.55f, 0.30f, 1.f);
     for (int32 k = 0; k < NRings; ++k)

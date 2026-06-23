@@ -18,6 +18,7 @@
 #include "FrameCoreUE/FrameCoreUEVisualTypes.h"
 #include "FrameCoreUE/FrameUtilizationHeatmapActor.h"
 #include "ProceduralMeshComponent.h"
+#include "FrameCoreUETestHelpers.h"
 
 #include "FrameCore/FrameTypes.h"
 #include "FrameCore/Node.h"
@@ -32,15 +33,7 @@
 
 namespace
 {
-    UWorld* GetSpawnWorld()
-    {
-        if (!GEngine) return nullptr;
-        for (const FWorldContext& Ctx : GEngine->GetWorldContexts())
-        {
-            if (Ctx.World()) return Ctx.World();
-        }
-        return nullptr;
-    }
+    using FrameCoreUETestHelpers::GetSpawnWorld;
 
     frame::FrameModel BuildCantilever(double P)
     {

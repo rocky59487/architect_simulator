@@ -250,7 +250,7 @@ if ($BuildV2RC -ne 0) {
 # this pin MUST move every time kEngineVer moves -- v3.0.0 audit caught a stale "2.11.1"
 # runtime version while tag said v3.0.0; v2.11.1 audit caught the same pattern between
 # 2.10.0 and 2.11.1. Bake into release-hardening Phase 2 checklist.
-$env:FRAMECORE_EXPECTED_ENGINE_VER  = '3.5.0'
+$env:FRAMECORE_EXPECTED_ENGINE_VER  = '3.5.1'
 $env:FRAMECORE_EXPECTED_GPU_CAP     = 'true'
 $env:FRAMECORE_V2_DLL               = (Join-Path $Root 'Plugins\FrameSolver\Standalone\frame_capi_v2_cuda.dll')
 $env:FRAMECORE_V2_DLL_DEPS_DIRS     = $DepsDirs

@@ -21,6 +21,7 @@
 #include "FrameCoreUE/FrameCoreUEResultTypes.h"
 #include "FrameCoreUE/FrameDeformedShapeActor.h"
 #include "ProceduralMeshComponent.h"
+#include "FrameCoreUETestHelpers.h"   // v3.5.1 TEST-DUP-01: shared GetSpawnWorld / TipCenter
 
 #include "FrameCore/FrameTypes.h"
 #include "FrameCore/Node.h"
@@ -64,15 +65,7 @@ namespace
         return m;
     }
 
-    UWorld* GetSpawnWorld()
-    {
-        if (!GEngine) return nullptr;
-        for (const FWorldContext& Ctx : GEngine->GetWorldContexts())
-        {
-            if (Ctx.World()) return Ctx.World();
-        }
-        return nullptr;
-    }
+    using FrameCoreUETestHelpers::GetSpawnWorld;
 }
 
 // --- 1. CantileverTip ---------------------------------------------------------

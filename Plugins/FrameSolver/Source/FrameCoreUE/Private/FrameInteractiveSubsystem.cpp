@@ -47,13 +47,13 @@ bool UFrameInteractiveSubsystem::StartSession(const FFrameModelDef& Def,
                                               FString& OutError)
 {
     EndSession();
-    Cached.Reset(new FCachedModel);
+    Cached = new FCachedModel;
 
     frame::SolveOptions Opts;
     FrameCoreUE::FromBlueprint(OptsBP, Opts);
     if (!FrameCoreUE::FromBlueprint(Def, Cached->Model, OutError))
     {
-        Cached.Reset();
+        delete Cached; Cached = nullptr;
         return false;
     }
     frame::ReanalysisOptions eopts;
@@ -74,7 +74,7 @@ bool UFrameInteractiveSubsystem::StartSession(const FFrameModelDef& Def,
     }
     catch (...)
     {
-        Cached.Reset();
+        delete Cached; Cached = nullptr;
         OutError = TEXT("ReSolveSession ctor threw");
         return false;
     }
@@ -82,7 +82,7 @@ bool UFrameInteractiveSubsystem::StartSession(const FFrameModelDef& Def,
     {
         OutError = FString(UTF8_TO_TCHAR(Session->diagnostic().c_str()));
         delete Session; Session = nullptr;
-        Cached.Reset();
+        delete Cached; Cached = nullptr;
         return false;
     }
     return true;
@@ -91,7 +91,7 @@ bool UFrameInteractiveSubsystem::StartSession(const FFrameModelDef& Def,
 void UFrameInteractiveSubsystem::EndSession()
 {
     if (Session) { delete Session; Session = nullptr; }
-    Cached.Reset();
+    delete Cached; Cached = nullptr;
 }
 
 bool UFrameInteractiveSubsystem::ApplyPatchAndResolve(const FFrameModelPatch& Patch,

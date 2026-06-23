@@ -28,15 +28,25 @@ namespace
 {
     UFrameInteractiveSubsystem* GetSubsystem()
     {
-        if (!GEngine) return nullptr;
-        for (const FWorldContext& Ctx : GEngine->GetWorldContexts())
+        if (GEngine)
         {
-            if (Ctx.OwningGameInstance)
+            for (const FWorldContext& Ctx : GEngine->GetWorldContexts())
             {
-                return Ctx.OwningGameInstance->GetSubsystem<UFrameInteractiveSubsystem>();
+                if (Ctx.OwningGameInstance)
+                {
+                    if (UFrameInteractiveSubsystem* Sub =
+                            Ctx.OwningGameInstance->GetSubsystem<UFrameInteractiveSubsystem>())
+                    {
+                        return Sub;
+                    }
+                }
             }
         }
-        return nullptr;
+        // Headless UE automation (-nullrhi -unattended) has no GameInstance. Fall back
+        // to a transient subsystem instance — the subsystem's StartSession / Apply /
+        // EndSession logic doesn't actually need a real GameInstance owner; only the
+        // subsystem-manager lookup does.
+        return NewObject<UFrameInteractiveSubsystem>();
     }
 
     // Single-member cantilever: 2 nodes, S235 steel, 100x100 rect, L = 2 m, P = 1000 N at tip.
@@ -110,7 +120,7 @@ IMPLEMENT_SIMPLE_AUTOMATION_TEST(FFrameCoreUEInteractivePatchSemanticsTest,
 bool FFrameCoreUEInteractivePatchSemanticsTest::RunTest(const FString& /*Parameters*/)
 {
     UFrameInteractiveSubsystem* Sub = GetSubsystem();
-    if (!Sub) { AddError(TEXT("UFrameInteractiveSubsystem not available — no game instance")); return false; }
+    if (!Sub) { AddError(TEXT("UFrameInteractiveSubsystem unavailable")); return false; }
 
     FFrameModelDef Def; FFrameSolveOptions Opts;
     BuildCantileverDef(Def, Opts);
@@ -150,7 +160,7 @@ IMPLEMENT_SIMPLE_AUTOMATION_TEST(FFrameCoreUEInteractivePerfBaselineTest,
 bool FFrameCoreUEInteractivePerfBaselineTest::RunTest(const FString& /*Parameters*/)
 {
     UFrameInteractiveSubsystem* Sub = GetSubsystem();
-    if (!Sub) { AddError(TEXT("UFrameInteractiveSubsystem not available — no game instance")); return false; }
+    if (!Sub) { AddError(TEXT("UFrameInteractiveSubsystem unavailable")); return false; }
 
     // 50-segment cantilever: 51 nodes * 6 DOF = 306 DOF. Engine R2 lane has the 10K-DOF
     // perf benchmark; this test only verifies the UE wrapper doesn't add silly overhead.

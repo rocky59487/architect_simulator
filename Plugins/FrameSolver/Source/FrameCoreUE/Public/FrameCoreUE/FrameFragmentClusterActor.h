@@ -42,6 +42,13 @@ public:
               meta=(ClampMin="0.001", UIMin="0.001"))
     float ChunkScale = 1.f;
 
+    // U-14 cap: SpawnFragmentDebris early-exits once SpawnedDebris.Num() reaches this
+    // value. Repeated calls without ClearDebris would otherwise grow unbounded and
+    // leak `AStaticMeshActor`s via the SpawnedDebris UPROPERTY anchor.
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="FrameCore|Fragments",
+              meta=(ClampMin="1", UIMin="1"))
+    int32 MaxDebrisActors = 1024;
+
     // Spawn all fragments encoded in CollapseResult.Events[*].Detached. Returns the count
     // of spawned actors. Existing children are NOT cleared — call ClearDebris first if you
     // want a fresh re-spawn.
@@ -51,8 +58,21 @@ public:
     UFUNCTION(BlueprintCallable, Category="FrameCore|Fragments")
     void ClearDebris();
 
-    // Read-only access to the currently-spawned debris actors.
-    UFUNCTION(BlueprintCallable, BlueprintPure, Category="FrameCore|Fragments")
+    // Read-only access to the currently-spawned debris actors. UFunction params + return
+    // values cannot use TObjectPtr (UHT enforces this), so the BP accessor materialises
+    // a raw-pointer copy. C++ callers can reach SpawnedDebris directly via the
+    // friend declaration in test code.
+    UFUNCTION(BlueprintCallable, Category="FrameCore|Fragments")
+    TArray<AStaticMeshActor*> GetSpawnedDebrisArray() const
+    {
+        TArray<AStaticMeshActor*> Out;
+        Out.Reserve(SpawnedDebris.Num());
+        for (const TObjectPtr<AStaticMeshActor>& Ptr : SpawnedDebris) { Out.Add(Ptr.Get()); }
+        return Out;
+    }
+
+    // C++ accessor — preserves TObjectPtr ownership semantics for module-internal callers
+    // (tests, debris-clear loops).
     const TArray<TObjectPtr<AStaticMeshActor>>& GetSpawnedDebris() const { return SpawnedDebris; }
 
 private:

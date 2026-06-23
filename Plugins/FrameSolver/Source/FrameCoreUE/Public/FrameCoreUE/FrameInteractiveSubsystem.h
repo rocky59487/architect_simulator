@@ -29,12 +29,9 @@ public:
     UFrameInteractiveSubsystem();
     virtual ~UFrameInteractiveSubsystem();
 
-    // Audit D-05: UObject-derived classes are non-copyable / non-movable; make the
-    // compiler-synthesised copy / move constructors explicit deletions so a future UE
-    // revision that changes GENERATED_BODY()'s default-member visibility can't silently
-    // expose them on a class holding a TUniquePtr<incomplete FCachedModel>.
-    UFrameInteractiveSubsystem(const UFrameInteractiveSubsystem&) = delete;
-    UFrameInteractiveSubsystem& operator=(const UFrameInteractiveSubsystem&) = delete;
+    // Audit D-05: UObject convention is already non-copyable (GENERATED_BODY hides the
+    // copy ctor in private). Explicit `= delete` collides with the macro's declarations,
+    // so we rely on the convention and document it here.
 
     // Begin / End the engine ReSolveSession around the given model. Returns true on success;
     // on failure (singular baseline, model validation error) OutError holds the diagnostic
@@ -80,6 +77,10 @@ private:
     // per-node indices). We keep a snapshot of the model from StartSession; if the model is
     // patched outside the subsystem the marshal still uses the snapshot — caller is
     // responsible for restarting the session if structural data changes.
+    //
+    // Raw pointer (not TUniquePtr) so UHT's auto-generated `FVTableHelper` ctor in
+    // FrameInteractiveSubsystem.gen.cpp doesn't try to instantiate a TUniquePtr destructor
+    // on the still-incomplete FCachedModel struct.
     struct FCachedModel;
-    TUniquePtr<FCachedModel> Cached;
+    FCachedModel* Cached = nullptr;
 };

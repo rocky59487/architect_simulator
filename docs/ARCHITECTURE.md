@@ -311,14 +311,17 @@ plates/shells directly and converges to the exact solution.
 - **`Private/Tests/*.cpp`** — UE automation mirrors (`FrameCore.*`), **120** tests across
   the same oracle families as the standalone fixtures plus the v3.4 Karamba3D-parity BP
   surface and v3.5 visual-surface actors — **118** when the CUDA lane compiles out (the
-  2 GPU smoke tests are `#if FRAMECORE_CUDA`-gated). v3.5.0 added 22 `FrameCore.UE.*`
-  tests across the visual + game-ready surface (Phase 1 DeformedShape 3 + Phase 2
-  Heatmap 3 + Phase 3 ModalShape 2 + Phase 4 DynCollapseReplay 3 + Phase 5
-  FragmentCluster 3 + Phase 6 InfluenceLine 1 + Phase 7 InteractiveSubsystem 3 +
-  Phase 8 ResponseSpectrum + RealTimeDynamic 4). v3.4.0 added 26 (Phase 1-5 input/
-  output USTRUCT + analysis libraries). v3.3.0 added 2 (ActorStressMeshTest closing
-  U-03; MarshalJsonTest closing U-01). v3.2.1 added 8 `FrameCoreUE.*` Phase 6 a-h,
-  v3.2.0 added 2, v3.1.0 added 1 (`FFrameCoreStressFieldTest`).
+  2 GPU smoke tests are `#if FRAMECORE_CUDA`-gated). v3.5.1 closed v3.5.0 deferred items
+  PMC-DUP-01 (shared `Private/FramePMCHelpers.h` for the 6 renderer-actor TUs) +
+  TEST-DUP-01 (shared `Private/Tests/FrameCoreUETestHelpers.h` for `GetSpawnWorld` +
+  `TipCenter`); test count unchanged at 120. v3.5.0 added 22 `FrameCore.UE.*` tests
+  across the visual + game-ready surface (Phase 1 DeformedShape 3 + Phase 2 Heatmap 3 +
+  Phase 3 ModalShape 2 + Phase 4 DynCollapseReplay 3 + Phase 5 FragmentCluster 3 +
+  Phase 6 InfluenceLine 1 + Phase 7 InteractiveSubsystem 3 + Phase 8 ResponseSpectrum +
+  RealTimeDynamic 4). v3.4.0 added 26 (Phase 1-5 input/output USTRUCT + analysis
+  libraries). v3.3.0 added 2 (ActorStressMeshTest closing U-03; MarshalJsonTest closing
+  U-01). v3.2.1 added 8 `FrameCoreUE.*` Phase 6 a-h, v3.2.0 added 2, v3.1.0 added 1
+  (`FFrameCoreStressFieldTest`).
 - **`Tools/`** — `opensees_compare.py` (OpenSees cross-validation: beams strict 1e-8; prescribed
   settlement vs `sp()` to 0; the MITC4 shell vs OpenSees' own `ShellMITC4` to ~1e-10 on the
   flat/tilted plates gated here, ~1e-7–1e-8 on skewed/warped meshes in `shell_mitc4_deep_audit.py`;

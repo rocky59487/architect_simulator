@@ -13,20 +13,13 @@
 #include "FrameCoreUE/FrameCoreUEAnalysisTypes.h"
 #include "FrameCoreUE/FrameInfluenceLineActor.h"
 #include "ProceduralMeshComponent.h"
+#include "FrameCoreUETestHelpers.h"
 
 #if WITH_DEV_AUTOMATION_TESTS
 
 namespace
 {
-    UWorld* GetSpawnWorld()
-    {
-        if (!GEngine) return nullptr;
-        for (const FWorldContext& Ctx : GEngine->GetWorldContexts())
-        {
-            if (Ctx.World()) return Ctx.World();
-        }
-        return nullptr;
-    }
+    using FrameCoreUETestHelpers::GetSpawnWorld;
 }
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FFrameCoreUEInfluenceLineSSBeamTest,

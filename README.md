@@ -19,7 +19,9 @@ C++17-compatible; the UE module target is compiled as C++20 because of the curre
 > `v2.2+1` release packaged them together (FrameCore v2.2 + LevelSim v1.0.0). Every release
 > from `v2.3` onwards is FrameCore-only — LevelSim has not changed since `v2.2+1`.
 
-> **Status (2026-06-22, v3.5.0 — visual + game-ready surface: 8 BP-callable actors + 1 UGameInstanceSubsystem; engine source 0 lines delta):** see `v3.5.0` section below; the legacy v3.3.0 description follows for historical context.
+> **Status (2026-06-23, v3.5.1 — v3.5.0 deferred-items closeout + first VERIFIED 5-leg gate on the integrator host):** PMC-DUP-01 (shared `FramePMCHelpers.h`, net −130 LOC) + TEST-DUP-01 (`FrameCoreUETestHelpers.h` for `GetSpawnWorld`/`TipCenter`) + U-13 (long-session float-precision modular phase reduction in ModalShape + ResponseSpectrum Tick) + U-14 (FragmentCluster `MaxDebrisActors` cap). Engine source delta vs v3.5.0 = **0 lines** under `Plugins/FrameSolver/Source/FrameCore/`; UE-side refactor + small fixes only. See [`docs/RELEASE_v3.5.1.md`](docs/RELEASE_v3.5.1.md) + [`docs/HANDOFF_v3.5.1.md`](docs/HANDOFF_v3.5.1.md). v3.5.0 status block follows for historical context.
+
+> **Prior anchor — v3.5.0 (visual + game-ready surface: 8 BP-callable actors + 1 UGameInstanceSubsystem):**
 
 > **Prior anchor — v3.3.0 (U-07 sentinel schema break + UE renderer + BP JSON load):**
 > v3.3 is the first BREAKING release on the v3.x line. The stress-field schema's

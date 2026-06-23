@@ -3,7 +3,6 @@
 #include "Engine/StaticMesh.h"
 #include "Engine/World.h"
 #include "Components/StaticMeshComponent.h"
-#include "PhysicsEngine/BodySetup.h"
 
 AFrameFragmentClusterActor::AFrameFragmentClusterActor()
 {
@@ -17,6 +16,9 @@ int32 AFrameFragmentClusterActor::SpawnFragmentDebris()
     {
         for (const FFrameFragmentCluster& Cluster : E.Detached)
         {
+            // U-14: bail before unbounded growth. Caller must ClearDebris between
+            // collapse simulations if they want a fresh debris pool.
+            if (SpawnedDebris.Num() >= MaxDebrisActors) { return SpawnCount; }
             if (AStaticMeshActor* Spawned = SpawnOneChunk(Cluster))
             {
                 SpawnedDebris.Add(Spawned);

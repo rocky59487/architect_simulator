@@ -15,20 +15,14 @@
 #include "FrameCoreUE/FrameCoreUEAnalysisTypes.h"
 #include "FrameCoreUE/FrameModalShapeActor.h"
 #include "ProceduralMeshComponent.h"
+#include "FrameCoreUETestHelpers.h"
 
 #if WITH_DEV_AUTOMATION_TESTS
 
 namespace
 {
-    UWorld* GetSpawnWorld()
-    {
-        if (!GEngine) return nullptr;
-        for (const FWorldContext& Ctx : GEngine->GetWorldContexts())
-        {
-            if (Ctx.World()) return Ctx.World();
-        }
-        return nullptr;
-    }
+    using FrameCoreUETestHelpers::GetSpawnWorld;
+    using FrameCoreUETestHelpers::TipCenter;
 
     FFrameModalResult MakeStubModes()
     {
@@ -51,13 +45,6 @@ namespace
         return R;
     }
 
-    FVector TipCenter(const FProcMeshSection* Sec)
-    {
-        const int32 Base = 10 * 4;
-        FVector C = FVector::ZeroVector;
-        for (int32 c = 0; c < 4; ++c) { C += Sec->ProcVertexBuffer[Base + c].Position; }
-        return C * 0.25f;
-    }
 }
 
 // --- 1. FirstModeShape -------------------------------------------------------
