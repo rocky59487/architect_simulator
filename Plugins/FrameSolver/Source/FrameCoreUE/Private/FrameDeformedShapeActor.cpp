@@ -27,6 +27,13 @@ FVector AFrameDeformedShapeActor::GetNodalDisplacement(int32 NodeIdx) const
     return FVector(D.Ux, D.Uy, D.Uz);
 }
 
+FVector AFrameDeformedShapeActor::GetNodalRotation(int32 NodeIdx) const
+{
+    if (NodeIdx < 0 || NodeIdx >= Solution.Displacements.Num()) { return FVector::ZeroVector; }
+    const FFrameNodalDisplacement& D = Solution.Displacements[NodeIdx];
+    return FVector(D.Rx, D.Ry, D.Rz);
+}
+
 bool AFrameDeformedShapeActor::BuildMesh()
 {
     if (!MeshComponent) { return false; }
@@ -53,6 +60,44 @@ void AFrameDeformedShapeActor::BuildOneMemberSection(int32 SectionIdx,
     const FVector StartD = Geom.Start + UI;
     const FVector EndD   = Geom.End   + UJ;
 
+    // v3.6 U-11: Hermite tangents from per-end rotation vectors. Rotation Rx/Ry/Rz
+    // is in radians; for a member of length L, the deflection rate at each end
+    // perpendicular to the axis is approximately rotation × L (small-angle). We
+    // map rotation to a tangent displacement that, when used as the Hermite "M",
+    // produces a smooth deflected curve. The cross-product with the member axis
+    // picks out the perpendicular component (axial rotation Rx around the member
+    // axis doesn't visibly bend the renderer mesh).
+    const FVector MemberAxisRaw = Geom.End - Geom.Start;
+    const float   MemberLen     = MemberAxisRaw.Size();
+    FVector AxisHat;
+    if (MemberLen > KINDA_SMALL_NUMBER)
+    {
+        AxisHat = MemberAxisRaw / MemberLen;
+    }
+    else
+    {
+        AxisHat = FVector::ForwardVector;
+    }
+    FVector TangentI = FVector::ZeroVector;
+    FVector TangentJ = FVector::ZeroVector;
+    if (bUseHermiteInterpolation)
+    {
+        const FVector RotI = GetNodalRotation(Geom.EndINodeIdx);
+        const FVector RotJ = GetNodalRotation(Geom.EndJNodeIdx);
+        // v3.6 audit (Hermite MED): convention note. FrameCore Ry/Rz follow the engine's
+        // right-hand rule about the global axes. Cross(Rot, AxisHat) maps rotation to the
+        // perpendicular-to-axis displacement-rate vector. For +X member, +Ry produces a
+        // tangent with -Z perpendicular component; this gives a smooth tip-up bend when the
+        // engine reports a positive Ry at the +X end after a +Z tip load. Tests
+        // (FFrameCoreUEHermiteSineDeflectionTest) verify the visual sense matches expectation.
+        // Hermite M-parameter convention: M is "chord-length-scaled slope", so multiplying
+        // the perpendicular by MemberLen gives the right magnitude for cubic Hermite.
+        TangentI = MemberAxisRaw +
+                   FVector::CrossProduct(RotI, AxisHat) * MemberLen * DeflectionScale;
+        TangentJ = MemberAxisRaw +
+                   FVector::CrossProduct(RotJ, AxisHat) * MemberLen * DeflectionScale;
+    }
+
     // v3.5.1: NRings + MemberLocalAxes + CornerOffset live in FramePMCHelpers.h.
     constexpr int32 NRings = FrameCorePMC::kRings;
     constexpr int32 NSeg   = NRings - 1;
@@ -74,15 +119,19 @@ void AFrameDeformedShapeActor::BuildOneMemberSection(int32 SectionIdx,
         return FrameCorePMC::CornerOffset(c, RefY, RefZ, halfW, halfD);
     };
 
-    // Linear interpolation per ring (cubic Hermite needs per-end rotation vectors and is
-    // deferred to v3.6 -- see docs/HANDOFF_v3.5.0.md U-11; current straight-lerp
-    // regardless of EndINodeIdx/EndJNodeIdx is the v3.5 contract).
-    // Audit F-09: hoist BaseColor out of the ring loop (it's invariant).
+    // v3.6 U-11: ring centres use cubic Hermite when bUseHermiteInterpolation is on
+    // and at least one end has non-zero rotation; otherwise linear lerp (v3.5 contract).
+    // F-09: hoist BaseColor out of the ring loop.
     const FLinearColor BaseColor(0.30f, 0.55f, 0.85f, 1.f);   // steel-blue motif
+    const bool bUseHermiteThisCall = bUseHermiteInterpolation &&
+                                     (!TangentI.Equals(MemberAxisRaw, 1e-6f) ||
+                                      !TangentJ.Equals(MemberAxisRaw, 1e-6f));
     for (int32 k = 0; k < NRings; ++k)
     {
         const float t = (NRings == 1) ? 0.f : (float)k / (float)(NRings - 1);
-        const FVector Center = FMath::Lerp(StartD, EndD, t);
+        const FVector Center = bUseHermiteThisCall
+            ? FrameCorePMC::HermitePoint(t, StartD, TangentI, EndD, TangentJ)
+            : FMath::Lerp(StartD, EndD, t);
         for (int32 c = 0; c < 4; ++c)
         {
             const FVector V = Center + Corner(c);

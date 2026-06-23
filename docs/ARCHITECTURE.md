@@ -333,8 +333,8 @@ plates/shells directly and converges to the exact solution.
   `complex_structure_benchmark.py`, `grillage_curve_audit.py` — all black-box the engine
   through `frame_cli.exe`.
 - **`Scripts/run_gate.ps1`** — runs all **five** legs (standalone, UE automation, OpenSees,
-  deep audit, CLI round-trip) and prints a combined verdict + exit code; `$ExpectedUeTests = 120`
-  guards against a silently-missing UE test (pass `-ExpectedUeTests 118` for non-cuDSS builds);
+  deep audit, CLI round-trip) and prints a combined verdict + exit code; `$ExpectedUeTests = 135`
+  guards against a silently-missing UE test (pass `-ExpectedUeTests 133` for non-cuDSS builds);
   `-RequireOpenSees` makes a missing OpenSees a hard failure for CI.
 
 ---

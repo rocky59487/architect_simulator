@@ -36,6 +36,13 @@ public:
               meta=(ClampMin="0.0", UIMin="0.0"))
     float HeightScale = 100.f;
 
+    // v3.6 U-10: engine reactionInfluenceLine assumes a unit -Z load convention.
+    // Designers may use a unit +Z convention; this toggle flips the value sign at
+    // paint time so positive influence is the side they expect. Default false
+    // matches the engine convention.
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="FrameCore|InfluenceLine")
+    bool bFlipPolarity = false;
+
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="FrameCore|InfluenceLine")
     bool bAutoBuildOnBeginPlay = true;
 

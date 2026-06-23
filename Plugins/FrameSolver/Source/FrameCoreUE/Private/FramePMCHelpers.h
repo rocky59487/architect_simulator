@@ -57,4 +57,22 @@ namespace FrameCorePMC
         }
         return FVector::ZeroVector;
     }
+
+    // v3.6 U-11 — cubic Hermite interpolation between two endpoints with tangents.
+    //   h(t) = (2t^3 - 3t^2 + 1) P0  +  (t^3 - 2t^2 + t) M0
+    //        + (-2t^3 + 3t^2)   P1  +  (t^3 - t^2)       M1
+    // t in [0,1]. Tangents M0 / M1 are displacement-rate at each end (typically
+    // member-axis-aligned scaled by length and the rotation amplitude).
+    inline FVector HermitePoint(float t,
+                                const FVector& P0, const FVector& M0,
+                                const FVector& P1, const FVector& M1)
+    {
+        const float t2 = t * t;
+        const float t3 = t2 * t;
+        const float h00 =  2.f * t3 - 3.f * t2 + 1.f;
+        const float h10 =        t3 - 2.f * t2 + t;
+        const float h01 = -2.f * t3 + 3.f * t2;
+        const float h11 =        t3 -       t2;
+        return h00 * P0 + h10 * M0 + h01 * P1 + h11 * M1;
+    }
 }

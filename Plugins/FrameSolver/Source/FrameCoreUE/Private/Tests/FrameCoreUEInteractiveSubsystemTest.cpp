@@ -212,11 +212,11 @@ bool FFrameCoreUEInteractivePerfBaselineTest::RunTest(const FString& /*Parameter
     const double T1 = FPlatformTime::Seconds();
     const double AvgMs = (T1 - T0) * 1000.0 / 5.0;
 
-    // Honest threshold: 200 ms / patch on this small fixture is generous (gives headroom for
-    // CI variance). The 16.7 ms / 60 fps target is for 10K-DOF on the engine R2 benchmark;
-    // this UE wrapper test only asserts no pathological overhead.
-    TestTrue(FString::Printf(TEXT("ApplyPatchAndResolve avg %.2f ms / patch <= 200 ms"), AvgMs),
-             AvgMs <= 200.0);
+    // v3.6 U-15: tightened threshold. On the 50-segment cantilever fixture (~306 DOF) the
+    // expected ApplyPatchAndResolve avg is well under 20 ms; 50 ms is the CI ceiling that
+    // catches genuine regressions while accepting CI variance up to ~3x the typical.
+    TestTrue(FString::Printf(TEXT("ApplyPatchAndResolve avg %.2f ms / patch <= 50 ms"), AvgMs),
+             AvgMs <= 50.0);
 
     Sub->EndSession();
     return true;

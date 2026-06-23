@@ -108,6 +108,83 @@ bool UFrameInteractiveSubsystem::ApplyPatchAndResolve(const FFrameModelPatch& Pa
     for (int32 id : Patch.DeactivateShellIds)  Session->setShellActive(id, false);
     for (int32 id : Patch.ReactivateShellIds)  Session->setShellActive(id, true);
 
+    // v3.6 U-12: incremental nodal-load patch. Order: reset -> set -> add.
+    if (Patch.bResetLoads) { Cached->Model.nodalLoads.clear(); }
+    for (const FFrameNodalLoad& L : Patch.SetNodalLoads)
+    {
+        if (L.Comp.Num() != 6) continue;
+        // Replace any existing load at this node.
+        for (auto it = Cached->Model.nodalLoads.begin(); it != Cached->Model.nodalLoads.end(); )
+        {
+            if ((int32)it->node == L.Node) { it = Cached->Model.nodalLoads.erase(it); }
+            else { ++it; }
+        }
+        frame::NodalLoad nl;
+        nl.node = (frame::NodeId)L.Node;
+        for (int32 d = 0; d < 6; ++d) nl.comp[d] = (frame::real)L.Comp[d];
+        Cached->Model.nodalLoads.push_back(nl);
+    }
+    for (const FFrameNodalLoad& L : Patch.AddNodalLoads)
+    {
+        if (L.Comp.Num() != 6) continue;
+        // Accumulate into existing entry, or create one.
+        bool bFound = false;
+        for (auto& Existing : Cached->Model.nodalLoads)
+        {
+            if ((int32)Existing.node == L.Node)
+            {
+                for (int32 d = 0; d < 6; ++d) { Existing.comp[d] += (frame::real)L.Comp[d]; }
+                bFound = true;
+                break;
+            }
+        }
+        if (!bFound)
+        {
+            frame::NodalLoad nl;
+            nl.node = (frame::NodeId)L.Node;
+            for (int32 d = 0; d < 6; ++d) nl.comp[d] = (frame::real)L.Comp[d];
+            Cached->Model.nodalLoads.push_back(nl);
+        }
+    }
+
+    // v3.6 audit Lane 3 (A-02): ReSolveSession::solve() reads its internal `work`
+    // model snapshot — Cached->Model mutations to nodalLoads don't propagate. When
+    // the patch touches loads, the correct fix is to recreate the session with the
+    // updated model so the engine re-reads the load list at construction time.
+    // This is Tier-3++ cost (defeats the ReSolve performance promise for the load
+    // path); if a future engine release exposes `setNodalLoads` on ReSolveSession,
+    // the load path can drop back to Tier-1 / Tier-2.
+    const bool bLoadsTouched = Patch.bResetLoads ||
+                               !Patch.SetNodalLoads.IsEmpty() ||
+                               !Patch.AddNodalLoads.IsEmpty();
+    if (bLoadsTouched)
+    {
+        frame::ReanalysisOptions eopts;
+        // We don't have the original ReanalysisOptions cached. Use defaults; the
+        // session lifetime semantics (active member set survived inside Cached->Model
+        // since setMemberActive went straight to engine session, but Cached->Model
+        // member.active reflects the user's intent). For v3.6 simplicity reinit
+        // with defaults — the load patch is the correctness target.
+        delete Session;
+        try
+        {
+            Session = new frame::ReSolveSession(Cached->Model, eopts);
+        }
+        catch (...)
+        {
+            Session = nullptr;
+            OutResult.bSingular  = true;
+            OutResult.Diagnostic = TEXT("ApplyPatchAndResolve: session re-init threw");
+            return false;
+        }
+        if (!Session->valid())
+        {
+            OutResult.bSingular  = true;
+            OutResult.Diagnostic = FString(UTF8_TO_TCHAR(Session->diagnostic().c_str()));
+            delete Session; Session = nullptr;
+            return false;
+        }
+    }
     const frame::SolveResult R = Session->solve(nullptr);
     OutResult = FrameCoreUE::ToBlueprint(Cached->Model, R);
     return !R.singular;

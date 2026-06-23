@@ -52,9 +52,10 @@ bool AFrameInfluenceLineActor::BuildMesh()
     TArray<FLinearColor>     VColors;  VColors.Reserve(N * 2);
     TArray<FProcMeshTangent> Tangents; Tangents.Reserve(N * 2);
 
+    const float PolaritySign = bFlipPolarity ? -1.f : 1.f;
     for (int32 k = 0; k < N; ++k)
     {
-        const float Inf = Line.ReactionAtPosition[k];
+        const float Inf = Line.ReactionAtPosition[k] * PolaritySign;
         const float T   = Inf / MaxAbs;
         const FLinearColor Col = SignedRamp(T);
         const FVector PathPos = PathGeometry[k].Start;

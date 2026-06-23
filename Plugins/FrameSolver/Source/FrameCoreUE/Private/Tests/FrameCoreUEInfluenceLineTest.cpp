@@ -78,4 +78,46 @@ bool FFrameCoreUEInfluenceLineSSBeamTest::RunTest(const FString& /*Parameters*/)
     return true;
 }
 
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FFrameCoreUEInfluenceLinePolarityFlipTest,
+    "FrameCore.UE.InfluenceLine.PolarityFlip",
+    EAutomationTestFlags_ApplicationContextMask | EAutomationTestFlags::SmokeFilter)
+
+bool FFrameCoreUEInfluenceLinePolarityFlipTest::RunTest(const FString& /*Parameters*/)
+{
+    UWorld* World = GetSpawnWorld();
+    if (!World) return false;
+    FActorSpawnParameters SP;
+    SP.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
+    AFrameInfluenceLineActor* A =
+        World->SpawnActor<AFrameInfluenceLineActor>(AFrameInfluenceLineActor::StaticClass(),
+                                                    FVector::ZeroVector, FRotator::ZeroRotator, SP);
+    if (!A) return false;
+
+    A->Line.LoadNodes = { 0, 1, 2, 3, 4 };
+    A->Line.ReactionAtPosition = { 0.f, 125.f, 250.f, 125.f, 0.f };
+    A->HeightScale = 1.f;
+    for (int32 i = 0; i < 5; ++i)
+    {
+        FFrameMemberGeometry G;
+        G.MemberIdx = i;
+        G.Start = FVector((float)i * 250.f, 0.f, 0.f);
+        G.End   = FVector((float)i * 250.f + 250.f, 0.f, 0.f);
+        A->PathGeometry.Add(G);
+    }
+    A->bFlipPolarity = false;
+    A->BuildMesh();
+    const float MidTopZ_nominal = A->GetMeshComponent()->GetProcMeshSection(0)->ProcVertexBuffer[2 * 2 + 1].Position.Z;
+    TestTrue(TEXT("Nominal midspan Z == 250"),
+             FMath::IsNearlyEqual(MidTopZ_nominal, 250.f, 0.1f));
+
+    A->bFlipPolarity = true;
+    A->BuildMesh();
+    const float MidTopZ_flipped = A->GetMeshComponent()->GetProcMeshSection(0)->ProcVertexBuffer[2 * 2 + 1].Position.Z;
+    TestTrue(FString::Printf(TEXT("Flipped midspan Z == -250 (got %.4f)"), MidTopZ_flipped),
+             FMath::IsNearlyEqual(MidTopZ_flipped, -250.f, 0.1f));
+
+    A->Destroy();
+    return true;
+}
+
 #endif // WITH_DEV_AUTOMATION_TESTS

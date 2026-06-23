@@ -39,6 +39,12 @@ public:
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="FrameCore|Deformed")
     bool bAutoBuildOnBeginPlay = true;
 
+    // v3.6 U-11: when true (default), ring centres along the deformed member are
+    // interpolated with cubic Hermite using per-end rotation vectors as tangents.
+    // Falls back to straight lerp when EndI / EndJ rotations are zero.
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="FrameCore|Deformed")
+    bool bUseHermiteInterpolation = true;
+
     UFUNCTION(BlueprintCallable, BlueprintPure, Category="FrameCore|Deformed")
     UProceduralMeshComponent* GetMeshComponent() const { return MeshComponent; }
 
@@ -61,4 +67,7 @@ private:
 
     // Look up displacement for a NodeIdx; returns zero vector if the idx is OOB or -1.
     FVector GetNodalDisplacement(int32 NodeIdx) const;
+
+    // v3.6 U-11: look up rotation (Rx, Ry, Rz) for a NodeIdx; zero if OOB / -1.
+    FVector GetNodalRotation(int32 NodeIdx) const;
 };

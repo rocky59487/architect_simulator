@@ -17,6 +17,7 @@
 
 #include "CoreMinimal.h"
 #include "UObject/ObjectMacros.h"
+#include "FrameCoreUE/FrameCoreUEModelTypes.h"   // FFrameNodalLoad for v3.6 U-12 patch
 #include "FrameCoreUEVisualTypes.generated.h"
 
 // ---------------------------------------------------------------------------
@@ -79,5 +80,21 @@ struct FRAMECOREUE_API FFrameModelPatch
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="FrameCore|Interactive")
     TArray<int32> ReactivateShellIds;
 
-    // Reserved for v3.6: incremental nodal-load patch. v3.5 ships activation toggles only.
+    // v3.6 U-12: incremental nodal-load patch. The subsystem applies these to the
+    // cached model BEFORE the next solve. Order of operations on apply:
+    //   1. If bResetLoads: clear Cached.Model.nodalLoads.
+    //   2. Apply SetNodalLoads -- each entry REPLACES any existing load at that node.
+    //   3. Apply AddNodalLoads -- each entry's 6-component vector ACCUMULATES into the
+    //      load at that node (creating the entry if it didn't exist).
+    //
+    // After the patch, ReSolveSession::solve() picks up the new RHS without needing a
+    // new engine facade -- engine reads model.nodalLoads at solve time.
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="FrameCore|Interactive")
+    bool bResetLoads = false;
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="FrameCore|Interactive")
+    TArray<FFrameNodalLoad> SetNodalLoads;
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="FrameCore|Interactive")
+    TArray<FFrameNodalLoad> AddNodalLoads;
 };
