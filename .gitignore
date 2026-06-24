@@ -40,13 +40,18 @@ __pycache__/
 *.pyc
 
 # Local agent / audit transcripts + scratch
+# NOTE: out/ output/ dist/ are ROOT-ANCHORED (leading slash) on purpose. Without the
+# slash they matched at any depth and silently swallowed intentionally-committed result
+# sets such as Research/out/ (which keeps curated experiment outputs; its own
+# Research/.gitignore drops only out/ws_reports/). Keep these anchored to the repo root,
+# where agent/audit scratch actually lands.
 *.transcript
 *.jsonl
-output/
 _audit*.log
 _scratch*.log
-dist/
-out/
+/output/
+/dist/
+/out/
 framecore-v*.zip
 
 # OS cruft
