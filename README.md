@@ -1,508 +1,143 @@
-# FrameCore — Structural Mechanics Engine
+<div align="center">
 
-A self-contained **C++17 + Eigen** 3-D structural finite-element engine: beam-columns,
-MITC4 flat shells, a full linear-analysis suite, a progressive- and dynamic-collapse line,
-incremental reanalysis, second-order and large-displacement (co-rotational) analysis,
-tension-only members, plastic hinges with N–M interaction, sizing and topology optimization,
-and a text/C-API bridge for external clients (Grasshopper). It is the structural core of an
-"architect simulator" graduation project, built as a **research-grade engine prototype**:
-deliberately small, engine-agnostic, and — the actual point of the project — **anchored to
-an independent oracle for every capability it claims**.
+# 🏛️ 建築師模擬器 · Architect Simulator
 
-The public API uses only plain C++/POD types (no UE, no Eigen leakage), so the same source
-compiles as a standalone console gate *and* as an Unreal Engine module. The core remains
-C++17-compatible; the UE module target is compiled as C++20 because of the current UBT/toolchain.
+**一個畢業專題,兩顆從零寫起、各自對標獨立 oracle 的引擎。**
+*A graduation project — two from-scratch engines, each anchored to an independent oracle.*
 
-> **This repository ships two independent engines:** FrameCore (this document, `Plugins/FrameSolver/`)
-> and **LevelSim** — a surveying-level simulator — at [`Plugins/LevelSim/`](Plugins/LevelSim/README.md).
-> They share no code and can be built, tested, and released independently; the bundled
-> `v2.2+1` release packaged them together (FrameCore v2.2 + LevelSim v1.0.0). Every release
-> from `v2.3` onwards is FrameCore-only — LevelSim has not changed since `v2.2+1`.
+蓋一棟結構、把它算到極限、再讓它在你眼前倒下;
+走進工地、整平水準儀、讀出毫米級的高程。
 
-> **Status (2026-06-23, v4.0.0 — stable long-term anchor; engine FROZEN):** Re-seal of v3.6.0 as **v4.0.0 stable**. `kEngineVer 3.6.0 → 4.0.0`; uplugin `VersionName 3.6.0 → 4.0.0`; `FRAMECORE_EXPECTED_ENGINE_VER` synced in `run_gpu_gate.ps1` + `release-gate.yml`; CLAUDE.md 鐵則 #1 carries a formal FROZEN marker. Engine source delta vs v3.6.0 = **0 lines** under `Plugins/FrameSolver/Source/FrameCore/`. No engine API or wire-ABI breaking changes; v4.0.0 is a "policy major bump" — the stability promise is that no v3.7 will ship and the engine algorithms are immutable from here. UE consumer code (`Plugins/FrameSolver/Source/FrameCoreUE/`) remains evolvable under v4.0.x patch / v4.1.x minor releases. See [`docs/RELEASE_v4.0.0.md`](docs/RELEASE_v4.0.0.md) + [`docs/HANDOFF_v4.0.0.md`](docs/HANDOFF_v4.0.0.md). v3.6.0 status block follows for historical context.
+*Build a structure and push it to collapse — then prove the physics.
+Step onto the site, level the instrument, read the millimetre.*
 
-> **Prior anchor — v3.6.0 (FrameCore FINAL release; engine source FROZEN):** C6/C7/C8 along-span data line (InternalForceField + UtilizationField + RedundancyField actors) + U-11 cubic Hermite + U-12 incremental load patch + U-10 polarity flip + U-15 PerfBaseline tightened + new exit-test suite (D1 property sweep + D3 strict-mode oracle). 15 new UE tests → total 135. Engine source delta vs v3.5.1 = **0 lines** under `Plugins/FrameSolver/Source/FrameCore/`. See [`docs/RELEASE_v3.6.0.md`](docs/RELEASE_v3.6.0.md) + [`docs/HANDOFF_v3.6.0.md`](docs/HANDOFF_v3.6.0.md) + [`docs/V3_SERIES_RETROSPECTIVE.md`](docs/V3_SERIES_RETROSPECTIVE.md). v3.5.1 status block follows for historical context.
-
-> **Prior anchor — v3.5.1 (v3.5.0 deferred-items closeout + first VERIFIED 5-leg gate on the integrator host):** PMC-DUP-01 (shared `FramePMCHelpers.h`, net −130 LOC) + TEST-DUP-01 (`FrameCoreUETestHelpers.h` for `GetSpawnWorld`/`TipCenter`) + U-13 (long-session float-precision modular phase reduction in ModalShape + ResponseSpectrum Tick) + U-14 (FragmentCluster `MaxDebrisActors` cap). Engine source delta vs v3.5.0 = **0 lines** under `Plugins/FrameSolver/Source/FrameCore/`; UE-side refactor + small fixes only. See [`docs/RELEASE_v3.5.1.md`](docs/RELEASE_v3.5.1.md) + [`docs/HANDOFF_v3.5.1.md`](docs/HANDOFF_v3.5.1.md). v3.5.0 status block follows for historical context.
-
-> **Prior anchor — v3.5.0 (visual + game-ready surface: 8 BP-callable actors + 1 UGameInstanceSubsystem):**
-
-> **Prior anchor — v3.3.0 (U-07 sentinel schema break + UE renderer + BP JSON load):**
-> v3.3 is the first BREAKING release on the v3.x line. The stress-field schema's
-> "no governing element" sentinel moves from id-0 (which collided with a legitimate
-> element id of 0) to a 0-based INDEX with -1 sentinel: `StressField::governingMemberId
-> / governingShellId` rename to `governingMemberIdx / governingShellIdx`, with matching
-> renames in the dispatcher v2 JSON wire (`body.stressField.governingMember*Idx`), the
-> USTRUCT `FFrameStressField` BP layer, and v3.2 BP accessor helpers. Pre-v3.3 GH /
-> Rhino clients reading `governingMemberId` from the wire will now see a missing key
-> rather than a silently-aliased value -- see [docs/specs/S11_v3.3_schema_migration.md]
-> (docs/specs/S11_v3.3_schema_migration.md) for the migration guide. v3.4 adds 17 input
-> USTRUCT (Material/Section/Node/Member/Shell/three loads + SolveOptions + seven analysis
-> options + `FFrameModelDef` aggregate), 9 output USTRUCT (SolveResult + sub-types +
-> DemandSummary), `UFrameModelBuilder` (ValidateModel, LoadModelFromJson),
-> `UFrameMaterialLibrary` (8 presets + custom), `UFrameSectionLibrary`
-> (Rectangular/Circular), `UFrameAnalysisLibrary` (15 BP entries spanning every linear
-> + nonlinear analysis the engine exposes). Engine source delta vs v3.3.0 = **3 lines
-> additive FRAMECORE_API facade** on `FrameModel.h` (`nodeIndex`/`memberIndex`/
-> `shellIndex` exported for cross-DLL consumer-module access; impl unchanged so
-> standalone F1..F71 is bit-identical with v3.3.0).
->
-> **v3.5.0** (next anchor) ships the **visual + game-ready surface**: 8 new BP-callable
-> actors (`AFrameDeformedShapeActor` / `AFrameUtilizationHeatmapActor` /
-> `AFrameModalShapeActor` / `AFrameDynCollapseReplayActor` / `AFrameFragmentClusterActor`
-> Chaos POD bridge thin slice / `AFrameInfluenceLineActor` /
-> `AFrameResponseSpectrumActor` / `AFrameRealTimeDynamicActor`) + 1 new
-> `UFrameInteractiveSubsystem` (UGameInstanceSubsystem) wrapping `frame::ReSolveSession`
-> for S1 re-analysis at 60 fps target. Engine source delta vs v3.4.0 = **0 lines under
-> `Plugins/FrameSolver/Source/FrameCore/`** (CLAUDE.md 鐵則 #1 fully honoured); v3.5 is
-> pure UE consumer-side work. **22 new `FrameCore.UE.*` tests** stacked on the v3.4
-> 98-test baseline brings the count to **120**. On the integrator's host the
-> **6 CPU-only legs are expected to run green against the rebuilt v3.5.0 source**
-> (v3.5 engine source delta = 0 lines under `FrameCore/` so Leg 1 is structurally
-> bit-identical with v3.4.0; Legs 2-6 require the next-cycle Z-01 UE Editor build
-> + gate run before they can be promoted from "expected" to "verified" — see
-> `docs/HANDOFF_v3.5.0.md` Z-01):
-> standalone F1..F71
-> ALL PASS, **UE 120/120 ALL PASS** (v3.5 stacks +22 `FrameCore.UE.*` tests on top of
-> v3.4's 98-test baseline -- Phase 1 +3 DeformedShape + Phase 2 +3 Heatmap + Phase 3
-> +2 ModalShape + Phase 4 +3 DynCollapseReplay + Phase 5 +3 FragmentCluster + Phase 6
-> +1 InfluenceLine + Phase 7 +3 InteractiveSubsystem + Phase 8 +4 Response/RT-Dynamic),
-> **OpenSees strict PASS**, deep audit 104 PASS, CLI round-trip 13 ALL PASS,
-> v2_roundtrip CPU ALL PASS (`kEngineVer=3.5.0` pin enforced; 23 capabilities; wire
-> schema unchanged from v3.4.0). The 3 CUDA legs (`run_gpu_gate.ps1 -Strict`) are
-> reachable but were not exercised in this release session -- v3.5 has zero source
-> delta in the CUDA path, so the v3.0.0 / v3.1.0 GPU evidence
-> (`r2_bench --gpu 90k margin +11.939 ms`, `F67s STRICT_EXECUTED` fingerprint)
-> carries forward unchanged. See
-> [docs/RELEASE_v3.5.0.md](docs/RELEASE_v3.5.0.md) for the full reproduction matrix +
-> visual surface inventory and [docs/HANDOFF_v3.5.0.md](docs/HANDOFF_v3.5.0.md)
-> for the next-cycle pickup (v3.5.1 BP examples + showcase map authoring).
->
-> **Prior anchors:** v3.2.2 closed the v3.2.1 audit's six deferred items (test
-> strengthening only, engine source zero edits, `kEngineVer` unchanged); v3.2.1
-> bumped UE coverage 62 -> 70 with the 8 `FrameCore.UE.*` Phase 6 a-h tests; v3.2.0
-> added the `FrameCoreUE` thin-slice UE reflection module (USTRUCT mirrors of
-> `frame::StressField`, `UFrameCoreStressFieldLibrary`, Slate utility panel
-> `SFrameCoreStressFieldPanel`).
->
-> v3.1.0 (S11 stress-field post-process) shipped `StressKernel.h` as the single source
-> of truth shared between `ElasticAllowable` (D/C screen) and the new `StressField`
-> (visualisation post-process), plus three standalone fixtures (F68 cantilever member
-> field, F69 clamped-plate shell layer recovery + 30° z-rotation invariance, F70 D/C
-> interlock — all bit-exact through the shared kernel) and the `inspect.stress_field`
-> v2 dispatcher capability. v3.2.0 builds the UE5 consumer-side surface on top of
-> v3.1.0's `FRAMECORE_API computeStressField`.
->
-> v3.0.0 STABLE folded five hardening items + 7-agent audit fixes on top of v2.11.1
-> (`f09a197`); v3.0.1 patches the six follow-up findings from the post-release
-> consistency review:
-> (1) `Scripts/run_gpu_gate.ps1` resolves `SUPERNODAL_CONDA` through one canonical
->     resolver (env var → legacy alias → conda layout probe);
-> (2) `build_sn_cuda.bat` derives `CUDA_ROOT` from `SUPERNODAL_CONDA` (strip `\Library`
->     suffix → env root), with `CUDA_ROOT` / `CUDA_PATH` explicit overrides;
-> (3) `build_capi_v2_cuda.bat` mirrors (2) block-for-block so dispatcher + standalone
->     CUDA builds never silently drift;
-> (4) F67 (standalone) and `FFrameCoreGpuBacksubTest` (UE) keep their existing
->     smoke semantics (tolerate silent CPU fallback for dev-box compile tests); two NEW
->     fixtures F67s + `FFrameCoreGpuBacksubStrictTest` enforce real GPU attachment
->     when `FRAMECORE_GPU_STRICT=1` (set automatically by `run_gpu_gate.ps1` when the
->     cuDSS runtime DLL resolves) — silent fallback now FAILS strict CI, and v3.0.1
->     adds a `[F67s] STRICT_EXECUTED` fingerprint that `run_gate.ps1` + `run_gpu_gate.ps1`
->     grep for to catch the case where the strict branch was somehow not run;
-> (5) v3.0.1 syncs the version surface: `kEngineVer = "3.0.1"` (was stale at "2.11.1"
->     when v3.0.0 was tagged), `FrameSolver.uplugin` `VersionName = "3.0.1"` +
->     `IsBetaVersion = false`, `FRAMECORE_EXPECTED_ENGINE_VER = '3.0.1'` in
->     `run_gpu_gate.ps1`; `r2_bench --gpu 90k` gains a baseline-regression hard gate
->     (margin ≥ +8 ms vs v2.11.0 baseline ~+11.94 ms, not just "margin ≥ 0 vs the
->     16.67 ms budget"); `FrameCore.Build.cs` normalizes `SUPERNODAL_CONDA` the same
->     way the bat does (accept env-root OR `\Library`); `.github/workflows/release-gate.yml`
->     runs the CPU-only legs on every push to `main` and uploads gate logs as artifacts.
->
-<a id="v3-stable-conditions"></a>
-> ### V3 STABLE gates (all green; ran in one session on the integrator's host)
->
-> The same three gate suites that flipped v3.0.0 STABLE are the contract every release
-> on the v3.x line is held to — and v3.0.1 raised the bar with strict-execution
-> fingerprints + perf regression threshold:
->
-> 1. `Scripts\run_gate.ps1 -RequireOpenSees` exits 0
->    (standalone F1..F71 default / F1..F71 + F67/F67s in CUDA build + UE **120/120** with cuDSS,
->    **118/118** without — pass `-ExpectedUeTests 118` in the latter case; OpenSees
->    strict; deep audit 104; CLI round-trip 13). Under `FRAMECORE_GPU_STRICT=1`
->    additionally requires `[F67s_UE] STRICT_EXECUTED` fingerprint in the UE log.
-> 2. `Plugins\FrameSolver\Standalone\build_capi_v2.bat` + `python Tools\v2_roundtrip.py`
->    exits 0 (CPU dispatcher round-trip; `kEngineVer="3.5.0"` pinned per v3.5.0 wire-ABI
->    contract -- v3.5 adds no new dispatcher capabilities (UE-side actor surface only), so
->    the v3.4.0 wire schema is reused verbatim; a v3.4 client + v3.5 dispatcher fails
->    the version-pin check rather than silently mismatch on a future schema break;
->    `inspect.stress_field` shape + range guards still exercised; 23 capabilities
->    advertised).
-> 3. `Scripts\run_gpu_gate.ps1 -Strict` exits 0 on a box with cuDSS installed
->    (frametest_cuda F1..F71 default + F67 smoke + F67s strict with STRICT_EXECUTED
->    fingerprint, v2_roundtrip CUDA, r2_bench --gpu 90k margin ≥ +8 ms hard regression gate).
->
-> v2.10 introduced
-> the cuDSS GPU backsub lane as an opt-in production path; v2.11 stacked three GPU phases
-> (Phase 1 cuSPARSE SpMV reactions, Phase 2 single CUDA stream + async memcpy, Phase 3'
-> Qf-detection cache) and reached **60 fps through 200 K DOF** on RTX 5070 Ti Laptop —
-> a 12.3× / 35× speedup at 90 k vs v2.9.0 LAZY / pre-LAZY CPU respectively. v2.11.1
-> is the hardening pass on top: `kEngineVer` 2.11.0 → 2.11.1, uplugin `VersionName` bumped,
-> `run_gpu_gate.ps1` engine-version pin fixed (had silently stayed at `2.10.0`),
-> `FrameCore.Build.cs` + `FrameCoreModule.cpp` cuDSS lane now honour `SUPERNODAL_CONDA` env
-> var (previously hardcoded `%USERPROFILE%\anaconda3\envs\framecore-direct`, silently
-> broke for Miniconda / custom env names), `cudaStreamCreate` failures emit explicit
-> diagnostic instead of silently disabling Phase-2 overlap, `cudaDeviceSynchronize` in
-> ctor narrowed to `cudaStreamSynchronize` (no longer blocks unrelated CUDA work in the
-> same process), UE DLL preload warns on `GetDllHandle` returning null (no more silent
-> delay-fault), `environment.yml` documents the optional CUDA package install, docs
-> resynced to the current 58/F67/104/etc. counts.  v2.11.1-RC stacks five extra hardening
-> items on top (above), bumping UE test count 58 → **59** when built with cuDSS
-> (`FFrameCoreGpuBacksubStrictTest`) and adding F67s (strict) alongside F67 (smoke) on the
-> standalone CUDA gate. **FrameCore engine source delta v2.11.0..v2.11.1-RC = ~6 files /
-> ~120 lines, all additive guards / env-var overrides / version strings / new test
-> fixtures.** The six-leg verification gate stays green for reachable legs —
-> standalone `ALL PASS` (62 + 1 individual F-fixtures spanning **F1..F66 default build,
-> F1..F67 + F67s in CUDA build** — F41 and F60 are intentionally absent, see [`docs/VERIFICATION.md`](docs/VERIFICATION.md)) ·
-> **59** UE automation tests with cuDSS (57 without; v2.11.1-RC added
-> `FFrameCoreGpuBacksubStrictTest` for silent-fallback detection on top of v2.11's
-> `FFrameCoreGpuBacksubTest` smoke) · **OpenSees** strict cross-validation PASS ·
-> deep audit **104** independent checks · CLI round-trip ALL PASS. One repo-relative
-> command reproduces it
-> (`-Engine` or `UE_ENGINE_ROOT` can point at a non-sibling Unreal install):
-> `powershell -ExecutionPolicy Bypass -File Scripts\run_gate.ps1 -RequireOpenSees`.
-> The optional 6th + GPU gate legs (v2 dispatcher round-trip CPU + CUDA + production GPU
-> perf sanity) live in `Scripts\run_gpu_gate.ps1`, which soft-skips on hosts without cuDSS.
-> The capability → oracle → measured-agreement map is **[`docs/VERIFICATION.md`](docs/VERIFICATION.md)**.
+</div>
 
 ---
 
-## Capability map
+> ### 🚧 目前狀態 · Project status — 2026-06
+>
+> **兩顆引擎都已完成並通過驗證**(FrameCore 結構引擎 `v4.0.0` 凍結;LevelSim 水準儀核心
+> 4 輪對抗式審核收斂)。**統整兩者的視覺呈現層(「表現法」)尚未產出** —— 所以這一頁
+> 目前是專案門面的**佔位版**,先把入口擺好,等展示影片 / 截圖 / 互動 demo 完成後再上。
+>
+> *Both engines are done and verified. The unified visual showcase layer is not built
+> yet, so this landing page is an intentional **placeholder** — entry points first,
+> hero media later.*
 
-The engine is organized as layers, each behind the same two seams (`IElement` for element
-types, `PreparedSystem` for factorization reuse), and each gated by its own oracles.
+<div align="center">
 
-### 1 · Linear core
+<!--
+  TODO 表現法 / hero media:
+    - 倒塌重播 (collapse replay) 動畫 GIF
+    - 利用率熱圖 (utilization heat-map) 截圖
+    - LevelSim 望遠鏡讀數畫面
+  產出後把下面這個佔位區換成實際圖片 / 影片連結。
+-->
 
-| Capability | Notes |
-|---|---|
-| 3-D linear-elastic direct stiffness | 12×12 Euler–Bernoulli beam-column; sparse assembly; `SimplicialLDLT` |
-| Timoshenko shear flexibility | optional; reduces to Euler–Bernoulli as slenderness grows |
-| End releases / static indeterminacy | per-member `release[12]`; static condensation of stiffness **and** fixed-end forces |
-| **Mechanism / instability detection** | from the LDLᵀ factorization (near-zero / negative pivots), **not** connectivity — refuses to report forces on an unstable model |
-| **MITC4 flat shell** (24 DOF) | Reissner–Mindlin facet: membrane + plate bending with MITC4 assumed shear (no locking) + Hughes–Brezzi drilling; recovers `{Mxx,Myy,Mxy,Qx,Qy,Nxx,Nyy,Nxy}` |
-| Shell upgrades (S8, opt-in) | **QM6** incompatible membrane (substantially reduces in-plane locking: Cook's −0.9 % vs Q4 −3.2 %; passes the weak patch test for general quads) and **DKQ** thin plate (Kirchhoff fast path); both default-off, **bit-identical** to baseline when off |
-| Warped shell quads (v3, opt-in) | `warpTolerance` relaxes `validate()`'s hard rejection of non-coplanar quads (free-surface meshes can solve at all); `useWarpingCorrection` projects corners onto the best-fit (Newell/centroid) plane and records `warp_[k]`. **MITC4 stays a flat facet** — warp adds an O(warp²) bounded error that shrinks as warp shrinks (F61c: warp 4 %→2 %→1 % gives Nxx err 1.6e-3→4e-4→1e-4) → **a warped free-surface mesh reaches accuracy by mesh refinement**, not by a per-element magic fix. Default-off, bit-identical to today |
-| Elastic D/C screen | combined axial + biaxial bending + peak-factored shear + torsion vs allowable capacities; reports the governing mode |
-| Grillage plate idealization | ν-inflated woven beam grid; kept as a cheap approximation alongside the true shell |
-| Member end forces / reactions | local `{N,Vy,Vz,T,My,Mz}` at both ends; `R = K·u − F` |
+`┌─────────────────────────────────────────────┐`
+`│   🎬  展示影片 / 截圖即將登場                  │`
+`│       hero showcase coming soon              │`
+`└─────────────────────────────────────────────┘`
 
-### 2 · Linear analysis suite
-
-| Analysis | Notes |
-|---|---|
-| Load cases, combinations, envelopes | `combine` / `envelope`; self-weight from `Material.rho` |
-| **Factorize-once, solve-many** | `assembleAndFactor` → opaque `PreparedSystem`; `solveLoad` reuses the LDLᵀ per load/settlement change — the interactive re-solve path |
-| **Supernodal direct lane (opt-in, R-line)** | self-built BLAS3 supernodal Cholesky (METIS ordering + OpenBLAS dense panels). Three integration modes: **(a)** `SolveOptions::useSupernodalPrimary` — `assembleAndFactor` builds the supernodal Cholesky as the **primary** factor and **skips the LDLT entirely** on SPD success (R2.1 PERF-01 architectural fix; gate F63 verifies bit-equivalence to the LDLT path and that mechanism detection still works via the L-diagonal pivot screen). Single-solve win at scale: 8× faster factor at 18.7k DOF, **20× at 62k DOF** (`perf_sn.exe` first-hand). **(b)** stateless `solveLoadSupernodal` — always builds its own supernodal factor, falls back to LDLT on SPD failure. **(c)** factor-once `SnSession` — reuses the supernodal factor across many `solveFrame` calls (and *transparently reuses the SnPrimary factor* if the PreparedSystem already holds one, so no double-build). vs LDLT rel < 1e-10 in all modes; default (no flags) is bit-exact drop-in. Multicore factor within ~1.0–1.2× of MKL-CHOLMOD (1.15–1.21× measured on 8940HX with conda OpenBLAS at 32k–64k DOF; ~1.0× at 17k DOF — the ratio drifts with the OpenBLAS build, hardware, and DOF range). Single-machine reachable edge **~150 k DOF interactive on 32 GB** `[THEORY: 外推]` with `useSupernodalPrimary` (extrapolated from 18 k / 62 k measured factor scaling at exponent ~1.5; not yet directly measured at 150 k, but the architectural blocker is gone). Constraint: `useSupernodalPrimary` skips LDLT, so analyses that need it (modal / buckling / P-Delta / ReSolve / dynamic-collapse) refuse on a SnPrimary PreparedSystem with a clear diagnostic; build a default PreparedSystem for those workflows. See [`docs/PROGRESS_R_supernodal.md`](docs/PROGRESS_R_supernodal.md) and [`docs/specs/v3_memory_recon.md`](docs/specs/v3_memory_recon.md). |
-| Prescribed support settlement | matches OpenSees `sp()` to 0 |
-| Influence lines / moving loads | unit load marched on the shared factorization; Müller-Breslau cross-check |
-| Modal analysis | `Kφ=ω²Mφ`, consistent mass; dense default + opt-in sparse path; vs OpenSees `eigen` ~1e-11 |
-| Linear buckling | geometric stiffness from axial force → Euler factor; opt-in sparse subspace path (F34). Opt-in **shell** K_σ (`shellGeometricStiffness`): MITC4 membrane stress → transverse stress stiffening → plate buckling `N_cr=4π²D/a²` (F57; w-only, flat-facet O(1/N²)) |
-| Response spectrum | modal participation + SRSS/CQC (the code spectrum curve is an input) |
-| Real-time transient | modal superposition + Newmark-β, O(nModes)/step |
-
-### 3 · Progressive- & dynamic-collapse line
-
-| Capability | Notes |
-|---|---|
-| Element removal | `Member.active` / `ShellQuad.active`; part of the reuse fingerprint |
-| Safety margins | `worstUtilization` (worst D/C) + `pivotMargin` (continuous proximity-to-mechanism) |
-| Debris connectivity | grounded vs detached components; each `FragmentCluster` carries closed-form mass/com/inertia — the UE5 **Chaos handoff** (rigid-body fall is the physics engine's job, by design) |
-| **Collapse driver** | GSA-style LSP sequential linear analysis: remove the governing element while D/C > threshold, clean up debris, re-solve; `dlf` sudden-removal amplification; deterministic tie-breaks; per-step replay snapshots |
-| Shell failure screen | surface von Mises (both faces, centre + corners) vs `Capacity.vm` |
-| Plastic hinges (event-to-event) | hinges form at `\|M\| ≥ Mp` until a hinge mechanism; reproduces `w* = 16Mp/L²` to ±2 % |
-| **N–M interaction (S10, opt-in)** | `Mp_eff(N) = Mp·max(0, 1−(N/Ny)²)` — exact for rectangles (first-principles neutral-axis shift), conservative for circles; default-off is **bit-identical** to the fixed-`Mp` driver |
-| **Dynamic collapse (S2)** | continuous modal-space Newmark across removal events, **cross-event state inheritance** (M-orthonormal projection) + **momentum-preserving debris handoff** (`FragmentCluster.vel/angVel`); load-dependent Ritz basis with the truncation residual reported per event |
-
-### 4 · Reanalysis & nonlinear line
-
-| Capability | Notes |
-|---|---|
-| **ReSolve ladder (S1)** | three-tier incremental reanalysis for interactive editing: Tier-1 rank-k **Woodbury** (formula-exact; ~1e-12 of fresh — float path, not bit-identical), Tier-2 **stale-LDLᵀ PCG** (tolerance-grade), Tier-3 rebaseline (always-correct fallback); mechanism detection preserved across tiers |
-| **P-Delta (S3)** | Theory-II second order: frozen pseudo-load iteration reusing the existing LDLᵀ (zero re-factor) **or** a K_T re-factor reference — the two paths cross-check to ~1e-13; P=0 is bit-identical to linear; past P_cr it reports `diverged` instead of a silent wrong answer |
-| **Tension-only members (S4)** | cables / slender X-braces drop out under compression; active-set iteration whose inner re-solves ride the ReSolve ladder (rank-6 per flip); converged state == omitting the slack members; cycle guard + monotone fallback ensure finite termination |
-| **Co-rotational large displacement (S9/S9b/S9c + shell EICR)** | geometrically nonlinear beam driver: planar → general 3-D (torsion + biaxial + SO(3) finite rotations, vs OpenSees corotational 1.22e-9) → **arc-length snap-through** path following (limit load vs OpenSees `ArcLength` 6.4e-3), consistent FD tangent, member UDL, prescribed large displacement; elastica benchmarks to ~1e-4 of Mattiasson's tables. Opt-in **EICR shells** (`shellCorotational`): large-displacement MITC4 facets, rotation-invariant to 1e-14, strip elastica ~1e-4 of Mattiasson (NR load-control; shell arc-length later phase) |
-
-### 5 · Optimization
-
-| Capability | Notes |
-|---|---|
-| **FSD sizing (S5)** | fully-stressed-design stress-ratio resizing + similar-section scaling + multi-load-case envelope; 10-bar truss lands 1 % above the pin-jointed literature optimum *because* the engine carries real joint bending (documented) |
-| **BESO topology (S7)** | evolutionary hard-kill on `Member.active`, sensitivity = element strain energy (`Σα = ½F·u` to ~4e-14 on UDL-free members), compliance-best fallback, mechanism guard |
-| **N2 collapse-robustness constraint (S7)** | optional: candidate topologies are screened by the collapse driver; the constrained result survives every single-member removal where the unconstrained one dies to one |
-
-### 6 · Ecosystem (S6)
-
-| Capability | Notes |
-|---|---|
-| `frame_cli` text bridge | stdin/stdout wire protocol ([`docs/CLI_PROTOCOL.md`](docs/CLI_PROTOCOL.md)) covering statics, shells, dynamics, collapse, tension-only, sizing, co-rotational, arc-length |
-| Daemon mode | multi-request block streaming over one process — bit-identical to independent runs |
-| C API DLL | `frame_capi.dll` shares the same protocol core; bit-identical to the CLI (ctypes-verified) |
-| Grasshopper client | C# reference client (`Plugins/FrameSolver/Grasshopper/`); the packaged `.gha` component is **not** shipped (not gated — stated honestly) |
+</div>
 
 ---
 
-## Why trust it (the point of the project)
+## 兩顆引擎 · The two engines
 
-Every capability is anchored to an **independent oracle**, not a self-consistent re-run:
-closed-form solutions, published benchmarks (independently re-derived before use), OpenSees
-cross-validation, an independent dense solver inside the gate, **bit-identity no-op proofs**
-for every opt-in feature, and rotation-equivariance checks. The full evidence chain —
-five gate legs, oracle taxonomy, capability → fixture → *measured* agreement — lives in
-**[`docs/VERIFICATION.md`](docs/VERIFICATION.md)**. Highlights:
+這個 repo 收錄兩顆**完全獨立、零共用程式碼**的引擎,各自可獨立 build / test / release。
+*Two fully independent engines — no shared code, each builds, tests and ships on its own.*
 
-- MITC4 shell vs OpenSees' **own `ShellMITC4`**: ~1e-10 (flat/tilted), ~1e-7–1e-8 (skewed+warped).
-- 3-D co-rotational vs OpenSees `geomTransf Corotational`: 1.22e-9; arc-length limit load vs
-  `integrator ArcLength`: 6.4e-3.
-- Every incremental method (ReSolve, P-Delta frozen path, tension-only) is checked against a
-  fresh-factorization reference at ~1e-12 or better.
-- Measured agreements are reported separately from gate tolerances (which are looser on
-  purpose, for float/library headroom).
+### 📐 FrameCore — 結構力學引擎 / structural FEM engine
 
-**Positioning, honestly:** OpenSees is the *reference*, not a competitor — FrameCore's niche
-is an embeddable, engine-agnostic core with a POD API, interactive factorization-reuse, and
-a physics-engine debris handoff. The S1–S10 line was developed against a **Karamba3D
-benchmarking roadmap** (`docs/KARAMBA3D_ROADMAP.md`): some capabilities track it
-(second-order analysis, sizing/topology optimization, a parametric-CAD bridge), some lie
-outside its documented feature set in specific research directions (collapse dynamics,
-interactive reanalysis), and some of Karamba3D's strengths (EC3 design checks, the mature
-Grasshopper ecosystem) are explicitly not claimed.
+> 一顆自給自足的 C++17 + Eigen 三維有限元引擎:梁柱、MITC4 殼、完整線性分析、
+> 漸進式與動態倒塌、增量再分析、二階與大變形(共旋)、張力構件、塑性鉸、尺寸與拓樸最佳化,
+> 外加給 Grasshopper 用的文字 / C-API 橋接。
+>
+> **賣點**:它印出來的**每一個數字**都對得上一個獨立 oracle —— 解析解、已發表基準、
+> 以及 OpenSees 交叉驗證。MITC4 殼對 OpenSees 自家 `ShellMITC4` 達 ~1e-10;3-D 共旋對
+> `geomTransf Corotational` 達 1.22e-9。
+>
+> *A self-contained 3-D FEM engine where every printed number is checked against an
+> independent oracle (closed-form, published benchmarks, OpenSees).*
 
-## Scope boundaries (read this — the engine is honest about what it is *not*)
+**→ [閱讀 FrameCore README / Read the FrameCore README](Plugins/FrameSolver/README.md)**
+· [完整技術文件 / full reference](docs/FrameCore_full.md)
+· [驗證證據鏈 / verification](docs/VERIFICATION.md)
 
-- **D/C is an elastic / allowable-stress screen**, not RC ultimate strength or a design-code
-  check. Shear is screened on the peak stress; rectangular torsion uses a conservative
-  corner heuristic.
-- **The MITC4 shell is a flat 4-node facet**: curved surfaces converge under refinement
-  (benchmarks report it); one inherent low-energy element mode is documented and pinned by a
-  spectrum oracle. QM6/DKQ help membranes / thin plates respectively; DKQ has deliberately
-  **no** transverse shear. The grillage over-estimates transverse moments (~2 % deflection).
-- **Dynamics, buckling, response spectrum are linear** (proportional damping; buckling is the
-  onset eigenvalue). Shell buckling (opt-in shell K_σ) is **facet-level w-only stress stiffening**
-  verified against the analytic plate load (F57); a curved-shell buckling result is that facet K_σ
-  plus flat-facet mesh approximation — no curved-shell benchmark yet, and no post-buckling (that is
-  the shell co-rotational line). **P-Delta is a Theory-II linearization** (axial force frozen at first
-  order, small sway) — large displacement belongs to the co-rotational driver.
-- **The co-rotational driver is beams + opt-in EICR shells, small-strain / large-rotation**: nodal
-  loads, member UDL (initial-configuration equivalent) and prescribed displacement. Opt-in
-  `shellCorotational` adds EICR large-displacement MITC4 shells (NR load-control; rotation-invariant
-  to 1e-14, large-deflection strip to ~1e-4 of Mattiasson) — but **shell arc-length post-buckling,
-  CR-consistent shell-force recover and an analytic shell tangent are later phases**, and the
-  flat-facet O(1/N²) surface approximation is unchanged (the CR frame removes rigid rotation, not the
-  faceting). No hinge/tension-only coupling, no snap-back / bifurcation branching (cylindrical
-  arc-length follows the primary path); the consistent tangent is finite-difference, not analytic.
-- **The collapse driver is LSP-grade sequential linear analysis** (linear between events, no
-  inertia beyond scalar `dlf`, no membrane/catenary; literature places LSP at roughly ±30 %
-  on collapse extent — expect conservative results). **Hinges are event-to-event**: no
-  unloading/reversal, zero hinge length; S10 adds *uniaxial* N–M interaction only — no
-  My–Mz biaxial coupling, no N–M tangent. **No fiber sections / pushover, deliberately.**
-- **The dynamic-collapse driver is linear-elastic in modal space between events**; events
-  trigger on a whole step (O(dt)); truncated Ritz bases report their residual; the Chaos
-  handoff is one-way.
-- **ReSolve Tier-1 is formula-exact but not bit-identical** (rank-k Woodbury; ~1e-12 of a
-  fresh factor+solve, the residual being floating-point path difference). **Tier-2 is
-  tolerance-grade** (stale-factor PCG, ~1e-11 residual class). Only **Tier-3** (full
-  rebaseline) is correct by construction. The ladder assumes geometry/supports/sections
-  unchanged — anything else rebaselines automatically.
-- **FSD is the optimum only for statically determinate structures** (heuristic fixed point
-  otherwise); no lateral-torsional buckling, no displacement constraints. **BESO is a
-  heuristic** (no global-optimality claim); its sensitivity is linear-elastic and is
-  energy-exact only for UDL-free members (for a member under UDL the computed `½Qᵀu` is an
-  approximate screen, no quantified oracle — see `PROGRESS_S7.md`).
-- The **tension-only** model is an axial-sign active set with **no universal convergence
-  guarantee**: a cycle-hash guard detects loops and switches to a monotone (deactivate-only)
-  fallback that terminates in ≤ nTO+1 steps. No pretension, no slack length, no cable sag.
-- **Arc-length snap-through (`CorotationalOptions::arcLength`) needs an explicit step**.
-  The `arcLength=0` auto fallback derives an initial step from the first tangent and
-  `loadSteps`; for soft-direction structures (shallow arches, thin shells) this can
-  jump over the entire snap region in a single step. **Set `arcLength` manually to
-  1 %–5 % of the characteristic rise or expected mid-span deflection** (e.g. `0.03` for
-  a `rise=1.0` shallow arch). The auto fallback is a coarse starting point only; the
-  corrector may still report `converged=true` on a post-snap equilibrium without ever
-  flagging the missed limit load. Arc-length also assumes a non-zero reference load
-  vector — `arcLengthSolve` rejects an empty `Fext_f` with a clear diagnostic
-  (Crisfield's cylindrical constraint is geometrically meaningless at zero load).
-- **Curved shells need mesh refinement** — the engine now has an *opt-in guard*. The MITC4
-  facet is flat, so a curved shell's membrane / bending forces converge as O(1/N²). Honest
-  numbers: an internally pressurised cylinder with N=8 sides around the circumference
-  under-predicts the hoop membrane force by **7.6 %**; N=16 gives 1.9 %, N=32 gives 0.48 %,
-  N=64 gives 0.12 %. **Use at least 16 facets per 90° of curvature** for a 2 % engineering
-  tolerance. Set `SolveOptions::shellCurvatureMaxAngleDeg = 22.5` (16-per-90°) to have
-  `assembleAndFactor` *refuse* a too-coarse mesh up front with a diagnostic naming the
-  worst-pair shells — R2.1 AC-07 fix (F64b in the standalone gate). Default 0 keeps v2.0
-  behaviour bit-identical.
-- **Linear-buckling eigenvalues over-predict real buckling loads for thin shells** — the
-  engine now produces a *design-grade* number when asked. `BucklingAnalysis` returns both
-  the raw eigenvalue (`reportedCriticalFactor`) and a knocked-down design value
-  (`criticalFactor = alpha · raw`); `knockdownFactor` records the alpha. Set
-  `BucklingOptions::shellBucklingKnockdown` to the relevant code-style alpha (e.g. 0.65
-  per NASA SP-8007 for axially compressed cylinders, 0.7 for general fabrication) and the
-  result is immediately usable for code checks (R2.1 AC-06 fix, F64a). Default 0 keeps
-  the raw eigenvalue (bit-identical to v2.0). The linear analysis still ignores imperfections,
-  post-buckling softening, and large-displacement coupling — for a definitive analysis use
-  the shell co-rotational arc-length path (later phase).
+### 📏 LevelSim — 水準儀模擬器 / surveying-level simulator
 
-Per-stage limitation lists (more detailed than the above) close every
-`docs/PROGRESS_S*.md`.
+> 一個可玩的測量教學關卡(對標測量丙級術科 04200 高程站):整平腳螺旋、瞄準制動微動、
+> 對光景深、估讀到毫米、填手簿、評分。
+>
+> **賣點**:**所有會評分的數字都來自純 C++ 測量核心** `levelsim::`(補償器殘餘誤差、
+> 視準軸 i 角都折入真值);UE 只負責渲染與輸入。像素級 oracle 從截圖反推十字絲讀數,
+> 證明「玩家所見 == 核心所算」(BM 0.04mm / P1 0.24mm)。
+>
+> *A playable surveying-level training level — all scored numbers come from a pure C++
+> core; a pixel-level oracle proves "what the player sees == what the core computes".*
+
+**→ [閱讀 LevelSim README / Read the LevelSim README](Plugins/LevelSim/README.md)**
 
 ---
 
-## Build & test
+## 這個專案到底是什麼 · What this project is
 
-**Standalone gate (fastest — seconds):** compiles FrameCore + the oracle fixtures and runs them.
+「建築師模擬器」的主軸不是做一個漂亮的遊戲外殼,而是**先把底層的工程數值做對、做誠實、
+做到可被獨立驗證**,再往上長互動與呈現。所以每顆引擎的核心都遵守同一條紀律:
+
+> **凡是會被相信的數字,都必須對得上一個它自己沒參與計算的 oracle。**
+> *Every number anyone might trust must match an oracle that didn't help compute it.*
+
+*The point of this project is correctness-first, honesty-first engineering numerics that
+can be independently verified — then build interactivity and presentation on top.*
+
+| | FrameCore | LevelSim |
+|---|---|---|
+| 領域 / domain | 結構有限元 / structural FEM | 工程測量 / surveying |
+| 核心語言 / core | 純 C++17(POD API,零 UE/Eigen 洩漏) | 純 C++17(POD API) |
+| oracle | 解析解 · 已發表基準 · OpenSees | 真值物理模型 · 像素級截圖反推 |
+| 狀態 / status | `v4.0.0` 引擎凍結 / engine frozen | 核心 4 輪審核收斂 + 可玩 MVP |
+| 自動驗證 / gate | 5-leg gate(standalone/UE/OpenSees/audit/CLI) | `level_gate` 115 asserts + 煙霧截圖 oracle |
+
+宿主是一個 Unreal Engine 5 專案(`ArchSim.uproject`),兩顆引擎都以 UE 外掛形式掛在底下。
+*The host is a UE5 project (`ArchSim.uproject`); both engines plug in as UE modules.*
+
+---
+
+## 快速開始 · Quick start
 
 ```bat
+:: FrameCore — 秒級結構引擎 gate(印出 ALL PASS）
 Plugins\FrameSolver\Standalone\build.bat
-```
-Expected: `[PASS] Fn …` lines, then `ALL PASS (failures=0)`, exit 0. (Needs Visual Studio
-with the C++ toolset, located via `vswhere`; **and** a conda `framecore-direct` env with OpenBLAS +
-METIS — the standalone gate now links the opt-in supernodal lane, and `build.bat` exits 1 without it.
-If conda is installed off `%USERPROFILE%\anaconda3`, set `SUPERNODAL_CONDA=<conda-root>\envs\framecore-direct\Library`
-before running so `build.bat` picks up the right OpenBLAS+METIS install.)
 
-**One-click five-leg gate** (standalone + UE automation + OpenSees + deep audit + CLI):
-
-```powershell
-powershell -ExecutionPolicy Bypass -File Scripts\run_gate.ps1 -RequireOpenSees
+:: LevelSim — 一鍵開玩(視窗化）
+Plugins\LevelSim\run_game.bat
 ```
 
-**Unreal Engine** (the engine as a UE module): open `ArchSim.uproject`, or headless:
+各引擎的完整建置 / 測試 / 玩法說明,請進各自的 README。
+*Full build / test / play instructions live in each engine's README (linked above).*
 
-```bat
-Engine\Build\BatchFiles\Build.bat ArchSimEditor Win64 Development -project=...\ArchSim.uproject
-Engine\Binaries\Win64\UnrealEditor-Cmd.exe ...\ArchSim.uproject -ExecCmds="Automation RunTests FrameCore; Quit" -unattended -nullrhi -nopause
-```
+---
 
-> `run_gate.ps1` runs the UE automation but does **not** rebuild the UE module — rebuild
-> first (command above) after touching engine code, or the automation runs a stale binary.
-> The `$ExpectedUeTests = 120` guard catches a silently-missing test (v3.5 bumped 98→120 for the 22 new visual-surface tests; v3.4 bumped 72→98)
-> 72→98 with the 26 `FrameCore.UE.*` Phase 1-5 tests: 3 input USTRUCT + 5 output marshal
-> + 5 linear analysis library + 7 nonlinear analysis library + 6 shell opt-in plumbing;
-> v3.3.0 added 2 `FrameCoreUE.*` tests (ActorStressMeshTest + MarshalJsonTest);
-> v3.2.1 added 8 `FrameCore.UE.*` Phase 6 a-h tests; v3.2.0 bumped 60→62 with
-> `BlueprintSmokeTest` + `EditorSmokeTest`; v3.1.0 bumped 59→60 with
-> `FFrameCoreStressFieldTest`; v2.11.1-RC bumped 58→59 with
-> `FFrameCoreGpuBacksubStrictTest`; v2.11 Phase 7 bumped 57→58 for
-> `FFrameCoreGpuBacksubTest`). On a box without cuDSS the two GPU tests compile out
-> via `#if FRAMECORE_CUDA` — pass `-ExpectedUeTests 118` (v3.5 visual-surface tests are not CUDA-gated).
+## 文件地圖 · Documentation
 
-**Try the engine without writing C++** — the text bridge solves a model from stdin:
-
-```bat
-Plugins\FrameSolver\Standalone\build_cli.bat
-(
-  echo MAT 210000 80769 7850
-  echo SEC 10000 8.333e6 8.333e6 1.406e7 50 50 8333 8333
-  echo NODE 0 0 0 0  1 1 1 1 1 1
-  echo NODE 1 2000 0 0  0 0 0 0 0 0
-  echo MEMBER 0 0 1 0 0  0 0 1
-  echo NLOAD 1 0 0 -1000 0 0 0
-  echo END
-) | Plugins\FrameSolver\Standalone\frame_cli.exe
-```
-
-A 2 m cantilever with a 1 kN tip load — the `DISP` row for node 1 reports the
-`-PL³/3EI` tip deflection.
-
-(Full wire protocol — shells, modal, collapse, sizing, co-rotational, arc-length — in
-[`docs/CLI_PROTOCOL.md`](docs/CLI_PROTOCOL.md).)
-
-## Minimal use (C++)
-
-```cpp
-#include "FrameCore/FrameSolver.h"
-#include "FrameCore/ElasticAllowable.h"
-using namespace frame;
-
-Material mat(210000.0, 80769.0, 7850.0);            // E, G (MPa), rho
-mat.cap = Capacity::make(300.0, 300.0, 180.0);      // allowable comp/tens/shear (MPa)
-Section sec = Section::Rectangular(100.0, 100.0);   // b, d (mm)
-
-FrameModel m;
-m.materials = { mat };  m.sections = { sec };       // material index 0, section index 0
-Node n0(0, 0,0,0);  n0.fixAll();                    // encastre base
-Node n1(1, 2000,0,0);                               // 2 m cantilever
-m.nodes = { n0, n1 };
-m.members = { Member(0, 0, 1, 0, 0) };              // matIdx = 0, secIdx = 0
-NodalLoad p;  p.node = 1;  p.comp[Uz] = -1000.0;    // 1 kN tip load
-m.nodalLoads = { p };
-
-SolveResult r = solve(m);                           // SolveOptions optional
-if (!r.singular) {
-    double tip = r.disp(1, Uz);                     // = -PL^3/3EI
-    DemandResult d = ElasticAllowable{}.checkSection(r.memberForces[0].endI, sec, mat.cap);
-    // d.risk (D/C), d.mode (governing failure mode)
-}
-```
-
-> **Material/Section by index:** `Member`/`ShellQuad` reference material & section by
-> **index** (`matIdx`/`secIdx`) into `FrameModel::materials`/`sections` — adding
-> nodes/members/materials can never dangle them; `validate()` range-checks the indices.
-
-## Repository layout
-
-```
-ArchSim.uproject                       UE host project (engine-as-module shell)
-Plugins/FrameSolver/
-  Source/FrameCore/                     the engine (pure C++17 + Eigen, UE-agnostic)
-    Public/FrameCore/*.h                POD-only public API (model, solver, analyses,
-                                        collapse, reanalysis, corotational, optimization)
-    Private/*.cpp                       implementation (+ Private/FrameEigen.h: the single
-                                        Eigen include site, dual-build guarded)
-    Private/Tests/*.cpp                 60 UE automation tests (FrameCore.*, UE-side oracle mirrors)
-  Source/FrameCoreUE/                   v3.2.0+ consumer-side BP/USTRUCT reflection module
-    Private/Tests/*.cpp                 75 UE automation tests (FrameCore.UE.*, v3.5 visual-surface actors Phase 1-8 + v3.6 C6/C7/C8 along-span data line)
-                                        Total UE gate count: 135 w/ cuDSS, 133 without (FROZEN under v4.0.0 stable seal)
-  Standalone/                           console gates + CLI/C-API drivers (see its README)
-  Grasshopper/                          C# reference client for the text bridge
-Scripts/run_gate.ps1                    the one-click five-leg gate
-Tools/                                  validation tools (drive frame_cli.exe): opensees_compare,
-                                        pdelta_compare, cli_roundtrip, precision audits
-docs/                                   see docs/README.md — architecture, verification map,
-                                        wire protocol, per-stage progress records, specs
-```
-
-## Documentation map
-
-| Document | What it is |
+| 文件 / doc | 內容 / what it is |
 |---|---|
-| [`docs/VERIFICATION.md`](docs/VERIFICATION.md) | **the evidence chain**: capability → oracle → gate fixture → measured agreement |
-| [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) | data model, solve pipeline, conventions, element abstraction |
-| [`docs/CLI_PROTOCOL.md`](docs/CLI_PROTOCOL.md) | the `frame_cli` wire protocol |
-| per-stage records ([`docs/README.md`](docs/README.md) indexes `PROGRESS_S1.md` … `S10.md`) | what each stage built, its oracles, its honest limits |
-| [`docs/README.md`](docs/README.md) | full docs index — including which documents are historical records |
+| [`Plugins/FrameSolver/README.md`](Plugins/FrameSolver/README.md) | FrameCore 門面 README(策展版)/ curated engine README |
+| [`Plugins/LevelSim/README.md`](Plugins/LevelSim/README.md) | LevelSim 門面 README / surveying engine README |
+| [`docs/FrameCore_full.md`](docs/FrameCore_full.md) | FrameCore 完整技術參考 + 發行歷史 / full reference + history |
+| [`docs/VERIFICATION.md`](docs/VERIFICATION.md) | 能力 → oracle → gate fixture → 量測一致性 / the evidence chain |
+| [`docs/README.md`](docs/README.md) | 完整 docs 索引 / full docs index |
 
-## Roadmap (unimplemented, in rough order of value)
+---
 
-- **Visualization data line (C6–C8):** along-member BMD/SFD diagrams, utilization fields,
-  redundancy reporting for a UI.
-- **UE5 visualization layer:** collapse replay from `CollapseStep` snapshots,
-  `FragmentCluster` → Chaos debris, D/C heat-maps — consuming the existing POD results.
-- **S11 — MITC9i higher-order shell** (last on purpose: nine engine seams must move first).
-- True material nonlinearity (fiber sections / pushover) stays **deliberately excluded**.
+## 授權 · License
 
-## License / use
+採用 **MIT License**(見 [`LICENSE`](LICENSE))—— 畢業專題程式碼,開放重用與再散布。
+第三方相依與其授權收錄於 [`third_party/NOTICE.md`](third_party/NOTICE.md)。
+**OpenSees 僅用於離線驗證,不被散布或連結進引擎。**
 
-**FrameCore is released under the MIT License** — see [`LICENSE`](LICENSE) for the
-full text. Graduation-project code, open to reuse and redistribution.
-
-FrameCore's default solver depends only on **Eigen** (MPL-2.0, header-only, with
-`EIGEN_MPL2_ONLY` so the LGPL modules are excluded by the preprocessor).
-The opt-in supernodal lane (`SnSolver` / `SnSession` / `solveLoadSupernodal`,
-gated by `FRAMECORE_SUPERNODAL=1`) additionally links **OpenBLAS** (BSD-3-Clause)
-and **METIS** (Apache-2.0) via the conda `framecore-direct` env; the full
-third-party attribution text required by their licenses is collected in
-[`third_party/NOTICE.md`](third_party/NOTICE.md) — include it alongside any
-redistribution that ships the supernodal binaries.
-
-**OpenSees** is used for offline validation only (Python tooling under `Tools/`)
-and is **not** redistributed or linked into the engine.
+*MIT-licensed graduation-project code. OpenSees is used for offline validation only —
+never redistributed or linked into the engines.*
