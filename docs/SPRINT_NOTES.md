@@ -148,7 +148,51 @@ struct FFrameDemandSummary {
 
 ## Sprint S-01(W3-4,Gate 1)— A 層完整骨架
 
-(待 S-00 Gate 0 關閉後填)
+**狀態**:🟡 部分完成(A1-01..A1-06 落於 v0.1; A1-07 落於 v0.1.1)
+**起始日期**:2026-06-25(同 S-00 收尾日)
+**負責**:agent
+
+### Landed in v0.1(commit `389ebfb`)
+
+A1-01 .. A1-06:`UArchSimMemberData` ActorComponent + `UArchSimModelRegistry`
+GameInstanceSubsystem。`Member.Id == MemberIdx` 契約落在 `ArchSimModelRegistry.cpp:178`
+(`RegisterMember`)+ `:389`(`DeactivateMember`);常數 `kNodeMergeTolMm=1.0` /
+`kVerticalAxisDot=0.999` / `kCmToMm=10.0` / `MaxRank=96`(debounce 上限)。
+
+### Landed in v0.1.1(本 release)
+
+**A1-07 SaveLoadRoundTrip**:`Source/ArchSim/Private/Tests/ArchSimSaveLoadTest.cpp`
+新建。21+ sub-assertion 覆蓋:5 個 fake actor in-order 註冊 / 10 個 unique node /
+member id 序保留 / `RegisteredCount <= MaxRank=96` / 三個 `UPROPERTY(SaveGame)` 欄位
+(`MemberIdx` / `StructureGroupId` / `CachedUtilization`)經 `-1` scribble 後可由
+buffer 還原 / `Member.Id == MemberIdx` 契約 roundtrip 前後皆守。
+
+| 子議題 | 處置 |
+|---|---|
+| SPUD orchestration | **stub**:headless `-nullrhi -unattended` 不適合驅動 `USpudSubsystem`(需活的 World+Level+GameInstance + 磁碟 artefact)。改用 UE 官方 `FObjectAndNameAsStringProxyArchive` + `ArIsSaveGame=true`(SPUD 內部即用此 reflection 序列化路徑)。UPROPERTY(SaveGame) 真覆蓋 |
+| `UArchSimModelRegistry` 無 Outer 警告 | cosmetic;與既有 `FrameCoreUEInteractiveSubsystemTest` 同 fallback pattern |
+| 首跑 `nodeCount expected 10, got 2` | 真 bug:base `AActor` 無 `RootComponent`,`SpawnActor(...,Location,...)` 的 Location 被吞 → 5 actor transform 全 identity → 端點全 merge。修法:手動 `NewObject<USceneComponent>` + `SetRootComponent` + `SetActorLocation`(test 留 inline comment 給後人)|
+| `§` (U+00A7) MSVC escape 超範圍 | 改 ASCII `"section 4"`;test 內 UE_LOG 訊息全 ASCII |
+
+**Test 執行結果**(`Saved/Logs/ArchSim.log` 2026-06-25T07:37:49):
+```
+Test Completed. Result={成功} Name={SaveLoadRoundTrip}
+                Path={ArchSim.Persistence.SaveLoadRoundTrip}
+**** TEST COMPLETE. EXIT CODE: 0 ****
+```
+
+**Coverage gap(deferred 進 v0.2)**:`Scripts/run_gate.ps1` line 70 的
+`ExecCmds = 'Automation RunTests FrameCore; Quit'` 只跑 `FrameCore.*` namespace。
+`ArchSim.Persistence.SaveLoadRoundTrip` 在 `ArchSim.*` namespace,**目前不被 5-leg
+gate 收**。需在 S-02 加 `ArchSim.*` filter(`HANDOFF_v0.1.1.md §4 item #1`)。
+
+### 仍 deferred(進 S-02)
+
+- A1-06 full integration test
+- A2-01 ALS pawn 接入
+- Gate 0 視覺確認(SPRINT_NOTES L141-142 兩 checkbox 仍未打勾)
+- K1-T2 / K4 美術前置
+- ArchSim 命名空間進 `run_gate.ps1`(本 release 新增 deferred)
 
 ---
 
@@ -158,6 +202,7 @@ struct FFrameDemandSummary {
 |---|---|---|---|
 | 2026-06-25 | G1 Slope Filter 走 Landscape Spline(MVP)+ Custom PCG Node(Phase 2) | UE5.7 PCG 無 Attribute By Slope,Landscape Spline 是最簡單 MVP 解 | G1-T1 工時不變;Phase 2 新增 ~8h Custom Node |
 | 2026-06-25 | SPUD UE5.7 暫接受 StructUtils deprecated 警告 | MVP 不擋,SPUD 升級風險留 UE5.8+ 時驗證 | 鎖定 UE5.7 至 MVP 完成 |
+| 2026-06-25 | A1-07 SPUD orchestration 走 SaveGame proxy archive stub(不驅動 `USpudSubsystem`) | headless automation 不適合驅動完整 SPUD;proxy archive 是 SPUD 內部用的同一條 reflection 路徑,UPROPERTY(SaveGame) 真覆蓋 | S-02+ 接 SPUD orchestration 時需確認 `UArchSimMemberData` 在生產路徑非 `RF_Transient`(否則 SPUD 反射掃描跳過)|
 
 ---
 

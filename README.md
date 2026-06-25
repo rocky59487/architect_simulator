@@ -19,7 +19,26 @@ C++17-compatible; the UE module target is compiled as C++20 because of the curre
 > `v2.2+1` release packaged them together (FrameCore v2.2 + LevelSim v1.0.0). Every release
 > from `v2.3` onwards is FrameCore-only — LevelSim has not changed since `v2.2+1`.
 
-> **Status (2026-06-25, game-body `v0.1` — first UE5 consumer-side release):** The first
+> **Status (2026-06-25, game-body `v0.1.1` — patch: A1-07 SaveLoadRoundTrip):** Adds
+> the first automation oracle for the v0.1 ArchSim registry. New file:
+> `Source/ArchSim/Private/Tests/ArchSimSaveLoadTest.cpp` (262 lines,
+> `IMPLEMENT_SIMPLE_AUTOMATION_TEST FArchSimSaveLoadRoundTripTest`, test path
+> `ArchSim.Persistence.SaveLoadRoundTrip`). 21+ sub-assertions verify the
+> `Member.Id == MemberIdx` contract survives a UE SaveGame proxy-archive roundtrip
+> on the three `UPROPERTY(SaveGame)` fields of `UArchSimMemberData` (`MemberIdx` /
+> `StructureGroupId` / `CachedUtilization`). **SPUD orchestration is intentionally
+> stubbed** — `USpudSubsystem` requires a live World+Level+GameInstance that
+> headless automation cannot stand up cleanly; the proxy-archive IS the same
+> reflection serializer SPUD layers on top of, so the component's actual save path
+> is exercised. **Engine source delta vs v0.1 = 0** (FrameCore + FrameCoreUE +
+> LevelSim all untouched). **Coverage gap deferred to v0.2:** `Scripts/run_gate.ps1`
+> ExecCmds filter still hard-codes `'FrameCore;'` and does not pick up
+> `ArchSim.Persistence.SaveLoadRoundTrip` — the test runs via a standalone
+> Automation invocation (see [`docs/RELEASE_v0.1.1.md §3`](docs/RELEASE_v0.1.1.md)).
+> Release notes: [`docs/RELEASE_v0.1.1.md`](docs/RELEASE_v0.1.1.md) | handoff:
+> [`docs/HANDOFF_v0.1.1.md`](docs/HANDOFF_v0.1.1.md). v0.1 status block follows.
+
+> **Prior anchor — v0.1 (game-body first UE5 consumer-side release):** The first
 > UE5 game-body release built on top of FrameCore `v4.0.0` + LevelSim `v1` engines.
 > Adds **4 new MIT-licensed plugins** (`ALS-Refactored v4.17` / `Prefabricator UE5` /
 > `SPUD` / `SUQS`) under `Plugins/`, the new `Source/ArchSim/` module with
@@ -35,9 +54,9 @@ C++17-compatible; the UE module target is compiled as C++20 because of the curre
 > handoff: [`docs/HANDOFF_v0.1.md`](docs/HANDOFF_v0.1.md).
 > 5-leg gate PASS at S-00 close: standalone F1..F71 / UE 135 tests / OpenSees /
 > deep audit 104 / CLI roundtrip. Honest scope: UE Editor → Plugins panel visual
-> confirmation deferred to human action; `Source/ArchSim/` 4 new files un-exercised by
-> automation yet — Sprint S-02 adds `FrameCore.ArchSim.SaveLoadRoundTrip` UE automation
-> test. v4.0.0 FrameCore status block follows.
+> confirmation deferred to human action; `Source/ArchSim/` runtime oracle landed in
+> v0.1.1 above (`ArchSim.Persistence.SaveLoadRoundTrip`). v4.0.0 FrameCore status
+> block follows.
 
 > **Engine status (2026-06-23, v4.0.0 — stable long-term anchor; engine FROZEN):** Re-seal of v3.6.0 as **v4.0.0 stable**. `kEngineVer 3.6.0 → 4.0.0`; uplugin `VersionName 3.6.0 → 4.0.0`; `FRAMECORE_EXPECTED_ENGINE_VER` synced in `run_gpu_gate.ps1` + `release-gate.yml`; CLAUDE.md 鐵則 #1 carries a formal FROZEN marker. Engine source delta vs v3.6.0 = **0 lines** under `Plugins/FrameSolver/Source/FrameCore/`. No engine API or wire-ABI breaking changes; v4.0.0 is a "policy major bump" — the stability promise is that no v3.7 will ship and the engine algorithms are immutable from here. UE consumer code (`Plugins/FrameSolver/Source/FrameCoreUE/`) remains evolvable under v4.0.x patch / v4.1.x minor releases. See [`docs/RELEASE_v4.0.0.md`](docs/RELEASE_v4.0.0.md) + [`docs/HANDOFF_v4.0.0.md`](docs/HANDOFF_v4.0.0.md). v3.6.0 status block follows for historical context.
 
