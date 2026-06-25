@@ -19,23 +19,36 @@ C++17-compatible; the UE module target is compiled as C++20 because of the curre
 > `v2.2+1` release packaged them together (FrameCore v2.2 + LevelSim v1.0.0). Every release
 > from `v2.3` onwards is FrameCore-only — LevelSim has not changed since `v2.2+1`.
 
-> **Status (2026-06-25, game-body `v0.1.1` — patch: A1-07 SaveLoadRoundTrip):** Adds
-> the first automation oracle for the v0.1 ArchSim registry. New file:
+> **Status (2026-06-25, game-body `v0.1.2` — patch: 5-leg gate covers ArchSim namespace):**
+> Closes AS-01 from v0.1.1. `Scripts/run_gate.ps1` line 70 filter widens from
+> `'Automation RunTests FrameCore; Quit'` to
+> `'Automation RunTests FrameCore+ArchSim; Quit'` (UE Automation native
+> `+`-separated chain); line 29 `$ExpectedUeTests` bumps 135 → 136
+> (non-cuDSS fallback 133 → 134) with the cumulative-release comment append.
+> The 5-leg gate now formally enforces `ArchSim.Persistence.SaveLoadRoundTrip`
+> alongside the 135 FrameCore tests — `GATE: PASS  (standalone OK, UE 136 tests
+> green, OpenSees PASS, deep audit OK, CLI round-trip OK)` verified
+> 2026-06-25 on cuDSS host. **Engine source delta vs v0.1.1 = 0**; only the
+> gate driver was touched (FROZEN markers + entire historical release-breakdown
+> comment preserved). **鐵則 #2 now binds the game-body test surface too.**
+> Release notes: [`docs/RELEASE_v0.1.2.md`](docs/RELEASE_v0.1.2.md) | handoff:
+> [`docs/HANDOFF_v0.1.2.md`](docs/HANDOFF_v0.1.2.md). v0.1.1 status block follows.
+
+> **Prior anchor — v0.1.1 (game body patch: A1-07 SaveLoadRoundTrip):** First
+> automation oracle for the v0.1 ArchSim registry. New file:
 > `Source/ArchSim/Private/Tests/ArchSimSaveLoadTest.cpp` (262 lines,
 > `IMPLEMENT_SIMPLE_AUTOMATION_TEST FArchSimSaveLoadRoundTripTest`, test path
 > `ArchSim.Persistence.SaveLoadRoundTrip`). 21+ sub-assertions verify the
 > `Member.Id == MemberIdx` contract survives a UE SaveGame proxy-archive roundtrip
 > on the three `UPROPERTY(SaveGame)` fields of `UArchSimMemberData` (`MemberIdx` /
-> `StructureGroupId` / `CachedUtilization`). **SPUD orchestration is intentionally
-> stubbed** — `USpudSubsystem` requires a live World+Level+GameInstance that
-> headless automation cannot stand up cleanly; the proxy-archive IS the same
-> reflection serializer SPUD layers on top of, so the component's actual save path
-> is exercised. **Engine source delta vs v0.1 = 0** (FrameCore + FrameCoreUE +
-> LevelSim all untouched). **Coverage gap deferred to v0.2:** `Scripts/run_gate.ps1`
-> ExecCmds filter still hard-codes `'FrameCore;'` and does not pick up
-> `ArchSim.Persistence.SaveLoadRoundTrip` — the test runs via a standalone
-> Automation invocation (see [`docs/RELEASE_v0.1.1.md §3`](docs/RELEASE_v0.1.1.md)).
-> Release notes: [`docs/RELEASE_v0.1.1.md`](docs/RELEASE_v0.1.1.md) | handoff:
+> `StructureGroupId` / `CachedUtilization`). **SPUD orchestration intentionally
+> stubbed** — `USpudSubsystem` requires a live World+Level+GameInstance unavailable
+> under headless; the proxy-archive IS the same reflection serializer SPUD layers
+> on top of, so the component's actual save path is exercised. **Engine source
+> delta vs v0.1 = 0** (FrameCore + FrameCoreUE + LevelSim all untouched).
+> v0.1.1 left a gate-coverage gap (5-leg gate did not formally enforce the new
+> test) — **closed in v0.1.2 above**. Release notes:
+> [`docs/RELEASE_v0.1.1.md`](docs/RELEASE_v0.1.1.md) | handoff:
 > [`docs/HANDOFF_v0.1.1.md`](docs/HANDOFF_v0.1.1.md). v0.1 status block follows.
 
 > **Prior anchor — v0.1 (game-body first UE5 consumer-side release):** The first
