@@ -258,4 +258,164 @@ bool FArchSimSaveLoadRoundTripTest::RunTest(const FString& /*Parameters*/)
     return true;
 }
 
+// -----------------------------------------------------------------------------
+// AS-07: MaxRankCeiling -- stress-test what actually happens when the registered
+// member count crosses the A1-07 quoted 96-member threshold. The A1-07 SaveLoad
+// test asserts RegisteredCount <= 96 with only 5 members registered -- vacuous.
+// This test pushes to 97 and pins the *real* production semantic.
+//
+// Discovered behaviour (verified by code-read 2026-06-25):
+//   * UArchSimModelRegistry::RegisterMember (ArchSimModelRegistry.cpp:133-208)
+//     has NO register-count ceiling. The only -1 reject paths are:
+//       (a) nullptr Comp or nullptr Comp->GetOwner()              (cpp:135)
+//       (b) zero-length axis (PosJMm - PosIMm < 1 mm tolerance)    (cpp:161)
+//     -- and an idempotent re-call short-circuit at cpp:139.
+//   * MaxRankBeforeRebaseline = 96 (ArchSimModelRegistry.h:105) is the bound
+//     for PendingRankAccumulation inside RequestSolve (cpp:281-287), where
+//     "rank" = count of Deactivate/Reactivate toggles on the patch -- NOT
+//     register count.
+//   * Therefore: registering 97 members succeeds with valid contiguous indices.
+//     The force-rebaseline branch (cpp:284 bNeedsRebaseline = true) requires a
+//     live GameInstance + UWorld + FrameInteractiveSubsystem, which a transient
+//     headless registry lacks -- GetGameInstance() returns nullptr and
+//     RequestSolve early-returns at cpp:274. Exercising that branch is out of
+//     scope for a -nullrhi -unattended automation test.
+//
+// Defence: if a future refactor adds a register-count ceiling, this test fails
+// loud on the 97th register (TestEqual idx == 96), forcing the change to be
+// reflected in both the header comment and the A1-07 SaveLoadRoundTrip test.
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FArchSimMaxRankCeilingTest,
+    "ArchSim.Persistence.MaxRankCeiling",
+    EAutomationTestFlags_ApplicationContextMask | EAutomationTestFlags::SmokeFilter)
+
+bool FArchSimMaxRankCeilingTest::RunTest(const FString& /*Parameters*/)
+{
+    UE_LOG(LogTemp, Display,
+           TEXT("ArchSim.Persistence.MaxRankCeiling: stress-test registry at "
+                "register-count == 97 (one past A1-07's quoted 96 ceiling). "
+                "Production RegisterMember has no register-count ceiling -- "
+                "MaxRankBeforeRebaseline=96 (ArchSimModelRegistry.h:105) bounds "
+                "RequestSolve's patch-rank ladder, not registry size. This test "
+                "pins that semantic so a future refactor that conflates the two "
+                "surfaces fails loud."));
+
+    UWorld* World = FindSpawnWorld();
+    TestNotNull(TEXT("Spawn world located from GEngine contexts"), World);
+    if (!World) return false;
+
+    UArchSimModelRegistry* Registry = AcquireFreshRegistry();
+    TestNotNull(TEXT("Fresh ArchSimModelRegistry constructed"), Registry);
+    if (!Registry) return false;
+    TestEqual(TEXT("Registry starts empty"), Registry->GetRegisteredCount(), 0);
+
+    // ---- Register 97 disjoint beams (one past the A1-07 quoted ceiling) ----
+    // Same pattern as A1-07 SaveLoadRoundTrip: each component spans -50..+50 cm
+    // along local +X (1 m beam). Spread actors by 200 cm along world +X so
+    // adjacent endpoints sit 1 m apart -- safely above the 1 mm node-merge
+    // tolerance (kNodeMergeTolMm in ArchSimModelRegistry.cpp:16).
+    constexpr int32 NumMembers   = 97;
+    constexpr int32 CeilingValue = 96;
+    constexpr float ActorSepCm   = 200.f;
+
+    TArray<TStrongObjectPtr<AActor>> KeepActors;
+    TArray<UArchSimMemberData*>      Comps;
+    KeepActors.Reserve(NumMembers);
+    Comps.Reserve(NumMembers);
+
+    FActorSpawnParameters SP;
+    SP.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
+
+    for (int32 i = 0; i < NumMembers; ++i)
+    {
+        const FVector ActorLoc(ActorSepCm * static_cast<float>(i), 0.f, 0.f);
+        AActor* Actor = World->SpawnActor<AActor>(
+            AActor::StaticClass(), FTransform::Identity, SP);
+        if (!Actor)
+        {
+            AddError(FString::Printf(TEXT("Spawn[%d] failed"), i));
+            return false;
+        }
+
+        USceneComponent* Root = NewObject<USceneComponent>(
+            Actor, USceneComponent::StaticClass(), TEXT("Root"));
+        if (!Root)
+        {
+            AddError(FString::Printf(TEXT("Root[%d] failed"), i));
+            return false;
+        }
+        Actor->SetRootComponent(Root);
+        Root->RegisterComponent();
+        Actor->SetActorLocation(ActorLoc);
+
+        KeepActors.Emplace(Actor);
+
+        UArchSimMemberData* Comp = NewObject<UArchSimMemberData>(
+            Actor, UArchSimMemberData::StaticClass(), NAME_None, RF_Transient);
+        if (!Comp)
+        {
+            AddError(FString::Printf(TEXT("Comp[%d] failed"), i));
+            return false;
+        }
+        Comp->RegisterComponent();
+        Comps.Add(Comp);
+
+        const int32 Idx = Registry->RegisterMember(Comp);
+
+        if (i < CeilingValue)
+        {
+            // First 96 register cleanly with monotonic contiguous indices.
+            TestEqual(FString::Printf(TEXT("Pre-ceiling: idx[%d] in-order"), i),
+                      Idx, i);
+        }
+        else
+        {
+            // The crux. Documented production behaviour today: RegisterMember
+            // has no register-count ceiling, so the 97th call returns a valid
+            // monotonic index (== 96) rather than -1 / rebaselining.
+            TestNotEqual(TEXT("At-ceiling: 97th register did NOT reject (-1)"),
+                         Idx, -1);
+            TestEqual(TEXT("At-ceiling: 97th register returned next monotonic idx"),
+                      Idx, CeilingValue);
+        }
+    }
+
+    // Final inventory: all 97 sit cleanly in the model with stable contract.
+    TestEqual(TEXT("All 97 registrations counted"),
+              Registry->GetRegisteredCount(), NumMembers);
+
+    const FFrameModelDef& Model = Registry->GetCurrentModel();
+    TestEqual(TEXT("Model has 97 members"), Model.Members.Num(), NumMembers);
+    TestEqual(TEXT("Model has 194 nodes (97 disjoint beams)"),
+              Model.Nodes.Num(), NumMembers * 2);
+
+    for (int32 i = 0; i < NumMembers; ++i)
+    {
+        TestEqual(FString::Printf(TEXT("Contract: Member[%d].Id == i"), i),
+                  Model.Members[i].Id, i);
+        TestEqual(FString::Printf(TEXT("Contract: Component[%d].MemberIdx == i"), i),
+                  Comps[i]->MemberIdx, i);
+        TestTrue(FString::Printf(TEXT("Contract: Member[%d].bActive"), i),
+                 Model.Members[i].bActive);
+    }
+
+    // Registry remains well-defined post-ceiling: idempotent re-register of
+    // the 97th component returns the same idx and does not bump the count.
+    // This exercises the cpp:139 short-circuit path on a post-ceiling member.
+    const int32 ReRegisterIdx = Registry->RegisterMember(Comps[CeilingValue]);
+    TestEqual(TEXT("Post-ceiling idempotent re-register returns existing idx"),
+              ReRegisterIdx, CeilingValue);
+    TestEqual(TEXT("Post-ceiling idempotent re-register did not bump count"),
+              Registry->GetRegisteredCount(), NumMembers);
+
+    // ---- cleanup -----------------------------------------------------------
+    for (TStrongObjectPtr<AActor>& A : KeepActors)
+    {
+        if (A.IsValid()) { A->Destroy(); }
+    }
+    KeepActors.Reset();
+
+    return true;
+}
+
 #endif // WITH_DEV_AUTOMATION_TESTS

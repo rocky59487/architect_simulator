@@ -19,19 +19,38 @@ C++17-compatible; the UE module target is compiled as C++20 because of the curre
 > `v2.2+1` release packaged them together (FrameCore v2.2 + LevelSim v1.0.0). Every release
 > from `v2.3` onwards is FrameCore-only — LevelSim has not changed since `v2.2+1`.
 
-> **Status (2026-06-25, game-body `v0.1.2` — patch: 5-leg gate covers ArchSim namespace):**
-> Closes AS-01 from v0.1.1. `Scripts/run_gate.ps1` line 70 filter widens from
+> **Status (2026-06-25, game-body `v0.1.3` — patch: AS-07 MaxRankCeiling test + spec correction):**
+> AS-07 closure + public correction of a documented misunderstanding inherited
+> from v0.1.1 / v0.1.2. New test `ArchSim.Persistence.MaxRankCeiling` (+160 lines
+> appended to `Source/ArchSim/Private/Tests/ArchSimSaveLoadTest.cpp`) registers
+> 97 members and pins the **true** production semantic:
+> `UArchSimModelRegistry::RegisterMember` has **no register-count ceiling**.
+> `MaxRankBeforeRebaseline = 96` (`ArchSimModelRegistry.h:105`) bounds
+> `PendingRankAccumulation` inside `RequestSolve` (`cpp:281-287`) — the
+> patch-deactivate/reactivate rank ladder, NOT registry size. A1-07's
+> `RegisteredCount <= 96` assertion (still present in v0.1.1's test) was
+> vacuous (5 members trivially less than 96). `Scripts/run_gate.ps1` line 29
+> `$ExpectedUeTests` bumps 136 → 137 (non-cuDSS fallback 134 → 135) with
+> cumulative comment append. **Engine source delta vs v0.1.2 = 0**;
+> **production code delta vs v0.1.2 = 0** (鐵則 "do not change production to pass
+> a test" honoured — the test pins reality instead). Gate PASS `(UE 137 tests
+> green, ...)` 2026-06-25 on cuDSS host. Release notes:
+> [`docs/RELEASE_v0.1.3.md`](docs/RELEASE_v0.1.3.md) (includes §6 Spec
+> correction notice) | handoff: [`docs/HANDOFF_v0.1.3.md`](docs/HANDOFF_v0.1.3.md).
+> v0.1.2 status block follows.
+
+> **Prior anchor — v0.1.2 (game body patch: 5-leg gate covers ArchSim namespace):**
+> Closed AS-01 from v0.1.1. `Scripts/run_gate.ps1` line 70 filter widened from
 > `'Automation RunTests FrameCore; Quit'` to
 > `'Automation RunTests FrameCore+ArchSim; Quit'` (UE Automation native
-> `+`-separated chain); line 29 `$ExpectedUeTests` bumps 135 → 136
+> `+`-separated chain); line 29 `$ExpectedUeTests` bumped 135 → 136
 > (non-cuDSS fallback 133 → 134) with the cumulative-release comment append.
-> The 5-leg gate now formally enforces `ArchSim.Persistence.SaveLoadRoundTrip`
-> alongside the 135 FrameCore tests — `GATE: PASS  (standalone OK, UE 136 tests
-> green, OpenSees PASS, deep audit OK, CLI round-trip OK)` verified
-> 2026-06-25 on cuDSS host. **Engine source delta vs v0.1.1 = 0**; only the
-> gate driver was touched (FROZEN markers + entire historical release-breakdown
-> comment preserved). **鐵則 #2 now binds the game-body test surface too.**
-> Release notes: [`docs/RELEASE_v0.1.2.md`](docs/RELEASE_v0.1.2.md) | handoff:
+> The 5-leg gate formally enforced `ArchSim.Persistence.SaveLoadRoundTrip`
+> alongside the 135 FrameCore tests. **Engine source delta vs v0.1.1 = 0**;
+> only the gate driver was touched. **鐵則 #2 began binding game-body test
+> surface here.** v0.1.3 above bumps the count again to 137 for the AS-07
+> MaxRankCeiling addition. Release notes:
+> [`docs/RELEASE_v0.1.2.md`](docs/RELEASE_v0.1.2.md) | handoff:
 > [`docs/HANDOFF_v0.1.2.md`](docs/HANDOFF_v0.1.2.md). v0.1.1 status block follows.
 
 > **Prior anchor — v0.1.1 (game body patch: A1-07 SaveLoadRoundTrip):** First
