@@ -28,7 +28,7 @@ namespace FrameCore.Gh
         public override string  Version     => "2.0.0-alpha.1";
 
         // Used when ranking ribbon tabs (lower = leftmost).
-        public override GH_LibraryLicense AssemblyLicense => GH_LibraryLicense.OpenSource;
+        public override GH_LibraryLicense AssemblyLicense => GH_LibraryLicense.opensource;
     }
 
     /// <summary>

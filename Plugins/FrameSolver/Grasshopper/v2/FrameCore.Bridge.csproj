@@ -46,6 +46,11 @@
 
   <ItemGroup>
     <!-- System.Text.Json is in the BCL on net8.0; no PackageReference needed. -->
+    <!-- Keep Layer 3 zero-Rhino-dep. SDK-style projects include **/*.cs by default, so the
+         sibling Rhino layer must be explicitly excluded from this bridge assembly. -->
+    <Compile Remove="Rhino\**\*.cs" />
+    <EmbeddedResource Remove="Rhino\**\*" />
+    <None Remove="Rhino\**\*" />
   </ItemGroup>
 
 </Project>

@@ -27,15 +27,16 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
-    <TargetFramework>net7.0</TargetFramework>
+    <TargetFramework>net7.0-windows</TargetFramework>
     <LangVersion>11</LangVersion>
     <Nullable>enable</Nullable>
+    <UseWindowsForms>true</UseWindowsForms>
     <RootNamespace>FrameCore.Gh</RootNamespace>
     <AssemblyName>FrameCore.Gh</AssemblyName>
     <Version>2.0.0-alpha.1</Version>
     <Description>FrameCore — Rhino/Grasshopper components for the FEA bridge (S6c).</Description>
     <TargetExt>.gha</TargetExt>
-    <CopyLocalLockFileAssemblies>true</CopyLocalLockFileAssemblies>
+    <CopyLocalLockFileAssemblies>false</CopyLocalLockFileAssemblies>
     <!-- P0.1 parity with FrameCore.Bridge.csproj: viewport DrawArrow / pinned buffers in
          preview components occasionally want raw spans; keep the option open for parity. -->
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
@@ -48,9 +49,8 @@
       shipped Rhino without an update. Both packages are PrivateAssets="all" so the GHA does
       NOT ship them — Rhino provides them at load time.
     -->
-    <PackageReference Include="RhinoCommon"      Version="8.0.23304.15001" PrivateAssets="all" />
-    <PackageReference Include="Grasshopper"      Version="8.0.23304.15001" PrivateAssets="all" />
-    <PackageReference Include="Rhino.Inside"     Version="8.0.23304.15001" PrivateAssets="all" />
+    <PackageReference Include="RhinoCommon"      Version="8.1.23325.13001" PrivateAssets="all" ExcludeAssets="runtime" />
+    <PackageReference Include="Grasshopper"      Version="8.1.23325.13001" PrivateAssets="all" ExcludeAssets="runtime" />
   </ItemGroup>
 
   <ItemGroup>

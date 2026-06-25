@@ -19,6 +19,7 @@
 //   the engine via FrameSession (B4 wires this when DYNC streaming lands).
 
 using System;
+using System.Collections.Generic;
 using System.Diagnostics;
 using System.Threading;
 using System.Threading.Tasks;

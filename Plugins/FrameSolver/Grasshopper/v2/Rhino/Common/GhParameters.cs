@@ -9,7 +9,6 @@
 using FrameCore.Bridge.Model;
 using FrameCore.Gh.Common;
 using Grasshopper.Kernel;
-using Grasshopper.Kernel.Types;
 
 namespace FrameCore.Gh.GhParameters
 {

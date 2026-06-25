@@ -179,7 +179,7 @@ namespace FrameCore.Gh.Components.Setup
 
         // ----- Right-click menu (Profile + Reset) ---------------------------------------------
 
-        protected override void AppendAdditionalMenuItems(System.Windows.Forms.ToolStripDropDown menu)
+        public override void AppendAdditionalMenuItems(System.Windows.Forms.ToolStripDropDown menu)
         {
             base.AppendAdditionalMenuItems(menu);
             Menu_AppendItem(menu, "Profile: Simple (UE5)",   (_, __) => SetProfile(BridgeProfile.Simple),
