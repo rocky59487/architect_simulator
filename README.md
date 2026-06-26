@@ -19,7 +19,34 @@ C++17-compatible; the UE module target is compiled as C++20 because of the curre
 > `v2.2+1` release packaged them together (FrameCore v2.2 + LevelSim v1.0.0). Every release
 > from `v2.3` onwards is FrameCore-only — LevelSim has not changed since `v2.2+1`.
 
-> **Status (2026-06-26, game-body `v0.2.0` — minor: ALS pawn end-to-end, Sprint S-02 close):**
+> **Status (2026-06-26, game-body `v0.3.0` — minor: hardening + PIE-world test harness foundation, Sprint S-03 close):**
+> **Second v0.x → v0.X+1 minor bump** of the game-body line. Closes five v0.2.0
+> hardening audit findings (AS-15 Enhanced Input lifecycle refit via
+> `NotifyControllerChanged` + `RemoveMappingContext` + `Canceled` bindings +
+> `bNotifyUserSettings`; AS-16 `CalcCamera` override routing through
+> `UAlsCameraComponent::GetViewInfo`; AS-17 empty-`CurrentModel` `StartSession`
+> audit — Case A "no guard needed" because the engine's existing
+> `if (!Session->valid())` branch already cleans up Session + Cached and
+> returns false; and the LOW-batch AS-11/12/14/18/19 bundle) plus the
+> previously-deferred AS-13 PIE-world fixture (u1 ships a harness using the
+> proven `GEngine->GetWorldContexts()` pattern borrowed from FrameCoreUE
+> precedent, u2 ships three harness-based tests honestly distinguishing
+> Level-3 reachable advancement — instance Camera != null after
+> SpawnActor — from work that still requires Level 1/2 or true PIE).
+> **Engine source delta is zero** across the entire sprint: FrameCore v4.0.0
+> FROZEN and LevelSim v1 FROZEN both honoured. UE automation test count
+> 140 → **145** (cuDSS) / 138 → **143** (non-cuDSS) with one new
+> `FrameCore.UE.EmptyModelStartSession` (AS-17) plus four new ArchSim
+> harness tests (PieHarnessSmoke, PieRebaseline, PieDriverLoop,
+> PieInputRuntime). v0.4.0 spike (UE5.8 upgrade + Scenario editor)
+> eval-gated and deferred to S-04 per scope contract. Two new LOW backlog
+> items opened (AS-20 LogTemp → LogArchSim category upgrade; AS-24
+> FrameCoreUE NewObject outer for isolated-run robustness — pre-existing
+> since v3.5.1, not introduced by S-03). Six commits between v0.2.0 and
+> v0.3.0 with cumulative delta 23 files / +2893 / -50; latest:
+> `docs/RELEASE_v0.3.0.md` + `docs/HANDOFF_v0.3.0.md`.
+>
+> **Prior status (game-body `v0.2.0` — minor: ALS pawn end-to-end, Sprint S-02 close):**
 > **First v0.x → v0.X+1 minor bump** of the game-body line. Bundles all four
 > AS-03 units (a/b/c/d) atop the v0.1.5 patch line. The user-visible feature:
 > opening any default map now spawns the ALS-driven third-person character

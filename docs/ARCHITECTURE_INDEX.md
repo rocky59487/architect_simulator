@@ -7,8 +7,8 @@
 > **Owner:** session-driver skill (manager thread). Subagents read only.
 > Updated at Phase 6 of every release-hardening cycle.
 >
-> **Latest tag:** v0.2.0 (Sprint S-02 close — game-body demo-ready foundation)
-> **Prior tags this session:** v0.1.4 / v0.1.5 (patch bundles for AS-02a+AS-10 / AS-02b+AS-02c)
+> **Latest tag:** v0.3.0 (Sprint S-03 close — hardening + PIE-world test harness foundation)
+> **Prior tags this minor:** v0.2.0 (Sprint S-02 close — ALS pawn end-to-end) / v0.1.5 / v0.1.4 (patch bundles)
 
 ---
 
@@ -219,21 +219,26 @@ cross-call between these two subsystems, or convert either to a
 
 ## 6. UE test inventory
 
-`IMPLEMENT_SIMPLE_AUTOMATION_TEST` count (as of v0.2.0):
+`IMPLEMENT_SIMPLE_AUTOMATION_TEST` count (as of v0.3.0):
 
 | Namespace | Count | Source |
 |---|---|---|
 | `FrameCore.*` (standalone) | 60 | `Plugins/FrameSolver/Source/FrameCore/Private/Tests/` |
-| `FrameCore.UE.*` (UE automation) | 75 | `Plugins/FrameSolver/Source/FrameCoreUE/Private/Tests/` |
-| `ArchSim.*` (game body) | 5 | `Source/ArchSim/Private/Tests/` |
-| **5-leg gate total** | **140** (cuDSS) / **138** (non-cuDSS) | run via `Scripts/run_gate.ps1 -RequireOpenSees` |
+| `FrameCore.UE.*` (UE automation) | 76 | `Plugins/FrameSolver/Source/FrameCoreUE/Private/Tests/` |
+| `ArchSim.*` (game body) | 9 | `Source/ArchSim/Private/Tests/` |
+| **5-leg gate total** | **145** (cuDSS) / **143** (non-cuDSS) | run via `Scripts/run_gate.ps1 -RequireOpenSees` |
 
 **Recent additions:**
 - v0.1.1: `ArchSim.Persistence.SaveLoadRoundTrip`
 - v0.1.3: `ArchSim.Persistence.MaxRankCeiling`
-- v0.1.4: `ArchSim.Persistence.RebaselineCeiling` (AS-10; pins strict `>` semantic of MaxRankBeforeRebaseline=96 in RequestSolve cpp:281; 7 sub-checks including accumulator math, boundary 96 stays/97 grows, const-getter purity, multi-rank patch, empty-patch no-op; note: trip path unreachable in headless NewObject fixture due to GI-null early-return at cpp:275 — this is honest per AS-07 lesson #1)
+- v0.1.4: `ArchSim.Persistence.RebaselineCeiling` (AS-10; pins strict `>` semantic of MaxRankBeforeRebaseline=96 in RequestSolve; 7 sub-checks including accumulator math, boundary 96 stays/97 grows, const-getter purity, multi-rank patch, empty-patch no-op; note: trip path unreachable in headless NewObject fixture due to GI-null early-return — this is honest per AS-07 lesson #1)
 - v0.1.5: `ArchSim.Integration.TickDriver` (AS-02c; UArchSimGameInstance Tick telemetry + IsTickable filter smoke; 7 sub-checks; headless cannot exercise full registry-delta driver-loop branch because GetSubsystem returns null without a real GameInstance pipeline — deferred to PIE-world fixture as AS-13)
 - v0.2.0: `ArchSim.Gameplay.CharacterInput` (AS-03d; AArchSimCharacter + AArchSimGameMode CDO/reflection smoke; 7 sub-checks covering class hierarchy, GameMode wire, AS-03a controller-rotation flags, AS-03c camera default subobject, AS-03b Enhanced Input UPROPERTY slots; full input + locomotion runtime deferred to AS-13)
+- v0.3.0: `FrameCore.UE.EmptyModelStartSession` (AS-17; FrameInteractiveSubsystem empty-model graceful-fail oracle; 10 TestXxx assertions in 4 logical sub-checks — fully empty / partial empty / recovery after failure / double EndSession idempotency; engine validate() returns `"no nodes"` → diagnostic `"invalid model: no nodes"` → existing `if (!Session->valid())` guard fires)
+- v0.3.0: `ArchSim.Integration.PieHarnessSmoke` (AS-13-u1; PIE-world bootstrap helper self-verification; 8 sub-checks proving the proven `GEngine->GetWorldContexts()` pattern works in `-nullrhi` commandlet, three-level coverage contract honest about Level 3 fallback; `SpawnActor<AArchSimCharacter>` confirmed to succeed in commandlet)
+- v0.3.0: `ArchSim.Integration.PieRebaseline` (AS-13-u2; harness-based rebaseline accumulator validation; 7 sub-checks pinning 96 boundary + 97 no-reset math; honest defer of trip-path to Level 1/2 OR true PIE)
+- v0.3.0: `ArchSim.Integration.PieDriverLoop` (AS-13-u2; harness-based driver-loop observation; 7 sub-checks pinning World non-null + GI null in Level 3 + Tick safety + SolveTriggerCount stays 0; honest defer of full driver-loop firing)
+- v0.3.0: `ArchSim.Gameplay.PieInputRuntime` (AS-13-u2; harness-based runtime character state — genuine new coverage; 7 sub-checks pinning instance Camera != null (vs CDO null), controller-rotation flags, IA UPROPERTY slot contract, DestroyActor + IsValid lifecycle; full input/ALS state runtime deferred to true PIE because `SetupPlayerInputComponent`/`NotifyControllerChanged` are protected virtual)
 
 **Namespace convention for new tests:**
 - ArchSim tests: `ArchSim.<Category>.<TestName>` where Category ∈
@@ -256,10 +261,17 @@ cross-call between these two subsystems, or convert either to a
 | AS-08 | SPUD orchestration `RF_Transient` audit | 🟡 open (when wiring SPUD) | HANDOFF_v0.1.3.md §4 #6 |
 | AS-09 | Re-verify gate on non-cuDSS host | 🔵 deferred (opportunistic) | HANDOFF_v0.1.3.md §4 #7 |
 | AS-10 | Genuine PendingRankAccumulation ceiling test | ✅ closed v0.1.4 (headless fixture with honest limitation notice; getter telemetry added to header; 7 sub-checks; trip path requires live GI — deferred to future PIE-world test) | (closed) |
-| AS-11 | Header comment precision for rebaseline reset points | 🟡 backlog (LOW; cosmetic doc) | docs/logs/S-02/manager.md AS-10 NITS #2 |
-| AS-12 | `GetMaxRankBeforeRebaseline()` production consumer | 🟡 backlog (LOW; HUD/heatmap "rank budget" indicator OR TODO comment) | docs/logs/S-02/manager.md AS-10 NITS #3 |
-| AS-13 | PIE-world fixture for driver-loop + trip-path observability | 🟡 backlog (needed for full AS-10 trip path + AS-02 driver loop + AS-03d input runtime integration) | docs/logs/S-02/manager.md AS-02c + AS-10 + AS-03d closure notes |
-| AS-14 | Analog stick / gamepad input ClampMagnitude012D normalization | 🟡 backlog (LOW; HandleMove missing AlsVector clamp before view-space rotate) | docs/logs/S-02/manager.md AS-03b NITS #1 |
+| AS-11 | Header comment precision for rebaseline reset points | ✅ closed v0.3.0 (LOW-batch-u1; 6 stale `cpp:NNN` line-refs all rewritten to stable form `see RequestSolve body` / `see ExecuteSolve top + 3 early-exit paths` to avoid future drift) | (closed) |
+| AS-12 | `GetMaxRankBeforeRebaseline()` production consumer | ✅ closed v0.3.0 (LOW-batch-u1; TODO comment added above accessor noting HUD rank-budget indicator is the intended caller, out-of-S-03 scope; legitimate backlog'd TODO) | (closed) |
+| AS-13 | PIE-world fixture for driver-loop + trip-path observability | ✅ closed v0.3.0 (u1 ships harness using proven `GEngine->GetWorldContexts()` pattern; u2 ships 3 harness-based tests — `PieRebaseline` + `PieDriverLoop` + `PieInputRuntime` — honest Level 3 defer for trip-path + driver-loop, genuine new coverage for spawn-time character state) | (closed) |
+| AS-14 | Analog stick / gamepad input ClampMagnitude012D normalization | ✅ closed v0.3.0 (LOW-batch-u1; `UAlsVector::ClampMagnitude012D(Value.Get<FVector2D>())` substituted in `HandleMove`; ALS API signature verified via 3-point grep) | (closed) |
+| AS-15 | Enhanced Input lifecycle refit (NotifyControllerChanged + RemoveMappingContext + Canceled + bNotifyUserSettings) | ✅ closed v0.3.0 (AS-15-u1; mirror of ALS `AlsCharacterExample.cpp:19-49`; closes A-02/D-01/D-02/D-03/D-06 hardening findings; ~50 LOC net) | (closed) |
+| AS-16 | CalcCamera override for ALSCamera pipeline | ✅ closed v0.3.0 (AS-16-u1; routes through `UAlsCameraComponent::GetViewInfo` per ALS L51-60; `IsValid(Camera)` defensive prefix; ~8 code LOC) | (closed) |
+| AS-17 | empty-CurrentModel StartSession behavior audit | ✅ closed v0.3.0 (AS-17-u1; Case A no-guard-needed; engine `validate()` returns `false "no nodes"` → existing `if (!Session->valid())` guard fires; new test `FrameCore.UE.EmptyModelStartSession` pins the contract) | (closed) |
+| AS-18 | Two-GameInstanceSubsystem teardown order documentation | ✅ closed v0.3.0 (LOW-batch-u1; ~30-line paragraph added to §5 documenting why both teardown directions are race-safe via `EndSession` idempotency + `GetFrameSubsystem` null guard) | (closed) |
+| AS-19 | `UArchSimMemberData::BeginPlay` early-out warn/retry | ✅ closed v0.3.0 (LOW-batch-u1; Option A warn-only via `UE_LOG(LogTemp, Warning, ...)`; Option B retry-via-timer rejected at 35-45 LOC > 30 LOC threshold) | (closed) |
+| AS-20 | Upgrade `LogTemp` → shared `LogArchSim` log category | 🟡 backlog (LOW; cosmetic — `ArchSimMemberData.cpp` uses `LogTemp` while sister `ArchSimModelRegistry.cpp` has `LogArchSimRegistry` precedent) | docs/logs/S-03/manager.md AS-13-u1 review |
+| AS-24 | FrameCoreUE NewObject outer for InteractiveSubsystem isolated runs | 🟡 backlog (LOW; pre-existing since v3.5.1; `NewObject<UFrameInteractiveSubsystem>()` ClassWithin warning cascades to NotNull.cpp fatal in isolated test runs, but full gate suite handles non-fatally) | docs/logs/S-03/manager.md AS-13-u2 review |
 
 ---
 
@@ -301,7 +313,7 @@ cross-call between these two subsystems, or convert either to a
      `Plugins/FrameSolver/Source/FrameCoreUE/` (UE consumer side) **not** in
      FROZEN scope; still evolves under v4.0.x patch / v4.1.x minor.
 2. **Any FrameCore change must pass the 5-leg gate** — standalone F1..F71,
-   UE 140 (cuDSS) / 138 (non-cuDSS) as of v0.2.0, OpenSees strict,
+   UE 145 (cuDSS) / 143 (non-cuDSS) as of v0.3.0, OpenSees strict,
    linear_deep_audit 104, CLI round-trip. Run before commit:
    `Scripts\run_gate.ps1 -RequireOpenSees`.
 3. **Honest verify, no over-claiming** — every capability has an independent

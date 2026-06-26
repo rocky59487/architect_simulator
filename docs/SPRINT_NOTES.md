@@ -274,9 +274,38 @@ LevelSim delta = 0 (FROZEN v1).
 
 ## Sprint S-03 (2026-06-26) — game-body robustness + deferred AS-XX queue
 
-**狀態**: 🟡 進行中
+**狀態**: ✅ closed (2026-06-26, v0.3.0 minor bump)
 **起始日期**: 2026-06-26
-**負責**: agent (parallel dispatch rounds)
+**負責**: agent (3 dispatch rounds: parallel Round 1, sequential Rounds 2-3)
+**Sprint scope**: v0.2.0 deferred hardening backlog (AS-15/16/17 HIGH+MEDIUM + AS-13 MEDIUM) plus LOW cleanup batch (AS-11/12/14/18/19) + dedicated PIE harness foundation. v0.4.0 spike (UE5.8 + Scenario editor) eval-gated and deferred to S-04.
+**Tag bump**: 6 feature commits between `v0.2.0` (`58705d0`) and `v0.3.0` (release-hardening HEAD).
+
+### Headline
+
+Hardening release. Five of the v0.2.0 hardening audit findings closed
+(AS-15 Enhanced Input lifecycle, AS-16 CalcCamera override, AS-17
+empty-model audit, AS-11/12/14/18/19 LOW batch). One pre-existing
+deferred backlog (AS-13 PIE-world fixture) fully unblocked via a new
+helper namespace using the proven `GEngine->GetWorldContexts()` pattern
+borrowed from FrameCoreUE precedent, plus three new harness-based tests
+that honestly distinguish reachable Level-3 advancement from
+deferred-to-true-PIE work. **Engine source delta = 0** across the
+entire sprint; FrameCore v4.0.0 FROZEN and LevelSim v1 FROZEN both
+honoured. UE automation test count 140 → **145** (cuDSS) / 138 → **143**
+(non-cuDSS), +5 across AS-17 + AS-13-u1 + AS-13-u2.
+
+### Unit landings (Round → Unit → commit → verdict)
+
+| Round | Unit | Commit | Production LOC | Test LOC | Phase 3 | NITs / backlog |
+|---|---|---|---|---|---|---|
+| 1 (parallel) | LOW-batch-u1 (AS-11/12/14/18/19) | `8c6d14a` | ~+19 / -7 | 0 | NITS | → **AS-20** opened (LogTemp → LogArchSim) |
+| 1 (parallel) | AS-17-u1 (empty `StartSession` audit) | `7eeb77b` | 0 (engine FROZEN) | +89 | NITS | none |
+| 2 (seq) | AS-15-u1 (Enhanced Input lifecycle) | `6a8e97a` | ~+50 net | 0 | CLEAN | none |
+| 2 (seq) | AS-16-u1 (CalcCamera override) | `8ca4008` | +8 code / +42 LOC w/comments | 0 | NITS | none |
+| 3 (seq) | AS-13-u1 (PIE harness) | `f82f590` | 0 (test-only) | +315 | CLEAN | none |
+| 3 (seq) | AS-13-u2 (3 PIE tests) | `8c702a5` | 0 (test-only) | +406 | CLEAN | → **AS-24** opened (pre-existing FrameCoreUE NewObject outer) |
+
+Cumulative since `v0.2.0`: 23 files / +2893 / -50. **0 lines under any FROZEN path.**
 
 ### AS-17 audit conclusion (2026-06-26, Unit 2)
 
@@ -312,11 +341,11 @@ LevelSim delta = 0 (FROZEN v1).
 
 **Test oracle (pinned by** `FrameCore.UE.EmptyModelStartSession` **— NEW CODE):**
 
-8 sub-checks across 4 scenarios:
-- **Fully empty model**: `StartSession` returns `false`; `OutError` non-empty; `IsSessionActive() == false`
-- **Idempotent cleanup**: double `EndSession()` after failed start does not crash
-- **Partial empty (mat+sec, 0 nodes)**: also gracefully fails ("no nodes" from validate)
-- **Recovery**: subsequent valid cantilever `StartSession` succeeds (failed start does NOT leave dirty state)
+**10 `TestXxx` assertions organised across 4 logical sub-checks**:
+- **Fully empty model** (3 assertions): `StartSession` returns `false`; `OutError` non-empty; `IsSessionActive() == false`. Engine path produces `OutError == "invalid model: no nodes"` — `FrameSolver.cpp:41` wraps `validate()`'s `why = "no nodes"` with the `"invalid model: "` prefix.
+- **Idempotent cleanup** (1 assertion + behavioural check): double `EndSession()` after failed start does not crash (test runs the call; the `if (Session)` guard at `EndSession` makes it idempotent).
+- **Partial empty (mat+sec, 0 nodes)** (3 assertions): also gracefully fails — `nodes.empty()` is the canonical validator gate.
+- **Recovery** (3 assertions): subsequent valid cantilever `StartSession` succeeds; failed start does NOT leave dirty state (both `Session` and `Cached` were nulled in the guard branch).
 
 **Test result (2026-06-26T17:31):**
 ```
@@ -326,7 +355,7 @@ Test Completed. Result={成功} Name={EmptyModelStartSession} Path={FrameCore.UE
 
 **Files changed (AS-17-u1):**
 - `Plugins/FrameSolver/Source/FrameCoreUE/Private/Tests/FrameCoreUEInteractiveSubsystemTest.cpp`
-  — +1 `IMPLEMENT_SIMPLE_AUTOMATION_TEST(FFrameCoreUEEmptyModelStartSessionTest, ...)` (8 sub-checks)
+  — +1 `IMPLEMENT_SIMPLE_AUTOMATION_TEST(FFrameCoreUEEmptyModelStartSessionTest, ...)` (10 TestXxx assertions / 4 logical sub-checks)
 - `Scripts/run_gate.ps1` — `$ExpectedUeTests` 140 → 141 (non-cuDSS 138 → 139)
 
 ---
