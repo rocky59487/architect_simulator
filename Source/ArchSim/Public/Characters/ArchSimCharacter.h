@@ -67,6 +67,15 @@ protected:
     virtual void BeginPlay() override;
     virtual void EndPlay(const EEndPlayReason::Type EndPlayReason) override;
 
+    // AS-15: Enhanced Input lifecycle refit.
+    // Overrides APawn::NotifyControllerChanged() — the canonical UE hook that fires
+    // on possession, controller-swap, and unpossess.  Moving the IMC add/remove here
+    // (from BeginPlay) fixes three audit findings:
+    //   A-02 / D-01 / D-02: BeginPlay timing is wrong for re-possess and late-join;
+    //   D-03: missing RemoveMappingContext on controller swap → double-registration.
+    // Gold-standard precedent: Plugins/ALS/Source/ALSExtras/Private/AlsCharacterExample.cpp L19-49.
+    virtual void NotifyControllerChanged() override;
+
     virtual void SetupPlayerInputComponent(class UInputComponent* PlayerInputComponent) override;
 
     // ---- AS-03b: Enhanced Input handlers ----------------------------------

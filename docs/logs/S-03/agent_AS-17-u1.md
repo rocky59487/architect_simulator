@@ -170,3 +170,25 @@ None.
 - `IsSessionActive() == (Session != nullptr)` → verified via FrameInteractiveSubsystem.h:51.
 
 **Decision:** Accept with **3 NITS inline-fixable at Phase 5** (no new backlog needed; all are doc/cosmetic). Test rename (NITS-3) is a 1-line edit that can land in Phase 5 or as part of Unit 6 (PIE test bundle). Advance to Phase 4.
+
+---
+
+## Phase 4 — Feature commit (no tag) 2026-06-26T18:00
+
+**Mode:** Feature-commit only (per scope contract: v0.3.0 tag deferred to Unit 7 RELEASE).
+**Tag:** none.
+
+**Commit SHA:** `7eeb77b`
+**Files committed (4 — explicit `git add` per iron rule #5):**
+- `Plugins/FrameSolver/Source/FrameCoreUE/Private/Tests/FrameCoreUEInteractiveSubsystemTest.cpp` (+92)
+- `Scripts/run_gate.ps1` (140→141 cuDSS / 138→139 non-cuDSS)
+- `docs/SPRINT_NOTES.md` (AS-17 audit conclusion + sub-check breakdown)
+- `docs/logs/S-03/agent_AS-17-u1.md` (this log)
+
+**Stats:** 4 files / 321 insertions / 1 deletion.
+
+**Verification:** main-thread 5-leg gate PASS at HEAD prior to commit (Phase 3 record). UE 141 tests confirmed includes new FrameCore.UE.EmptyModelStartSession.
+
+**No publish action required** (no tag, no remote push until v0.3.0 release).
+
+**Next:** loop back to Phase 2 for Round 2 (Unit 3 AS-15-u1).

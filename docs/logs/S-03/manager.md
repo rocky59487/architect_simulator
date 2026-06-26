@@ -84,3 +84,33 @@ Both units accepted with NITS. Two reasonable per-unit feature commits:
 - Commit B: AS-17-u1 (1 test + 1 config + 1 docs SPRINT_NOTES.md)
 
 Phase 4 (release-hardening) for Round 1 — bundle decision deferred to Phase 4 skill (per-unit vs Round-bundle commit policy). No tag yet — v0.3.0 tag at Unit 7 RELEASE.
+
+## 2026-06-26T18:00 — Round 1 feature-committed (no tag)
+
+- Unit 1 LOW-batch-u1: commit `8c6d14a` (8 files / +685 / -13) — bundle includes scope/plan/manager.md (S-03 sprint open records)
+- Unit 2 AS-17-u1: commit `7eeb77b` (4 files / +321 / -1)
+- No tag (deferred to Unit 7 RELEASE for v0.3.0). No remote push pending.
+- 鐵則: FrameCore engine + LevelSim + .gitignore + .uproject + 4 ext plugins + build artifacts all 0 行
+- New backlog open: **AS-20** (LogTemp → LogArchSim category upgrade, LOW)
+
+## 2026-06-26T18:10 — Round 2 Unit 3 AS-15-u1 dispatched
+
+- Domain: ue5-engineer (primary)
+- Sequential dispatch (Round 2 of 4); Unit 4 (AS-16-u1, same-file co-tenancy) follows
+- Pre-flight: ALS precedent confirmed `AlsCharacterExample.cpp:19-49` (NotifyControllerChanged) + L62-88 (Canceled bindings on 4 hold-style actions)
+
+## 2026-06-26T18:23 — Unit 3 AS-15-u1 returned DONE
+
+- All 5 changes complete: header `NotifyControllerChanged` override decl + impl + BeginPlay IMC-add removed + Canceled bindings on Move/Look/Sprint/Jump (NOT Crouch — toggle protection) + skip bRegistered idempotency (matches ALS)
+- Files: header +11 / cpp +82/-43 (net +39 production)
+- Subagent ran full 5-leg gate themselves (sequential dispatch, no race): UE 141 / standalone / OpenSees / audit 104 / CLI ALL PASS @ 360s
+- Self-grading: 5/5 [VERIFIED] with grep oracle (Pawn.h:382 signature; ALS L19-49 precedent; bNotifyUserSettings flag; Canceled binding pattern; BeginPlay cleanup verified)
+
+## 2026-06-26T18:25 — Unit 3 AS-15-u1 reviewed CLEAN
+
+- Adversarial review: 5/5 dimensions verified file:line
+- Reviewer Read 6 files, grep'd 11 patterns, cross-checked 12 claims
+- 2 LOW findings (both cosmetic): warn msg prefix style (Phase 5 polish); ALS cite ±1 line (no action)
+- 鐵則 compliance ALL CONFIRMED — FROZEN 0 lines, ALS source READ-only, Phase 5 territory 0 lines
+- No new backlog opened
+

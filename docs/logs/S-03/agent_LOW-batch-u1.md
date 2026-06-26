@@ -120,3 +120,29 @@ None. 全部 5 個 AS 落地完整，無 forbidden path 觸碰，無超出預算
 - AS-11 stable form assumes RequestSolve/ExecuteSolve name stability.
 
 **Decision:** Accept with **AS-20 backlog opened** (LogTemp → LogArchSim upgrade); other 2 NITS deferred to Phase 5 docs sync (inline-fixable, no backlog). Advance to Phase 4.
+
+---
+
+## Phase 4 — Feature commit (no tag) 2026-06-26T18:00
+
+**Mode:** Feature-commit only (per scope contract: v0.3.0 tag deferred to Unit 7 RELEASE; this matches the "Aggregate multiple units into one tag (rare)" special case from work-phase-4-release SKILL.md scaled to 6 units → 1 minor tag at end).
+**Tag:** none (this commit + Unit 2's commit + remaining 4 units' commits will bundle under v0.3.0 at Phase 4 RELEASE).
+
+**Commit SHA:** `8c6d14a`
+**Files committed (8 — explicit `git add` per iron rule #5, no `-A`):**
+- `Source/ArchSim/Public/Subsystems/ArchSimModelRegistry.h`
+- `Source/ArchSim/Private/Characters/ArchSimCharacter.cpp`
+- `Source/ArchSim/Private/Components/ArchSimMemberData.cpp`
+- `docs/ARCHITECTURE_INDEX.md`
+- `docs/logs/S-03/scope_2026-06-26T1652.md` (sprint open record)
+- `docs/logs/S-03/plan_2026-06-26T1652.md` (sprint open record)
+- `docs/logs/S-03/manager.md` (sprint log)
+- `docs/logs/S-03/agent_LOW-batch-u1.md` (this log)
+
+**Stats:** 8 files / 685 insertions / 13 deletions.
+
+**Verification:** main-thread 5-leg gate PASS at HEAD~1 prior to commit (Phase 3 record).
+
+**No publish action required** (no tag, no remote push until v0.3.0 release).
+
+**Next:** loop back to Phase 2 for Round 2 (Unit 3 AS-15-u1).

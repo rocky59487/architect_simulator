@@ -52,49 +52,107 @@ void AArchSimCharacter::BeginPlay()
     Super::BeginPlay();
     UE_LOG(LogArchSim, Display,
            TEXT("AArchSimCharacter BeginPlay: %s"), *GetName());
+    // AS-15: IMC registration moved to NotifyControllerChanged().
+    // BeginPlay does NOT call AddMappingContext directly — doing so is wrong for
+    // re-possess, server-side spawns, and late-join scenarios (audit A-02/D-01/D-02).
+    // NotifyControllerChanged fires on every possession event and handles both
+    // RemoveMappingContext (previous controller) and AddMappingContext (new controller).
+}
 
-    // AS-03b: Register the default Input Mapping Context with the local player's
-    // Enhanced Input subsystem.  This runs on the client that owns this pawn;
-    // listen-server or dedicated-server builds skip gracefully via LocalPlayer null.
-    if (!IsValid(DefaultMappingContext))
+// AS-15: Enhanced Input lifecycle refit.
+// Mirrors Plugins/ALS/Source/ALSExtras/Private/AlsCharacterExample.cpp L19-49.
+//
+// Why NotifyControllerChanged (not BeginPlay)?
+//   APawn::NotifyControllerChanged() fires on:
+//     • initial possession (BeginPlay timing is fine here too, but redundant)
+//     • controller swap mid-game (BeginPlay does NOT re-fire → stale IMC on new PC)
+//     • unpossess (PreviousController populated → we can clean up cleanly)
+//   BeginPlay fires exactly once at spawn — misses any subsequent controller change.
+//
+// Why RemoveMappingContext on PreviousController?
+//   Without removal, a re-possess on a different PlayerController accumulates IMC
+//   registrations.  The subsystem is per-LocalPlayer, so PreviousController's
+//   subsystem is a different instance than NewController's — we must remove from
+//   the old one explicitly (D-03).
+//
+// bNotifyUserSettings=true:
+//   Triggers the UserSettings (UEnhancedInputUserSettings) rebind path so that
+//   any player-customised key bindings stored in the save profile are applied
+//   immediately on possession.  Cosmetically identical when no custom profile
+//   exists, but required for the settings pipeline to work at all.
+//
+// Idempotency (Change 5 evaluation):
+//   ALS does NOT add an "already registered?" guard.  UEnhancedInputLocalPlayerSubsystem
+//   tracks registered contexts by pointer; AddMappingContext with the same IMC twice
+//   is defined behaviour (second call bumps the priority if priority differs, otherwise
+//   is a no-op in practice).  UE guarantees NotifyControllerChanged does not double-fire
+//   for the same controller in a single possession.  We follow ALS precedent and skip
+//   the guard — adding it would diverge from the reference pattern without evidence of
+//   a real double-fire case on our platform.
+void AArchSimCharacter::NotifyControllerChanged()
+{
+    // 1. Remove IMC from the previous controller's subsystem (handles controller swap
+    //    and unpossess).  PreviousController is set by APawn before this virtual fires.
+    const APlayerController* PreviousPlayer = Cast<APlayerController>(PreviousController);
+    if (IsValid(PreviousPlayer))
     {
-        UE_LOG(LogArchSim, Warning,
-               TEXT("AArchSimCharacter (%s): DefaultMappingContext is null — "
-                    "assign IMC_ArchSimDefault in the Blueprint Details panel "
-                    "(ArchSim|Input). Input will not work."),
-               *GetName());
-        return;
+        UEnhancedInputLocalPlayerSubsystem* InputSubsystem =
+            ULocalPlayer::GetSubsystem<UEnhancedInputLocalPlayerSubsystem>(
+                PreviousPlayer->GetLocalPlayer());
+        if (IsValid(InputSubsystem))
+        {
+            InputSubsystem->RemoveMappingContext(DefaultMappingContext);
+        }
     }
 
-    const APlayerController* PC = Cast<APlayerController>(GetController());
-    if (!IsValid(PC))
+    // 2. Register IMC with the new controller's local-player subsystem.
+    APlayerController* NewPlayer = Cast<APlayerController>(GetController());
+    if (IsValid(NewPlayer))
     {
-        // Not locally controlled (e.g. AI pawn or dedicated server bot) — skip.
-        return;
-    }
+        // ALS convention: reset deprecated input scale factors so legacy input
+        // pipeline (pre-UE5 yaw/pitch multipliers) doesn't interfere with Enhanced
+        // Input delta values.  Mirrors AlsCharacterExample.cpp L34-36.
+        NewPlayer->InputYawScale_DEPRECATED   = 1.0f;
+        NewPlayer->InputPitchScale_DEPRECATED = 1.0f;
+        NewPlayer->InputRollScale_DEPRECATED  = 1.0f;
 
-    ULocalPlayer* LocalPlayer = PC->GetLocalPlayer();
-    if (!IsValid(LocalPlayer))
-    {
-        UE_LOG(LogArchSim, Warning,
-               TEXT("AArchSimCharacter (%s): GetLocalPlayer() returned null — "
-                    "IMC not registered."),
-               *GetName());
-        return;
+        UEnhancedInputLocalPlayerSubsystem* InputSubsystem =
+            ULocalPlayer::GetSubsystem<UEnhancedInputLocalPlayerSubsystem>(
+                NewPlayer->GetLocalPlayer());
+        if (IsValid(InputSubsystem))
+        {
+            if (!IsValid(DefaultMappingContext))
+            {
+                // IMC null warning — fired at possession time rather than BeginPlay.
+                // The asset must be assigned in the derived Blueprint's Details panel
+                // (ArchSim|Input category).  See docs/INPUT_MAPPING.md.
+                UE_LOG(LogArchSim, Warning,
+                       TEXT("AArchSimCharacter (%s): DefaultMappingContext is null — "
+                            "assign IMC_ArchSimDefault in the Blueprint Details panel "
+                            "(ArchSim|Input). Input will not work."),
+                       *GetName());
+            }
+            else
+            {
+                // bNotifyUserSettings=true: activates the UEnhancedInputUserSettings
+                // rebind path so player-customised key mappings (saved in a profile)
+                // are applied immediately on possession.
+                FModifyContextOptions Options;
+                Options.bNotifyUserSettings = true;
+                InputSubsystem->AddMappingContext(DefaultMappingContext, /*Priority=*/0, Options);
+            }
+        }
+        else
+        {
+            UE_LOG(LogArchSim, Warning,
+                   TEXT("AArchSimCharacter (%s): UEnhancedInputLocalPlayerSubsystem "
+                        "not found — is EnhancedInput enabled in project plugins?"),
+                   *GetName());
+        }
     }
+    // Not locally controlled (AI pawn / dedicated server): no subsystem to touch.
 
-    UEnhancedInputLocalPlayerSubsystem* InputSubsystem =
-        ULocalPlayer::GetSubsystem<UEnhancedInputLocalPlayerSubsystem>(LocalPlayer);
-    if (!IsValid(InputSubsystem))
-    {
-        UE_LOG(LogArchSim, Warning,
-               TEXT("AArchSimCharacter (%s): UEnhancedInputLocalPlayerSubsystem "
-                    "not found — is EnhancedInput enabled in project plugins?"),
-               *GetName());
-        return;
-    }
-
-    InputSubsystem->AddMappingContext(DefaultMappingContext, /*Priority=*/0);
+    Super::NotifyControllerChanged();
 }
 
 void AArchSimCharacter::EndPlay(const EEndPlayReason::Type EndPlayReason)
@@ -126,9 +184,18 @@ void AArchSimCharacter::SetupPlayerInputComponent(UInputComponent* PlayerInputCo
     // Bind only if the IA asset is set; log warnings for missing slots so the
     // developer sees exactly which action is unassigned.
 
+    // AS-15 / D-06: Axis-style and hold-style actions bind BOTH Triggered AND Canceled.
+    // Canceled fires when a held key is released while the application loses focus
+    // (ALT-tab, OS dialog, etc.) — without it the state machine stays in "Triggering"
+    // because Completed never fires mid-focus-loss.
+    // Precedent: Plugins/ALS/Source/ALSExtras/Private/AlsCharacterExample.cpp L69-82
+    //   (Look / LookMouse / Move / Sprint / Jump each bind both events; Crouch does not).
+    //
+    // IA_Move — Axis2D.  Canceled delivers a zero vector → AddMovementInput(0) → no-op.
     if (IsValid(IA_Move))
     {
         EI->BindAction(IA_Move, ETriggerEvent::Triggered, this, &ThisClass::HandleMove);
+        EI->BindAction(IA_Move, ETriggerEvent::Canceled,  this, &ThisClass::HandleMove);
     }
     else
     {
@@ -137,9 +204,11 @@ void AArchSimCharacter::SetupPlayerInputComponent(UInputComponent* PlayerInputCo
                *GetName());
     }
 
+    // IA_Look — Axis2D.  Canceled delivers zero deltas → AddControllerYawInput(0) / PitchInput(0) = no-op.
     if (IsValid(IA_Look))
     {
         EI->BindAction(IA_Look, ETriggerEvent::Triggered, this, &ThisClass::HandleLook);
+        EI->BindAction(IA_Look, ETriggerEvent::Canceled,  this, &ThisClass::HandleLook);
     }
     else
     {
@@ -148,10 +217,13 @@ void AArchSimCharacter::SetupPlayerInputComponent(UInputComponent* PlayerInputCo
                *GetName());
     }
 
+    // IA_Jump — button (Started = press, Completed = release, Canceled = focus-lost while held).
+    // Canceled → HandleJumpReleased: stops jump hold, prevents infinite jump-hold on return-focus.
     if (IsValid(IA_Jump))
     {
         EI->BindAction(IA_Jump, ETriggerEvent::Started,   this, &ThisClass::HandleJumpPressed);
         EI->BindAction(IA_Jump, ETriggerEvent::Completed, this, &ThisClass::HandleJumpReleased);
+        EI->BindAction(IA_Jump, ETriggerEvent::Canceled,  this, &ThisClass::HandleJumpReleased);
     }
     else
     {
@@ -160,10 +232,13 @@ void AArchSimCharacter::SetupPlayerInputComponent(UInputComponent* PlayerInputCo
                *GetName());
     }
 
+    // IA_Sprint — hold-style.  Canceled → HandleSprintReleased: falls back to Running gait
+    // on focus loss so the character doesn't sprint indefinitely when the player returns.
     if (IsValid(IA_Sprint))
     {
         EI->BindAction(IA_Sprint, ETriggerEvent::Started,   this, &ThisClass::HandleSprintPressed);
         EI->BindAction(IA_Sprint, ETriggerEvent::Completed, this, &ThisClass::HandleSprintReleased);
+        EI->BindAction(IA_Sprint, ETriggerEvent::Canceled,  this, &ThisClass::HandleSprintReleased);
     }
     else
     {
@@ -172,6 +247,10 @@ void AArchSimCharacter::SetupPlayerInputComponent(UInputComponent* PlayerInputCo
                *GetName());
     }
 
+    // IA_Crouch — toggle (Started only).  Canceled intentionally NOT bound:
+    // Canceled would fire on focus-loss while key is held and would toggle the stance
+    // back to the wrong state.  ALS example (AlsCharacterExample.cpp L78) binds only
+    // Triggered for CrouchAction — same reasoning.
     if (IsValid(IA_Crouch))
     {
         EI->BindAction(IA_Crouch, ETriggerEvent::Started, this, &ThisClass::HandleCrouchToggle);
