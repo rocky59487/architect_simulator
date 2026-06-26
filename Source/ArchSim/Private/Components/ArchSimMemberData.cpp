@@ -1,4 +1,5 @@
 #include "Components/ArchSimMemberData.h"
+#include "ArchSimGameInstance.h"              // LogArchSim umbrella (DECLARE_LOG_CATEGORY_EXTERN)
 #include "Subsystems/ArchSimModelRegistry.h"
 #include "Engine/World.h"
 #include "Engine/GameInstance.h"
@@ -23,7 +24,7 @@ void UArchSimMemberData::BeginPlay()
     UWorld* World = GetWorld();
     if (!World || !World->GetGameInstance())
     {
-        UE_LOG(LogTemp, Warning,
+        UE_LOG(LogArchSim, Warning,
                TEXT("UArchSimMemberData::BeginPlay (%s): World or GameInstance not "
                     "ready — component will NOT auto-register with UArchSimModelRegistry. "
                     "Check Actor spawn order; consider placing in Level rather than "

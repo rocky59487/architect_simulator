@@ -26,6 +26,7 @@
 #include "Serialization/MemoryWriter.h"
 #include "Serialization/ObjectAndNameAsStringProxyArchive.h"
 
+#include "ArchSimGameInstance.h"              // LogArchSim umbrella (DECLARE_LOG_CATEGORY_EXTERN)
 #include "Subsystems/ArchSimModelRegistry.h"
 #include "Components/ArchSimMemberData.h"
 
@@ -83,7 +84,7 @@ IMPLEMENT_SIMPLE_AUTOMATION_TEST(FArchSimSaveLoadRoundTripTest,
 
 bool FArchSimSaveLoadRoundTripTest::RunTest(const FString& /*Parameters*/)
 {
-    UE_LOG(LogTemp, Display,
+    UE_LOG(LogArchSim, Display,
            TEXT("ArchSim.Persistence.SaveLoadRoundTrip: SPUD UE5.5 risk deferred "
                 "per HANDOFF_v0.1 section 4 item #6 -- using in-memory "
                 "FObjectAndNameAsStringProxyArchive stub for SaveGame UPROPERTY "
@@ -291,7 +292,7 @@ IMPLEMENT_SIMPLE_AUTOMATION_TEST(FArchSimMaxRankCeilingTest,
 
 bool FArchSimMaxRankCeilingTest::RunTest(const FString& /*Parameters*/)
 {
-    UE_LOG(LogTemp, Display,
+    UE_LOG(LogArchSim, Display,
            TEXT("ArchSim.Persistence.MaxRankCeiling: stress-test registry at "
                 "register-count == 97 (one past A1-07's quoted 96 ceiling). "
                 "Production RegisterMember has no register-count ceiling -- "
