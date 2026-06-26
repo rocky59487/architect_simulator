@@ -206,4 +206,70 @@ gate 收**。需在 S-02 加 `ArchSim.*` filter(`HANDOFF_v0.1.1.md §4 item #1`)
 
 ---
 
+## Sprint S-02 (2026-06-26, v0.1.3 → v0.2.0) — game-body demo-ready foundation
+
+**狀態**:✅ closed 2026-06-26
+**起始日期**:2026-06-26 (same-day open and close, driven via `/work` 7-phase chain)
+**負責**:agent (8 dispatch units) + integrator (release-hardening pass)
+
+**Detailed per-unit history is in [`docs/logs/S-02/`](logs/S-02/)** —
+this section is the high-level pointer only, per the SPRINT_NOTES.md policy
+note at the top of this file.
+
+### One-paragraph summary
+
+Sprint S-02 shipped the user-visible playable foundation: `UArchSimGameInstance`
++ `FTickableGameObject` driver (AS-02), `AArchSimCharacter` + `AArchSimGameMode`
++ Enhanced Input wiring on top of ALS-Refactored v4.17 (AS-03), and the
+deferred `PendingRankAccumulation` ceiling test from v0.1.3 (AS-10). 3 tags
+shipped along the way (v0.1.4 / v0.1.5 / v0.2.0), gate count 137 → 140
+(non-cuDSS 135 → 138). Engine source delta across the entire sprint = 0
+lines under `Plugins/FrameSolver/Source/FrameCore/` (FROZEN under v4.0.0).
+LevelSim delta = 0 (FROZEN v1).
+
+### What landed (per tag)
+
+- **v0.1.4** — `UArchSimGameInstance` skeleton (AS-02a) + real
+  `RebaselineCeiling` test (AS-10) with 2 honest spec corrections
+- **v0.1.5** — Tick driver loop (AS-02b) + headless smoke test (AS-02c)
+- **v0.2.0** — `AArchSimCharacter` (AS-03a/b/c) + headless smoke
+  (AS-03d), with a post-tag release-hardening pass that landed 2 small
+  production fixes (DeactivateMember `bRegistered` reset; RegisterMember
+  PendingPatch clear) + privacy/repro doc sanitisation
+
+### Backlog opened during the sprint
+
+- **AS-11** (LOW): header comment precision for `PendingRankAccumulation`
+  reset sites
+- **AS-12** (LOW): `GetMaxRankBeforeRebaseline()` production consumer
+- **AS-13** (MEDIUM, load-bearing): PIE-world fixture for driver-loop
+  observability + AS-10 trip-path + AS-03d input runtime — three deferred
+  test branches resolve under one PIE harness
+- **AS-14** (LOW): HandleMove `UAlsVector::ClampMagnitude012D` clamp for
+  analog stick / gamepad
+
+### Future backlog identified by release-hardening Phase 1
+
+- **AS-15** (HIGH): Enhanced Input lifecycle refit via
+  `NotifyControllerChanged` (+ `RemoveMappingContext`) — bundle of agents
+  A-02 / D-01 / D-02 / D-03 / D-06 findings
+- **AS-16** (HIGH): `CalcCamera` override for ALS camera component pipeline
+  (D-08)
+- **AS-17** (MEDIUM): empty-`CurrentModel` `StartSession` behavior audit
+  (C-02)
+- **AS-18** (LOW): document the two-GameInstanceSubsystem teardown order
+  dependency (C-04)
+- **AS-19** (LOW): retry/log when `MemberData::BeginPlay` runs before
+  `GameInstance` is ready (C-06)
+
+### Decisions log additions
+
+| 日期 | 決策 | 理由 | 影響 |
+|---|---|---|---|
+| 2026-06-26 | Sprint logs split:`docs/SPRINT_NOTES.md` keeps a 1-paragraph high-level pointer per sprint;`docs/logs/S-XX/` carries the per-unit dispatch + review + commit detail | The /work 7-phase chain produces far more per-unit detail than SPRINT_NOTES is meant to hold;readers needing detail should follow the link | Future sprints (S-03+) keep the same split |
+| 2026-06-26 | Tick driver "dirty" definition narrowed:registered-count delta only, NOT actor position movement | Demo MVP places static buildings;position-sync is a future feature when dynamic buildings ship | AS-02b shipped with this scope;position-sync defers to a future AS-XX |
+| 2026-06-26 | Sanitize convention for sprint logs:reviewer agent IDs replaced with `[sanitized]` placeholder before publish | Phase 1 G audit caught the leak;v2.x release-hardening discipline applies to v0.x as well | `docs/logs/S-XX/agent_*.md` template should drop the ID column going forward |
+
+---
+
 *── 持續更新 ──*

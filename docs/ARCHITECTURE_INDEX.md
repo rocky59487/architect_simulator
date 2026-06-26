@@ -177,11 +177,17 @@ UArchSimModelRegistry.SetCurrentDemand(Result)
 UArchSimMemberData.CachedUtilization  (BP-readable; UI/heatmap consumes)
 ```
 
-**Gaps as of v0.1.3:**
-- The "every Tick / on-dirty" arrow is **not wired** in v0.1.3 — `RequestSolve`
-  is only invoked by Phase-2 test fixtures. **AS-02** wires this.
-- The "SetCurrentDemand → CachedUtilization" arrow exists in API but is not
-  exercised end-to-end without AS-02 driver.
+**Wire status as of v0.2.0:**
+- The "every Tick / on-dirty" arrow is **wired** via `UArchSimGameInstance::Tick`
+  (AS-02b, v0.1.5). Tick detects `Registry->GetRegisteredCount()` delta and
+  emits `RequestSolve(FFrameModelPatch{})`. Position-change sync is deliberately
+  out of scope (demo MVP has static buildings).
+- The "SetCurrentDemand → CachedUtilization" arrow is exercised end-to-end at
+  the Tick → Registry → FrameInteractiveSubsystem boundary in production, but
+  only the static (CDO/reflection) side is covered by the headless smoke test
+  (`ArchSim.Integration.TickDriver` / `ArchSim.Gameplay.CharacterInput`).
+  Full runtime driver-loop + trip-path observability is deferred to **AS-13**
+  PIE-world fixture (see § 7).
 
 ---
 
@@ -237,14 +243,14 @@ UArchSimMemberData.CachedUtilization  (BP-readable; UI/heatmap consumes)
 # Build UE editor (run after any Source/ArchSim/ or Plugins/FrameSolver/Source/FrameCoreUE/ change)
 & "$env:UE_ENGINE_ROOT\Engine\Build\BatchFiles\Build.bat" `
     ArchSimEditor Win64 Development `
-    -project="E:\project\ArchSim\ArchSim.uproject" -waitmutex
+    -project="$PWD\ArchSim.uproject" -waitmutex
 
 # 5-leg gate (default 140 expected; pass 138 on non-cuDSS host)
 .\Scripts\run_gate.ps1 -RequireOpenSees
 
 # Single UE test (replace path)
 & "$env:UE_ENGINE_ROOT\Engine\Binaries\Win64\UnrealEditor-Cmd.exe" `
-    "E:\project\ArchSim\ArchSim.uproject" `
+    "$PWD\ArchSim.uproject" `
     -ExecCmds="Automation RunTests <test.path>; Quit" `
     -unattended -nullrhi -log
 
@@ -257,7 +263,7 @@ UArchSimMemberData.CachedUtilization  (BP-readable; UI/heatmap consumes)
 
 ---
 
-## 9. Iron rules (verbatim from `E:\project\CLAUDE.md`)
+## 9. Iron rules (verbatim from the project root `CLAUDE.md`)
 
 1. **FrameCore 維持純 C++17/Eigen** — public API POD/std only, zero UE leak,
    zero Eigen leak (Eigen only in `Private/FrameEigen.h` + `PreparedSystemImpl.h`,
@@ -269,8 +275,9 @@ UArchSimMemberData.CachedUtilization  (BP-readable; UI/heatmap consumes)
      `Plugins/FrameSolver/Source/FrameCoreUE/` (UE consumer side) **not** in
      FROZEN scope; still evolves under v4.0.x patch / v4.1.x minor.
 2. **Any FrameCore change must pass the 5-leg gate** — standalone F1..F71,
-   UE 137 (cuDSS) / 135 (non-cuDSS), OpenSees strict, linear_deep_audit 104,
-   CLI round-trip. Run before commit: `Scripts\run_gate.ps1 -RequireOpenSees`.
+   UE 140 (cuDSS) / 138 (non-cuDSS) as of v0.2.0, OpenSees strict,
+   linear_deep_audit 104, CLI round-trip. Run before commit:
+   `Scripts\run_gate.ps1 -RequireOpenSees`.
 3. **Honest verify, no over-claiming** — every capability has an independent
    oracle (analytic / dense / OpenSees / sympy-numpy). `[NEW CODE]` vs
    `[VERIFIED]` honest grading. Textbook methods don't claim novelty.
@@ -299,8 +306,9 @@ UArchSimMemberData.CachedUtilization  (BP-readable; UI/heatmap consumes)
 - Game-body master plan: [`ARCHITECT_SIM_MASTER_PLAN.md`](ARCHITECT_SIM_MASTER_PLAN.md)
 - Implementation breakdown (1899h): [`IMPLEMENTATION_PLAN.md`](IMPLEMENTATION_PLAN.md)
 - Per-sprint execution: [`SPRINT_NOTES.md`](SPRINT_NOTES.md)
-- Latest release notes: [`RELEASE_v0.1.3.md`](RELEASE_v0.1.3.md)
-- Latest handoff: [`HANDOFF_v0.1.3.md`](HANDOFF_v0.1.3.md)
+- Latest release notes: [`RELEASE_v0.2.0.md`](RELEASE_v0.2.0.md)
+- Latest handoff: [`HANDOFF_v0.2.0.md`](HANDOFF_v0.2.0.md)
+- Sprint S-02 logs (manager + 8 agent logs + scope + plan): [`logs/S-02/`](logs/S-02/)
 - Engine verification map: [`VERIFICATION.md`](VERIFICATION.md)
 - CLI protocol: [`CLI_PROTOCOL.md`](CLI_PROTOCOL.md)
 - Karamba3D parity roadmap: [`KARAMBA3D_ROADMAP.md`](KARAMBA3D_ROADMAP.md)

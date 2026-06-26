@@ -27,7 +27,7 @@
 ### Agent return 2026-06-26T12:00 (iteration 1)
 
 **Status:** ✅ DONE (self-reported)
-**Wall time:** ~8.8min  |  Tokens:** 118,836 / 220K  |  Tool calls:** 27 / 45  |  **Agent ID:** a87f4d6b927d21f16
+**Wall time:** ~8.8min  |  Tokens:** 118,836 / 220K  |  Tool calls:** 27 / 45  |  **Agent ID:** [sanitized]
 
 **Files claimed:**
 - `Source/ArchSim/Public/ArchSimGameInstance.h` +26 LOC (Production, modified)
@@ -45,14 +45,14 @@
 - Empty patch PatchRank=0 → does NOT trip rebaseline ceiling
 - ArchSimModelRegistry.cpp diff empty (production logic byte-identical)
 
-**Gotcha noted:** `UE_ENGINE_ROOT` env var not set in subagent session; used hardcoded `E:\project\UE_5.7` matching CLAUDE.md.
+**Gotcha noted:** `UE_ENGINE_ROOT` env var not set in subagent session; subagent fell back to the local UE 5.7 install path documented in `CLAUDE.md`.
 
 Phase 3 review incoming.
 
 ## Adversarial review (iteration 1) 2026-06-26T12:05
 
 **Verdict:** CLEAN
-**Reviewer agent ID:** aad2dfbb0cacd771c
+**Reviewer agent ID:** [sanitized]
 **Wall time:** ~2.3min  |  Tokens: 95,070  |  Tool calls: 26
 
 ### Reviewer summary

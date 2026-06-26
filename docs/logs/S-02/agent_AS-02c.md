@@ -20,7 +20,7 @@
 
 ### Agent return 2026-06-26T12:17 (iteration 1)
 
-**Status:** ✅ DONE | Wall ~9.5min | Tokens 129K / 150K | Tool calls 20 / 30 | Agent ID: af00101211f5679bd
+**Status:** ✅ DONE | Wall ~9.5min | Tokens 129K / 150K | Tool calls 20 / 30 | Agent ID: [sanitized]
 
 **Files claimed:**
 - `Source/ArchSim/Private/Tests/ArchSimGameInstanceTest.cpp` NEW (147 LOC, 7 sub-checks)
@@ -43,7 +43,7 @@ Phase 3 review incoming.
 ## Adversarial review (iteration 1) 2026-06-26T12:21
 
 **Verdict:** CLEAN
-**Reviewer agent ID:** a1c9235bf7931334f
+**Reviewer agent ID:** [sanitized]
 **Wall time:** ~1.4min | Tokens 91K | Tool calls 14
 
 ### Reviewer summary

@@ -54,7 +54,7 @@ C++17-compatible; the UE module target is compiled as C++20 because of the curre
 > `Plugins/FrameSolver/Source/FrameCore/`. **LevelSim source delta = 0**.
 > **`UArchSimModelRegistry.{h,cpp}` delta in v0.2.0 = 0** (production logic
 > byte-identical since v0.1.4 AS-10's telemetry getters). **ArchSim
-> production code delta vs v0.1.5 = ~287 lines**. Sprint S-02 totals: 8
+> production code delta vs v0.1.5 = ~394 lines**. Sprint S-02 totals: 8
 > dispatch units / 8 adversarial reviews / 6 CLEAN + 2 NITS (1 fixed
 > inline) / 0 BLOCKER / 0 ESCALATE / 4 backlog items opened (AS-11/12/13/14;
 > AS-13 PIE fixture flagged MEDIUM as the most load-bearing). Gate PASS

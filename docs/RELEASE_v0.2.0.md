@@ -24,8 +24,8 @@ WASD/Mouse/Space/Shift/Ctrl bindings already wired in C++ awaiting the
 
 | Path | Type | Delta | Origin |
 |---|---|---|---|
-| `Source/ArchSim/Public/Characters/ArchSimCharacter.h` | Production (new) | +69 across a/b/c | AS-03a/b/c |
-| `Source/ArchSim/Private/Characters/ArchSimCharacter.cpp` | Production (new) | +186 across a/b/c | AS-03a/b/c |
+| `Source/ArchSim/Public/Characters/ArchSimCharacter.h` | Production (new) | +100 across a/b/c | AS-03a/b/c |
+| `Source/ArchSim/Private/Characters/ArchSimCharacter.cpp` | Production (new) | +261 across a/b/c | AS-03a/b/c |
 | `Source/ArchSim/Public/ArchSimGameMode.h` | Production (new) | +18 | AS-03c |
 | `Source/ArchSim/Private/ArchSimGameMode.cpp` | Production (new) | +14 | AS-03c |
 | `Source/ArchSim/Private/Tests/ArchSimCharacterTest.cpp` | Test (new) | +130 | AS-03d |
@@ -45,7 +45,7 @@ WASD/Mouse/Space/Shift/Ctrl bindings already wired in C++ awaiting the
 **LevelSim source delta = 0 lines.**
 **`UArchSimModelRegistry.{h,cpp}` delta this release = 0** (production logic
 byte-identical; only AS-10's v0.1.4 telemetry getters stand).
-**ArchSim production code delta vs v0.1.5 = ~287 lines** (Character + GameMode
+**ArchSim production code delta vs v0.1.5 = ~394 lines** (Character + GameMode
 across the 4 AS-03 units).
 
 ### What was NOT done
@@ -124,8 +124,8 @@ BP assignment steps.
 no roll drift). An earlier draft of this unit used
 `SetRelativeRotation({0, 90, -90})` based on the incorrect claim that
 `_Direct` wasn't available on the skeletal-mesh parent chain; the Phase 3
-adversarial reviewer (`a00538233d76e6943`) caught both the false-API claim
-and the Roll-value drift, and the inline fix landed before commit.
+adversarial reviewer caught both the false-API claim and the Roll-value
+drift, and the inline fix landed before commit.
 
 `AArchSimGameMode : AGameModeBase` (not the older `AGameMode` with
 `MatchState` lifecycle — single-player simulator has no match phases).
@@ -183,6 +183,29 @@ the Sprint S-03 backlog.
 
 ## 5. 5-leg gate evidence (AS-03d run, immediately before tag)
 
+### Reproduce (cuDSS host)
+
+```powershell
+# Prerequisite: conda env active (run_gate.ps1 leg 3 needs OpenSeesPy)
+conda activate framecore-direct       # or set $env:SUPERNODAL_CONDA
+
+# Optional: set $env:UE_ENGINE_ROOT to your UE 5.7 install dir if not already set
+# $env:UE_ENGINE_ROOT = "<path-to>\UE_5.7"
+
+# Then from the repo root:
+.\Scripts\run_gate.ps1 -RequireOpenSees
+```
+
+### Reproduce (non-cuDSS host)
+
+```powershell
+.\Scripts\run_gate.ps1 -RequireOpenSees -ExpectedUeTests 138
+```
+
+(F67 / F67s are CUDA-only and compile out when `FRAMECORE_CUDA=0` → 2 fewer tests.)
+
+### Expected output (verbatim from the AS-03d run)
+
 ```
 [1/5] standalone FrameCore gate (build.bat)...
        standalone: ALL PASS  (failures=0) (exit 0)
@@ -197,8 +220,6 @@ the Sprint S-03 backlog.
 ======================================================
  GATE: PASS  (standalone OK, UE 140 tests green, OpenSees PASS, deep audit OK, CLI round-trip OK)
 ```
-
-**Non-cuDSS expectation:** `.\Scripts\run_gate.ps1 -RequireOpenSees -ExpectedUeTests 138`.
 
 ---
 

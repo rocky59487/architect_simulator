@@ -21,7 +21,7 @@
 
 ### Agent return 2026-06-26T12:38 (iteration 1)
 
-**Status:** ✅ DONE | Wall ~8.3min | Tokens 97K / 200K | Tool calls 27 / 40 | Agent ID: a2f4fc204cf3df554
+**Status:** ✅ DONE | Wall ~8.3min | Tokens 97K / 200K | Tool calls 27 / 40 | Agent ID: [sanitized]
 
 **Files:**
 - `Source/ArchSim/Public/Characters/ArchSimCharacter.h` (new)
@@ -37,7 +37,7 @@ Phase 3 review incoming.
 ## Adversarial review (iteration 1) 2026-06-26T12:42
 
 **Verdict:** CLEAN
-**Reviewer agent ID:** a55c3581a056c2315
+**Reviewer agent ID:** [sanitized]
 **Wall time:** ~1.5min | Tokens 84K | Tool calls 15
 
 ### Reviewer summary

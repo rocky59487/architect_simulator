@@ -28,7 +28,7 @@
 **Wall time:** ~14.4min (under 25min budget)
 **Token usage:** 114,270 of 200K budget
 **Tool calls:** 37 of 40 budget
-**Agent ID:** a97da70cf842ac2cd
+**Agent ID:** [sanitized]
 
 #### Full report (verbatim from agent)
 
@@ -97,7 +97,7 @@ None — 所有目標如期完成。
 ## Adversarial review (iteration 1) 2026-06-26T11:00
 
 **Verdict:** CLEAN
-**Reviewer agent ID:** a3a2cb1cab6a4d199
+**Reviewer agent ID:** [sanitized]
 **Wall time:** ~2.5min  |  Token use:** 95,074 of 50K target (overshoot due to verbose evidence)
 **Tool calls:** 29
 

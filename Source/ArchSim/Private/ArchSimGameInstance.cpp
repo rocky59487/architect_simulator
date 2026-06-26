@@ -99,11 +99,15 @@ void UArchSimGameInstance::Tick(float DeltaSeconds)
         // So PendingRankAccumulation += 0, which never trips the strict-`>`
         // rebaseline ceiling at ArchSimModelRegistry.cpp:281. Safe.
         //
-        // Edge case: if CurrentCount < LastSeenRegisteredCount, DeactivateMember
-        // already called RequestSolve (cpp:393). We call it again here. That is
-        // intentional: the second call just extends/resets the 150 ms debounce
-        // window with rank 0 — it does not double-trigger a solve, and it ensures
-        // LastSeenRegisteredCount is updated so subsequent idle Ticks are O(1) no-ops.
+        // Note (S-02 review C-03): `GetRegisteredCount()` returns
+        // `IndexToComponent.Num()`, which DeactivateMember does NOT shrink (the
+        // map entry stays so SaveGame round-trips remain stable). So a remove
+        // does not produce a `<` delta here in practice; the `!=` comparison is
+        // chosen anyway for symmetry — if future work ever does shrink the
+        // map, this code does not need to change. DeactivateMember already
+        // emits its own RequestSolve at ArchSimModelRegistry.cpp:393, so a
+        // hypothetical second call from here would only extend the 150 ms
+        // debounce window with rank 0 — never double-fires the solve.
         Registry->RequestSolve(FFrameModelPatch{});
         ++SolveTriggerCount;
         LastSeenRegisteredCount = CurrentCount;

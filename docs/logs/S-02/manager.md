@@ -195,3 +195,104 @@ v0.1.5 tagged `2935e71`. Bundles AS-02b + AS-02c. 5-leg gate PASS 139.
 - Adversarial reviews: 6 CLEAN + 2 NITS (1 fixed inline, 1 deferred to backlog)
 - Backlog opened during sprint: AS-11 (header comment precision) + AS-12 (GetMaxRankBeforeRebaseline consumer) + AS-13 (PIE-world fixture) + AS-14 (analog stick clamp)
 - 5-leg gate PASS 140 on cuDSS host
+
+## 2026-06-26T14:30 — release-hardening pass on v0.2.0 (Phase 0-5)
+
+Triggered by user `/release-hardening` invocation immediately after the v0.2.0
+tag was cut locally (still unpushed). Phase 1 fired 7 parallel adversarial
+audit subagents (A numerics / B claim cross-check / C bridge consumer / D
+UI-FSM glue / E docs / F cleanliness / G repro+privacy+handoff). 87 raw
+findings.
+
+**Findings disposition:**
+
+- 2 dismissed as false positives (B-01 cascade — unanchored grep matched a
+  comment line; B-03/B-12 fold)
+- 5 INFO / no-action
+- 23 acted on inline in this hardening pass (16 doc + 5 small-fix code +
+  2 sanitisation sweeps)
+- 14 deferred to backlog as AS-15..AS-19 (real follow-ups but not
+  release-scope; require ≥30 LOC or new test harness)
+
+**Privacy / reproducibility cleanup actions:**
+
+- G-05 (BLOCKER): reviewer agent ID `[redacted]` removed from
+  `RELEASE_v0.2.0.md`
+- G-06: 16 agent IDs across 8 sprint logs replaced with `[sanitized]`
+- G-13: 4 scratch logs (`_as03b_build.log` / `_as03b_gate.log` /
+  `build_as03c.log` / `gate_as03c.log`) deleted from the working tree
+  (untracked, no git history impact). `.gitignore` left unchanged per
+  iron rule #5 (`.gitignore` is a never-touch path)
+- G-01/G-02: `ARCHITECTURE_INDEX.md` § 8 cheat-sheet hardcoded
+  `E:\project\ArchSim` → `$PWD`
+- G-03: § 9 title `verbatim from E:\project\CLAUDE.md` → "from the
+  project root CLAUDE.md"
+- G-04: `agent_AS-02b.md` Gotcha sanitized
+- G-07 + G-08: `RELEASE_v0.2.0.md` § 5 gained an explicit Reproduce block
+  with conda + UE_ENGINE_ROOT prerequisites named on the line that uses
+  them
+- G-12: HANDOFF Z-02/Z-04 first-actions sharpened from vague phrasing to
+  concrete "open UE Editor → ..." steps
+
+**Doc consistency fixes:**
+
+- E-01: § 10 Quick links advanced v0.1.3 → v0.2.0
+- E-02: § 5 Data-flow "Gaps as of v0.1.3" rewritten to "Wire status as of
+  v0.2.0"
+- E-03: § 9 iron rule #2 UE count 137/135 → 140/138
+- B-02: `RELEASE_v0.2.0.md` + HANDOFF + README LOC delta 287 → 394
+  (table per-file numbers also corrected)
+- E-05: this section (Sprint S-02 high-level pointer in
+  `docs/SPRINT_NOTES.md`)
+- E-06: this entry in `manager.md`
+
+**Small production fixes (this hardening pass, additive guards only):**
+
+- **C-01** (real bug) `ArchSimModelRegistry.cpp` DeactivateMember now
+  resets `Comp->bRegistered = false; Comp->MemberIdx = -1;` so a PIE
+  restart can re-register fresh members instead of short-circuiting on
+  the `bRegistered` idempotency guard with a stale MemberIdx.
+- **C-05** (defensive) RegisterMember's session-restart path now drops
+  the queued `PendingPatch` and resets `PendingRankAccumulation`. The
+  existing `bSessionStarted = false` only invalidated the engine session;
+  the patch queue would otherwise carry stale Deactivate ids into the
+  next ExecuteSolve against a freshly-rebuilt model.
+- C-03 / C-07 comment corrections in `ArchSimGameInstance.cpp` Tick
+  body — the cited cpp line ranges and the `<` edge-case description
+  now match production behavior.
+
+**5-leg gate** re-run after the production fixes: GATE: PASS (UE 140
+tests, standalone F1..F71 ALL PASS, OpenSees PASS, deep audit 104,
+CLI round-trip ALL PASS). Confirms the additive guards do not perturb
+any oracle.
+
+**Deferred to Sprint S-03 backlog (AS-15..AS-19):**
+
+- AS-15 (HIGH): refit Enhanced Input lifecycle via
+  `NotifyControllerChanged` + `RemoveMappingContext` + `Canceled` event
+  bindings + `bNotifyUserSettings`. Bundles A-02 / D-01 / D-02 / D-03 /
+  D-06. ~30-50 LOC.
+- AS-16 (HIGH): override `CalcCamera` on `AArchSimCharacter` to route
+  through `UAlsCameraComponent->GetViewInfo` per the ALS example.
+- AS-17 (MEDIUM): audit and either prove or guard the
+  empty-`CurrentModel` `StartSession` path (C-02).
+- AS-18 (LOW): document the cross-subsystem teardown ordering between
+  `UArchSimModelRegistry` and `UFrameInteractiveSubsystem` (C-04).
+- AS-19 (LOW): retry / explicit-warning path when `MemberData::BeginPlay`
+  fires before the `GameInstance` is ready (C-06).
+
+## 2026-06-26T14:40 — v0.2.0 retagged at hardened commit
+
+Per release-hardening doctrine (local-only tags can be moved before the
+first publish without violating the "no force overwrite without
+authorisation" rule), the v0.2.0 tag was moved from `bd507a2` (original
+sprint-close commit) to the hardened HEAD that includes the privacy
+sanitisation + 2 small production fixes + doc consistency repairs. The
+`bd507a2` commit remains in the history as the AS-03d feature commit,
+but the v0.2.0 release tag now points at the cleaned release commit.
+
+Net result: the published `v0.2.0` carries zero agent-session fingerprints,
+zero hardcoded user paths in shipped docs, correct LOC numbers, and 2
+small bug fixes for stale-state edge cases discovered during the audit.
+
+Sprint S-02 closed.

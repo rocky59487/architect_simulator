@@ -23,7 +23,7 @@
 
 ### Agent return 2026-06-26T13:18 (iteration 1)
 
-**Status:** ✅ DONE | Wall ~17min | Tokens 122K / 200K | **Tool calls 59 / 40 (+47% overshoot)** | Agent ID: aa73bfeebd0807016
+**Status:** ✅ DONE | Wall ~17min | Tokens 122K / 200K | **Tool calls 59 / 40 (+47% overshoot)** | Agent ID: [sanitized]
 
 **Files (6):**
 - `ArchSimCharacter.h` (additive: forward-decl + 1 Camera UPROPERTY)
@@ -45,7 +45,7 @@ Phase 3 review incoming.
 ## Adversarial review (iteration 1) 2026-06-26T13:23
 
 **Verdict:** NITS (2 findings; 1 fixed inline, 1 dismissed)
-**Reviewer agent ID:** a00538233d76e6943
+**Reviewer agent ID:** [sanitized]
 **Wall time:** ~1.4min | Tokens 92K | Tool calls 14
 
 ### NITS-01 — `SetRelativeRotation` vs `SetRelativeRotation_Direct` + Roll drift

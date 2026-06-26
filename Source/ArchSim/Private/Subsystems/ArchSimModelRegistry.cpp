@@ -204,6 +204,14 @@ int32 UArchSimModelRegistry::RegisterMember(UArchSimMemberData* Comp)
     }
     bNeedsRebaseline = false;   // fresh-start path; no separate rebaseline needed
 
+    // v0.2.0 hardening (S-02 review finding C-05): the queued PendingPatch
+    // refers to ids from the just-ended session. Carrying them into the next
+    // ExecuteSolve would feed stale Deactivate ids to a freshly-rebuilt model.
+    // Drop the queue on session restart for the same reason RegisterMember
+    // already drops bSessionStarted.
+    PendingPatch            = FFrameModelPatch{};
+    PendingRankAccumulation = 0;
+
     return NewMemberIdx;
 }
 
@@ -387,6 +395,19 @@ void UArchSimModelRegistry::DeactivateMember(int32 MemberIdx)
     // not the internal Members[] array index. RegisterMember keeps Id == MemberIdx so
     // they coincide; written explicitly here to flag the API contract.
     const int32 UserId = CurrentModel.Members[MemberIdx].Id;
+
+    // v0.2.0 hardening (S-02 review finding C-01): clear the owning component's
+    // bRegistered / MemberIdx pair so a PIE restart can re-register fresh without
+    // the BeginPlay idempotency guard at RegisterMember:139 short-circuiting on
+    // a stale MemberIdx that points into a now-Deinitialized CurrentModel.
+    if (TWeakObjectPtr<UArchSimMemberData>* WeakComp = IndexToComponent.Find(MemberIdx))
+    {
+        if (UArchSimMemberData* Comp = WeakComp->Get())
+        {
+            Comp->bRegistered = false;
+            Comp->MemberIdx   = -1;
+        }
+    }
 
     FFrameModelPatch P;
     P.DeactivateMemberIds.Add(UserId);

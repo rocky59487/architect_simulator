@@ -30,7 +30,7 @@
 
 ### Agent return 2026-06-26T13:43 (iteration 1)
 
-**Status:** ✅ DONE | Wall ~12min | Tokens 112K / 220K | Tool calls 40 / 45 | Agent ID: ae3291a9106eb5cdf
+**Status:** ✅ DONE | Wall ~12min | Tokens 112K / 220K | Tool calls 40 / 45 | Agent ID: [sanitized]
 
 **Files:**
 - `Source/ArchSim/Private/Tests/ArchSimCharacterTest.cpp` (NEW, ~130 LOC)
@@ -46,7 +46,7 @@ Phase 3 review incoming.
 ## Adversarial review (iteration 1) 2026-06-26T13:46
 
 **Verdict:** CLEAN (2 LOW NITS, no BLOCKER)
-**Reviewer agent ID:** aa02e4b690021bf2b
+**Reviewer agent ID:** [sanitized]
 **Wall time:** ~1.1min | Tokens 92K | Tool calls 8
 
 ### NITS (LOW, no action)

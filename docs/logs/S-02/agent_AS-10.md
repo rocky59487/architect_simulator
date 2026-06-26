@@ -31,7 +31,7 @@
 **Wall time:** ~15.5min (within 25min budget)
 **Token usage:** 146,602 of 180K budget
 **Tool calls:** 45 (overshoot 35 budget by 28%; not blocker but note for next dispatch sizing)
-**Agent ID:** aefcaaf82b72fcac5
+**Agent ID:** [sanitized]
 
 #### Critical discovery during work (must Phase-3-verify)
 
@@ -104,7 +104,7 @@ Phase 3 review incoming.
 ## Adversarial review (iteration 1) 2026-06-26T11:35
 
 **Verdict:** NITS (3 LOW findings; no BLOCKER)
-**Reviewer agent ID:** a528096e4e2ff5236
+**Reviewer agent ID:** [sanitized]
 **Wall time:** ~2.4min  |  Token use:** 106,121
 **Tool calls:** 17
 
