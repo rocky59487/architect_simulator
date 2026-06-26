@@ -138,3 +138,28 @@ Phase 4 (release-hardening) for Round 1 — bundle decision deferred to Phase 4 
   - N-03: comment ratio high — justified by IsValid divergence reasoning
 - 鐵則 compliance ALL CONFIRMED; no backlog opened.
 
+
+## 2026-06-26T19:00 — Round 3 Unit 5 AS-13-u1 dispatched
+
+- Domain: ue5-engineer + qa-strategist
+- HIGH-risk per plan; main-thread pre-flight discovered proven FrameCoreUE pattern (GEngine->GetWorldContexts) that lowers risk to LOW
+- Sequential dispatch — Unit 6 (AS-13-u2) depends on this harness
+
+## 2026-06-26T19:20 — Unit 5 AS-13-u1 returned DONE
+
+- Level 3 reached: commandlet world found via GEngine contexts; no OwningGameInstance; NewObject<UArchSimModelRegistry>() fallback used
+- 3 new test files (harness header +92, impl +82, smoke test +141 = +315 LOC code)
+- run_gate.ps1: $ExpectedUeTests 141→142 cuDSS / 139→140 non-cuDSS
+- Subagent self-fixed ProductionFilter compile error → SmokeFilter (matches existing ArchSim test convention)
+- Surprising bonus: SpawnActor<AArchSimCharacter>(World) SUCCEEDED in commandlet world — unlocks Unit 6 input runtime tests
+- Subagent ran full 5-leg gate (sequential, no race): GATE PASS UE 142 / standalone / OpenSees / audit 104 / CLI
+- Self-grading: 6/6 [VERIFIED] with gate output oracle
+
+## 2026-06-26T19:25 — Unit 5 AS-13-u1 reviewed CLEAN
+
+- Adversarial review: 7/7 dimensions verified file:line
+- Reviewer Read 5+ files (3 new harness/test + FrameCoreUE precedent + run_gate.ps1), grep'd 8 patterns, cross-checked 7 claims
+- 2 LOW NITS (docstring overclaim; sub-check tautology) — both harmless, deferred to Phase 5 docs sync
+- 鐵則 compliance ALL CONFIRMED (8/8 grep checks)
+- No new backlog opened
+
