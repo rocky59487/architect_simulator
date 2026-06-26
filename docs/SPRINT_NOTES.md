@@ -272,4 +272,63 @@ LevelSim delta = 0 (FROZEN v1).
 
 ---
 
+## Sprint S-03 (2026-06-26) — game-body robustness + deferred AS-XX queue
+
+**狀態**: 🟡 進行中
+**起始日期**: 2026-06-26
+**負責**: agent (parallel dispatch rounds)
+
+### AS-17 audit conclusion (2026-06-26, Unit 2)
+
+**Finding: Case A — production-safe; no guard needed.**
+
+**Source-traced reasoning:**
+
+1. `FromBlueprint(EmptyDef, Cached->Model, OutError)` (FrameCoreUEModelMarshal.cpp L168-251):
+   for a fully empty `FFrameModelDef` (all TArrays empty) ALL marshal loops are no-ops and the
+   function falls through to `return true`. So `FromBlueprint` passes even for empty input.
+
+2. `new frame::ReSolveSession(Cached->Model, eopts)` is called with a 0-nodes / 0-members engine
+   model. Engine ctor does NOT throw — it stores the result of `FrameModel::validate()` internally
+   and exposes it via `valid()`.
+
+3. `FrameModel::validate()` (FrameModel.cpp L31): `if (nodes.empty()) { why = "no nodes"; return false; }`
+   — empty model fails validation immediately. Therefore `Session->valid()` == `false`.
+
+4. The existing guard at `FrameInteractiveSubsystem.cpp:81-88` catches this:
+   ```cpp
+   if (!Session->valid())
+   {
+       OutError = FString(UTF8_TO_TCHAR(Session->diagnostic().c_str())); // "no nodes"
+       delete Session; Session = nullptr;
+       delete Cached;  Cached  = nullptr;
+       return false;
+   }
+   ```
+   Session and Cached are both cleaned up; `IsSessionActive()` returns false. No dirty state.
+
+5. The consumer (`ArchSimModelRegistry::FlushAndStartSession`, cpp:236-240) checks `!Sub->StartSession(...)`
+   and logs a Warning + returns false. Consumer side also safe.
+
+**Test oracle (pinned by** `FrameCore.UE.EmptyModelStartSession` **— NEW CODE):**
+
+8 sub-checks across 4 scenarios:
+- **Fully empty model**: `StartSession` returns `false`; `OutError` non-empty; `IsSessionActive() == false`
+- **Idempotent cleanup**: double `EndSession()` after failed start does not crash
+- **Partial empty (mat+sec, 0 nodes)**: also gracefully fails ("no nodes" from validate)
+- **Recovery**: subsequent valid cantilever `StartSession` succeeds (failed start does NOT leave dirty state)
+
+**Test result (2026-06-26T17:31):**
+```
+Test Completed. Result={成功} Name={EmptyModelStartSession} Path={FrameCore.UE.EmptyModelStartSession}
+**** TEST COMPLETE. EXIT CODE: 0 ****
+```
+
+**Files changed (AS-17-u1):**
+- `Plugins/FrameSolver/Source/FrameCoreUE/Private/Tests/FrameCoreUEInteractiveSubsystemTest.cpp`
+  — +1 `IMPLEMENT_SIMPLE_AUTOMATION_TEST(FFrameCoreUEEmptyModelStartSessionTest, ...)` (8 sub-checks)
+- `Scripts/run_gate.ps1` — `$ExpectedUeTests` 140 → 141 (non-cuDSS 138 → 139)
+
+---
+
 *── 持續更新 ──*

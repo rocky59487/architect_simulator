@@ -222,4 +222,93 @@ bool FFrameCoreUEInteractivePerfBaselineTest::RunTest(const FString& /*Parameter
     return true;
 }
 
+// --- 4. EmptyModelStartSession -----------------------------------------------
+// AS-17 audit (C-02, S-02 hardening finding): proves the empty-CurrentModel
+// StartSession path is production-safe WITHOUT needing an explicit guard in
+// FrameInteractiveSubsystem.cpp.
+//
+// Reasoning (source-traced):
+//   - FromBlueprint(EmptyDef, ...) returns true for an all-empty FFrameModelDef
+//     because all marshal loops are no-ops and the function falls through to
+//     `return true` (FrameCoreUEModelMarshal.cpp last line).
+//   - ReSolveSession ctor calls FrameModel::validate() internally; for 0 nodes
+//     validate() immediately returns false ("no nodes") — so valid() == false.
+//   - The existing valid() check at FrameInteractiveSubsystem.cpp:81-88 catches
+//     this, fills OutError from Session->diagnostic(), deletes Session+Cached,
+//     and returns false.  No guard needed.
+//
+// This test is the oracle that pins this contract.  If any refactor regresses
+// the graceful-fail path, this test will catch it.
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FFrameCoreUEEmptyModelStartSessionTest,
+    "FrameCore.UE.EmptyModelStartSession",
+    EAutomationTestFlags_ApplicationContextMask | EAutomationTestFlags::SmokeFilter)
+
+bool FFrameCoreUEEmptyModelStartSessionTest::RunTest(const FString& /*Parameters*/)
+{
+    UFrameInteractiveSubsystem* Sub = GetSubsystem();
+    TestNotNull(TEXT("Subsystem retrievable"), Sub);
+    if (!Sub) return false;
+
+    // --- Sub-check 1: fully empty model (0 materials / 0 sections / 0 nodes / 0 members)
+    //     StartSession must return false.
+    {
+        FFrameModelDef EmptyDef;          // all TArrays default-constructed to empty
+        FFrameSolveOptions Opts;
+        FFrameReanalysisOptions ReOpts;
+        FString OutError;
+
+        const bool bStarted = Sub->StartSession(EmptyDef, Opts, ReOpts, OutError);
+        TestFalse(TEXT("1a: empty model — StartSession returns false"), bStarted);
+        TestFalse(TEXT("1b: empty model — OutError is non-empty (descriptive diagnostic)"),
+                  OutError.IsEmpty());
+        TestFalse(TEXT("1c: empty model — IsSessionActive is false after failed start"),
+                  Sub->IsSessionActive());
+    }
+
+    // --- Sub-check 2: double EndSession after failed start must not crash.
+    Sub->EndSession();   // idempotent even without an active session
+
+    // --- Sub-check 3: partial empty — 1 material + 1 section but 0 nodes / 0 members.
+    //     Must also fail gracefully (validate: "no nodes").
+    {
+        FFrameModelDef PartialDef;
+        FFrameMaterial Mat;
+        Mat.E = 210000.f; Mat.G = 80769.f; Mat.Nu = 0.3f; Mat.Rho = 7850.f; Mat.Fy = 235.f;
+        PartialDef.Materials = { Mat };
+        FFrameSection Sec;
+        Sec.A = 10000.f; Sec.Iy = 8.333333e6f; Sec.Iz = 8.333333e6f;
+        Sec.J = 1.4e7f; Sec.Zy = 250000.f; Sec.Zz = 250000.f;
+        Sec.Shape = EFrameSectionShape::Rectangular;
+        PartialDef.Sections = { Sec };
+        // Nodes + Members deliberately left empty.
+        FFrameSolveOptions Opts;
+        FFrameReanalysisOptions ReOpts;
+        FString OutError2;
+
+        const bool bStarted2 = Sub->StartSession(PartialDef, Opts, ReOpts, OutError2);
+        TestFalse(TEXT("3a: partial (mat+sec, no nodes) — StartSession returns false"), bStarted2);
+        TestFalse(TEXT("3b: partial — OutError is non-empty"), OutError2.IsEmpty());
+        TestFalse(TEXT("3c: partial — IsSessionActive is false"), Sub->IsSessionActive());
+    }
+
+    // --- Sub-check 4: after empty-model failures the subsystem must still accept a valid model.
+    //     Proves failed StartSession does NOT leave dirty state that poisons subsequent calls.
+    {
+        FFrameModelDef Def; FFrameSolveOptions Opts;
+        BuildCantileverDef(Def, Opts);
+        FFrameReanalysisOptions ReOpts;
+        FString Err;
+
+        const bool bRecovery = Sub->StartSession(Def, Opts, ReOpts, Err);
+        TestTrue(FString::Printf(TEXT("4a: valid model after empty failures — StartSession succeeds (err=%s)"), *Err),
+                 bRecovery);
+        TestTrue(TEXT("4b: valid model — IsSessionActive is true"), Sub->IsSessionActive());
+
+        Sub->EndSession();
+        TestFalse(TEXT("4c: IsSessionActive false after cleanup EndSession"), Sub->IsSessionActive());
+    }
+
+    return true;
+}
+
 #endif // WITH_DEV_AUTOMATION_TESTS
