@@ -67,6 +67,19 @@ public:
     UFUNCTION(BlueprintPure, Category="ArchSim|Lifecycle")
     [[nodiscard]] float GetAccumulatedTime() const { return AccumulatedSeconds; }
 
+    // ---- AS-02b: driver telemetry (BP smoke test consumers) ---------------------
+    // Last value of UArchSimModelRegistry::GetRegisteredCount() that triggered a
+    // RequestSolve. Starts at -1 so the first Tick after Init() always sees a
+    // delta (even if the registry has 0 members; that empty-patch solve is harmless).
+    UFUNCTION(BlueprintPure, Category="ArchSim|Lifecycle")
+    [[nodiscard]] int32 GetLastSeenRegisteredCount() const { return LastSeenRegisteredCount; }
+
+    // Counter incremented each time the Tick body emits a RequestSolve. Used by
+    // AS-02c smoke test as the oracle for "Tick driver fired exactly N times after
+    // N registration delta events". Pure telemetry — no production side effects.
+    UFUNCTION(BlueprintPure, Category="ArchSim|Lifecycle")
+    [[nodiscard]] int32 GetSolveTriggerCount() const { return SolveTriggerCount; }
+
 private:
     // ---- Tick telemetry ---------------------------------------------------------
     // Pure counters; no per-frame allocations (++int32 / += float are branch-
@@ -74,6 +87,21 @@ private:
     // these two lines, so the diff is surgically isolated.
     int32 TickCount = 0;
     float AccumulatedSeconds = 0.f;
+
+    // ---- AS-02b: registration-delta dirty detection ----------------------------
+    // Cached snapshot of UArchSimModelRegistry::GetRegisteredCount() at the
+    // last Tick that emitted a RequestSolve. Compared each Tick: when the live
+    // count diverges (a placed Member finished BeginPlay), we kick off a solve.
+    // Initialised to -1 so the very FIRST Tick after Init() sees "delta" even
+    // when the registry has 0 members — that single empty solve is harmless
+    // (RequestSolve cpp:269 discards rank=0, and ExecuteSolve with empty
+    // CurrentModel will log a warning and drop the patch).
+    int32 LastSeenRegisteredCount = -1;
+
+    // Counter incremented each time the Tick body emits a RequestSolve. Used
+    // by AS-02c smoke test as the oracle for "Tick driver fired its loop body
+    // exactly N times after N registration events". Pure telemetry.
+    int32 SolveTriggerCount = 0;
 
     // ---- Tick gate --------------------------------------------------------------
     // Set true at end of Init(); false at start of Shutdown(). The ordering is

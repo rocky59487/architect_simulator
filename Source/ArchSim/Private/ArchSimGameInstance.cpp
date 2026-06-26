@@ -11,6 +11,8 @@
 // changing any declaration or include in this file.
 
 #include "ArchSimGameInstance.h"
+#include "Subsystems/ArchSimModelRegistry.h"   // AS-02b: GetRegisteredCount(), RequestSolve()
+#include "FrameCoreUE/FrameCoreUEVisualTypes.h" // AS-02b: FFrameModelPatch (empty-patch ctor)
 
 // One and only definition of the module-level log category.
 // All other game-body TUs use DECLARE_LOG_CATEGORY_EXTERN (in the header).
@@ -54,12 +56,58 @@ void UArchSimGameInstance::Shutdown()
 
 void UArchSimGameInstance::Tick(float DeltaSeconds)
 {
-    // AS-02b will insert member-sync + RequestSolve here.
-    // For AS-02a this body only accumulates telemetry so AS-02c can assert
-    // "Tick fired at least once" without any allocations or subsystem calls.
+    // Telemetry (preserved from AS-02a; AS-02c smoke test reads these).
     // NO per-frame heap allocs: ++int32 and += float are plain register ops.
     ++TickCount;
     AccumulatedSeconds += DeltaSeconds;
+
+    // AS-02b: registered-count delta -> RequestSolve(empty patch).
+    //
+    // Why this is the right "dirty" signal:
+    //   - UArchSimMemberData::BeginPlay (Components/ArchSimMemberData.cpp:11-28)
+    //     auto-calls Registry->RegisterMember(this). That mutates CurrentModel +
+    //     IndexToComponent but does NOT call RequestSolve — verified in
+    //     ArchSimModelRegistry.cpp:131-208 (no RequestSolve call anywhere in body).
+    //   - UArchSimMemberData::EndPlay (cpp:30-43) auto-calls
+    //     Registry->DeactivateMember which DOES call RequestSolve internally
+    //     (ArchSimModelRegistry.cpp:391-393). So removals self-heal; only
+    //     additions need a Tick prod.
+    //   - Condition is `!=` (not `<`) so both add and remove cases update
+    //     LastSeenRegisteredCount; the remove case skips the second RequestSolve
+    //     (DeactivateMember already fired one) while still keeping the cache fresh.
+    //   - Position-change sync (member's actor moved) is deliberately OUT of
+    //     AS-02b scope: demo MVP places static buildings, so no position dirty
+    //     case fires. That sync is a future AS-XX.
+
+    UArchSimModelRegistry* Registry = GetSubsystem<UArchSimModelRegistry>();
+    if (!Registry)
+    {
+        // Subsystem teardown order can null this between Init and Shutdown in
+        // PIE-stop edge cases. Bail without altering TickCount/AccumulatedSeconds
+        // telemetry — those counters are already updated above.
+        return;
+    }
+
+    const int32 CurrentCount = Registry->GetRegisteredCount();
+    if (CurrentCount != LastSeenRegisteredCount)
+    {
+        // Registration delta detected. Emit an empty patch so RequestSolve's
+        // 150 ms debounce coalesces a burst (PIE map-load fires BeginPlay on
+        // dozens of placed members in one frame; we batch them into ONE solve).
+        //
+        // Empty FFrameModelPatch{} has PatchRank(P) == 0 (no toggle IDs).
+        // So PendingRankAccumulation += 0, which never trips the strict-`>`
+        // rebaseline ceiling at ArchSimModelRegistry.cpp:281. Safe.
+        //
+        // Edge case: if CurrentCount < LastSeenRegisteredCount, DeactivateMember
+        // already called RequestSolve (cpp:393). We call it again here. That is
+        // intentional: the second call just extends/resets the 150 ms debounce
+        // window with rank 0 — it does not double-trigger a solve, and it ensures
+        // LastSeenRegisteredCount is updated so subsequent idle Ticks are O(1) no-ops.
+        Registry->RequestSolve(FFrameModelPatch{});
+        ++SolveTriggerCount;
+        LastSeenRegisteredCount = CurrentCount;
+    }
 }
 
 bool UArchSimGameInstance::IsTickable() const

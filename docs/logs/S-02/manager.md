@@ -88,3 +88,47 @@
 ---
 
 *Append below this line for each new event.*
+
+## 2026-06-26T11:08 — v0.1.4 tagged (`abf131a`)
+
+- Bundle: AS-02a (UArchSimGameInstance skeleton) + AS-10 (Real PendingRankAccumulation ceiling test)
+- Tag annotated locally; publish pending (user action)
+- 5-leg gate PASS 138 (cuDSS) / 136 (non-cuDSS)
+- README v0.1.4 status block prepended
+- ARCHITECTURE_INDEX §6/7/8 synced
+- HANDOFF_v0.1.4.md + RELEASE_v0.1.4.md written
+- NITS opened: AS-11 (header comment precision) + AS-12 (GetMaxRankBeforeRebaseline production consumer)
+
+## 2026-06-26T12:05 — AS-02b accepted CLEAN
+
+- Tick body extended to detect registered-count delta and emit RequestSolve(empty patch)
+- Production logic byte-identical (ArchSimModelRegistry.cpp 0 行動)
+- +75 LOC across header (+26) and cpp (+49)
+- Adversarial reviewer: 8/8 adversarial_focus CONFIRMED with file:line evidence
+- 3 hidden assumptions + 3 missed edge cases logged but all LOW, no action
+- Scope narrowing pre-agreed: dirty = registered-count delta (not actor position movement)
+
+## 2026-06-26T12:21 — AS-02c accepted CLEAN
+
+- New ArchSim.Integration.TickDriver test (147 LOC, 7 sub-checks)
+- $ExpectedUeTests bump 138 → 139 (cuDSS) / 136 → 137 (non-cuDSS)
+- Adversarial reviewer: flag deviation (SmokeFilter vs prompt template's ProductionFilter) verified as CORRECT precedent match (SaveLoadTest L82 + RebaselineTest L73 + MaxRankCeiling L288 all use SmokeFilter)
+- Headless limitation honest: driver-loop branch unreachable because GetSubsystem returns null in NewObject fixture — deferred to PIE-world AS-13
+
+### AS-13 opened (new backlog)
+
+#### AS-13 — PIE-world fixture for driver-loop + trip-path observability
+
+- Need: AS-10 trip-path (`bNeedsRebaseline=true` + `ExecuteSolve()` + `Sub->Rebaseline()`) AND AS-02 driver-loop (`Tick() → GetSubsystem → Registry`) both require a live GameInstance pipeline that headless `NewObject<T>()` does NOT provide
+- Resolution path:
+  - Spawn a PIE world via `FAutomationEditorCommonUtils::CreateNewMap` or equivalent
+  - Place 96+ `UArchSimMemberData` actors; trigger BeginPlay
+  - Tick the world for several frames
+  - Assert `Registry->IsRebaselineDue()` flipped + `GameInstance->GetSolveTriggerCount()` incremented
+- Sprint: defer to S-03 or later (needs PIE automation expertise)
+- Priority: MEDIUM (test gap, not a production bug)
+- Origin: S-02 AS-10 closure (v0.1.4) + AS-02c CLEAN review note (v0.1.5)
+
+## 2026-06-26T12:25 — v0.1.5 tagged (bundles AS-02b + AS-02c)
+
+(Tag forthcoming in this session — see commit `<TBD>`)

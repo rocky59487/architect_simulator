@@ -19,7 +19,41 @@ C++17-compatible; the UE module target is compiled as C++20 because of the curre
 > `v2.2+1` release packaged them together (FrameCore v2.2 + LevelSim v1.0.0). Every release
 > from `v2.3` onwards is FrameCore-only — LevelSim has not changed since `v2.2+1`.
 
-> **Status (2026-06-26, game-body `v0.1.4` — patch: Tick-driver foundation + real rebaseline-ceiling test):**
+> **Status (2026-06-26, game-body `v0.1.5` — patch: Tick driver loop + smoke test, AS-02 trilogy complete):**
+> Second S-02 release; closes the AS-02 (A1-06 full integration) backlog item.
+> **AS-02b** extends `UArchSimGameInstance::Tick()` (`Source/ArchSim/Private/ArchSimGameInstance.cpp`
+> +49) with a registered-count delta detector: each Tick reads
+> `Registry->GetRegisteredCount()`, compares against `LastSeenRegisteredCount`
+> (init -1), and emits `RequestSolve(FFrameModelPatch{})` when the count
+> changes. PatchRank(empty)=0 so the empty-patch trigger never trips the
+> rebaseline ceiling. Header gets the new private fields + two BP-pure
+> `[[nodiscard]] const` getters (`GetLastSeenRegisteredCount` /
+> `GetSolveTriggerCount`) (`Source/ArchSim/Public/ArchSimGameInstance.h` +26).
+> The dirty signal is **registered-count delta only** — actor position
+> movement sync is deliberately deferred (demo MVP has static buildings).
+> **AS-02c** lands a headless smoke test
+> (`Source/ArchSim/Private/Tests/ArchSimGameInstanceTest.cpp`, +147 LOC,
+> 7 sub-checks) at `ArchSim.Integration.TickDriver`. Test honestly pins the
+> headless-observable mechanics (5-tick + 100-tick burst increment;
+> IsTickable false on CDO + uninit instance; LastSeen=-1/SolveTrigger=0
+> initial state; const-getter purity) and documents the limitation that
+> `GetSubsystem<UArchSimModelRegistry>()` returns null in
+> `NewObject<UArchSimGameInstance>()` headless fixtures, so the driver-loop
+> branch is unreachable — deferred to a PIE-world fixture as **AS-13**.
+> `Scripts/run_gate.ps1` line 29 `$ExpectedUeTests` 138 → 139 (non-cuDSS
+> fallback 136 → 137). **Engine source delta vs v0.1.4 = 0**;
+> **`UArchSimModelRegistry.{h,cpp}` delta = 0** (production logic
+> byte-identical — only AS-10's v0.1.4 telemetry getters stand).
+> **ArchSim production code delta vs v0.1.4 = 75 lines** (AS-02b
+> header+cpp). Adversarial review found CLEAN on both AS-02b and AS-02c
+> (the latter cross-verified the `SmokeFilter` flag choice against three
+> ArchSim test precedents). Gate PASS `(UE 139 tests green, ...)`
+> 2026-06-26 on cuDSS host. Release notes:
+> [`docs/RELEASE_v0.1.5.md`](docs/RELEASE_v0.1.5.md) | handoff:
+> [`docs/HANDOFF_v0.1.5.md`](docs/HANDOFF_v0.1.5.md) | sprint logs:
+> [`docs/logs/S-02/`](docs/logs/S-02/). v0.1.4 status block follows.
+
+> **Prior anchor — v0.1.4 (game body patch: Tick-driver foundation + real rebaseline-ceiling test):**
 > First S-02 release. Two-unit bundle: **AS-02a** lands `UArchSimGameInstance`
 > (`UGameInstance` + `FTickableGameObject` mixin, `Source/ArchSim/Public/ArchSimGameInstance.h`
 > +75 / `Private/ArchSimGameInstance.cpp` +68) as the production-only foundation
