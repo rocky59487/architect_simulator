@@ -105,10 +105,11 @@ bool FArchSimPieDriverLoopTest::RunTest(const FString& /*Parameters*/)
     World->Tick(ELevelTick::LEVELTICK_All, kFrameDt);
     World->Tick(ELevelTick::LEVELTICK_All, kFrameDt);
     World->Tick(ELevelTick::LEVELTICK_All, kFrameDt);
-    TestTrue(TEXT("Sub-check 4: World->Tick(LEVELTICK_All, 1/60) x3 did not crash "
-                  "(world is tickable; driver-loop absence is due to IsTickable()=false, "
-                  "not a world deficiency)"),
-             true);
+    TestNotNull(TEXT("Sub-check 4: World->Tick(LEVELTICK_All, 1/60) x3 did not crash "
+                    "— World->GetCurrentLevel() still valid after 3 ticks "
+                    "(driver-loop absence is due to IsTickable()=false on TestGI, "
+                    "not a world deficiency)"),
+               World->GetCurrentLevel());
 
     // ---- Sub-check 5: SolveTriggerCount unchanged after World ticks -------------
     // The tick manager dispatches all FTickableGameObject instances that IsTickable()

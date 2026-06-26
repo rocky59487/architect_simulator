@@ -244,3 +244,27 @@ NITS-acceptable. HANDOFF_v0.3.0.md §4 AS-24 first action literally specifies `r
 
 Advancing to Phase 4 (release-hardening) for AS-24-u1 commit.
 
+## Phase 4: Release-hardening 2026-06-26T21:26
+
+**Mode:** Mid-sprint feature commit (no tag; release-hardening invocation deferred to RELEASE-v0.3.1 Unit 5).
+
+**Commit SHA:** `2883d40` (`feat(S-04): AS-24-u1 -- FrameCoreUE NewObject GetTransientPackage outer (3-site)`)
+
+**Files committed (4):**
+- `Plugins/FrameSolver/Source/FrameCoreUE/Private/Tests/FrameCoreUEInteractiveSubsystemTest.cpp` (modified)
+- `Plugins/FrameSolver/Source/FrameCoreUE/Private/Tests/FrameCoreUELoadPatchTest.cpp` (modified)
+- `Plugins/FrameSolver/Source/FrameCoreUE/Private/Tests/FrameCoreUERedundancyFieldTest.cpp` (modified)
+- `docs/logs/S-04/agent_AS-24-u1.md` (new — this file's pre-Phase-4 content)
+
+**Diff stat:** 4 files changed, 256 insertions(+), 3 deletions(-)
+
+**Commit message includes honest disclosure** of the technical equivalence finding (default outer IS `GetTransientPackage()`) and the AS-26 backlog opening (UArchSimModelRegistry follow-up for ArchSimPieHarness mirror). PHASE5-NITS-u1 will handle the 3-site comment unification.
+
+**Tag:** N/A this commit. Tag at RELEASE-v0.3.1 (Unit 5) will be `v0.3.1`.
+
+**Publish commands:** N/A this commit.
+
+**Phase 5 chain:** Same as AS-20-u1 — no ARCH_INDEX or CLAUDE.md update for mid-sprint feature commits; Phase 5 logs one-line manager.md entry.
+
+Advancing to Phase 5 (docs sync) for this commit. After Phase 5 returns, Phase 2 picks next dispatch unit (PHASE5-NITS-u1, sequential after AS-20 + AS-24 file co-tenancy on FrameCoreUEInteractiveSubsystemTest.cpp).
+

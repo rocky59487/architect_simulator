@@ -160,7 +160,7 @@ UArchSimModelRegistry.Members[]  (FFrameModelDef builds up)
         │  (every Tick / on-dirty)
         ▼
 UArchSimModelRegistry.RequestSolve()
-        │  (debounce 150 ms; PendingRankAccumulation < 96)
+        │  (debounce 150 ms; rebaseline when PendingRankAccumulation > 96)
         ▼
 UFrameInteractiveSubsystem.ApplyPatchAndResolve()
         │
@@ -234,7 +234,7 @@ cross-call between these two subsystems, or convert either to a
 - v0.1.4: `ArchSim.Persistence.RebaselineCeiling` (AS-10; pins strict `>` semantic of MaxRankBeforeRebaseline=96 in RequestSolve; 7 sub-checks including accumulator math, boundary 96 stays/97 grows, const-getter purity, multi-rank patch, empty-patch no-op; note: trip path unreachable in headless NewObject fixture due to GI-null early-return — this is honest per AS-07 lesson #1)
 - v0.1.5: `ArchSim.Integration.TickDriver` (AS-02c; UArchSimGameInstance Tick telemetry + IsTickable filter smoke; 7 sub-checks; headless cannot exercise full registry-delta driver-loop branch because GetSubsystem returns null without a real GameInstance pipeline — deferred to PIE-world fixture as AS-13)
 - v0.2.0: `ArchSim.Gameplay.CharacterInput` (AS-03d; AArchSimCharacter + AArchSimGameMode CDO/reflection smoke; 7 sub-checks covering class hierarchy, GameMode wire, AS-03a controller-rotation flags, AS-03c camera default subobject, AS-03b Enhanced Input UPROPERTY slots; full input + locomotion runtime deferred to AS-13)
-- v0.3.0: `FrameCore.UE.EmptyModelStartSession` (AS-17; FrameInteractiveSubsystem empty-model graceful-fail oracle; 10 TestXxx assertions in 4 logical sub-checks — fully empty / partial empty / recovery after failure / double EndSession idempotency; engine validate() returns `"no nodes"` → diagnostic `"invalid model: no nodes"` → existing `if (!Session->valid())` guard fires)
+- v0.3.0: `FrameCore.UE.InteractiveSubsystem.EmptyModelStartSession` (AS-17; FrameInteractiveSubsystem empty-model graceful-fail oracle; 10 TestXxx assertions in 4 logical sub-checks — fully empty / partial empty / recovery after failure / double EndSession idempotency; engine validate() returns `"no nodes"` → diagnostic `"invalid model: no nodes"` → existing `if (!Session->valid())` guard fires)
 - v0.3.0: `ArchSim.Integration.PieHarnessSmoke` (AS-13-u1; PIE-world bootstrap helper self-verification; 8 sub-checks proving the proven `GEngine->GetWorldContexts()` pattern works in `-nullrhi` commandlet, three-level coverage contract honest about Level 3 fallback; `SpawnActor<AArchSimCharacter>` confirmed to succeed in commandlet)
 - v0.3.0: `ArchSim.Integration.PieRebaseline` (AS-13-u2; harness-based rebaseline accumulator validation; 7 sub-checks pinning 96 boundary + 97 no-reset math; honest defer of trip-path to Level 1/2 OR true PIE)
 - v0.3.0: `ArchSim.Integration.PieDriverLoop` (AS-13-u2; harness-based driver-loop observation; 7 sub-checks pinning World non-null + GI null in Level 3 + Tick safety + SolveTriggerCount stays 0; honest defer of full driver-loop firing)
@@ -267,11 +267,14 @@ cross-call between these two subsystems, or convert either to a
 | AS-14 | Analog stick / gamepad input ClampMagnitude012D normalization | ✅ closed v0.3.0 (LOW-batch-u1; `UAlsVector::ClampMagnitude012D(Value.Get<FVector2D>())` substituted in `HandleMove`; ALS API signature verified via 3-point grep) | (closed) |
 | AS-15 | Enhanced Input lifecycle refit (NotifyControllerChanged + RemoveMappingContext + Canceled + bNotifyUserSettings) | ✅ closed v0.3.0 (AS-15-u1; mirror of ALS `AlsCharacterExample.cpp:19-49`; closes A-02/D-01/D-02/D-03/D-06 hardening findings; ~50 LOC net) | (closed) |
 | AS-16 | CalcCamera override for ALSCamera pipeline | ✅ closed v0.3.0 (AS-16-u1; routes through `UAlsCameraComponent::GetViewInfo` per ALS L51-60; `IsValid(Camera)` defensive prefix; ~8 code LOC) | (closed) |
-| AS-17 | empty-CurrentModel StartSession behavior audit | ✅ closed v0.3.0 (AS-17-u1; Case A no-guard-needed; engine `validate()` returns `false "no nodes"` → existing `if (!Session->valid())` guard fires; new test `FrameCore.UE.EmptyModelStartSession` pins the contract) | (closed) |
+| AS-17 | empty-CurrentModel StartSession behavior audit | ✅ closed v0.3.0 (AS-17-u1; Case A no-guard-needed; engine `validate()` returns `false "no nodes"` → existing `if (!Session->valid())` guard fires; new test `FrameCore.UE.InteractiveSubsystem.EmptyModelStartSession` pins the contract; renamed S-04 PHASE5-NITS-u1 NIT-f for namespace parity) | (closed) |
 | AS-18 | Two-GameInstanceSubsystem teardown order documentation | ✅ closed v0.3.0 (LOW-batch-u1; ~30-line paragraph added to §5 documenting why both teardown directions are race-safe via `EndSession` idempotency + `GetFrameSubsystem` null guard) | (closed) |
 | AS-19 | `UArchSimMemberData::BeginPlay` early-out warn/retry | ✅ closed v0.3.0 (LOW-batch-u1; Option A warn-only via `UE_LOG(LogTemp, Warning, ...)`; Option B retry-via-timer rejected at 35-45 LOC > 30 LOC threshold) | (closed) |
-| AS-20 | Upgrade `LogTemp` → shared `LogArchSim` log category | 🟡 backlog (LOW; cosmetic — `ArchSimMemberData.cpp` uses `LogTemp` while sister `ArchSimModelRegistry.cpp` has `LogArchSimRegistry` precedent) | docs/logs/S-03/manager.md AS-13-u1 review |
-| AS-24 | FrameCoreUE NewObject outer for InteractiveSubsystem isolated runs | 🟡 backlog (LOW; pre-existing since v3.5.1; `NewObject<UFrameInteractiveSubsystem>()` ClassWithin warning cascades to NotNull.cpp fatal in isolated test runs, but full gate suite handles non-fatally) | docs/logs/S-03/manager.md AS-13-u2 review |
+| AS-20 | Upgrade `LogTemp` → shared `LogArchSim` log category | ✅ closed S-04 Round 1 (commit `4b6f094`; 3-site sweep `ArchSimMemberData.cpp:26` + `ArchSimSaveLoadTest.cpp:86,294` using pre-existing umbrella) | (closed) |
+| AS-24 | FrameCoreUE NewObject outer for InteractiveSubsystem isolated runs | ✅ closed S-04 Round 1 (commit `2883d40`; 3-site mechanical `GetTransientPackage()` outer; honest disclosure — UE5.7 `UObjectGlobals.h:1918` confirms default outer is already `GetTransientPackage()`, fix value is intent-clarity + comments) | (closed) |
+| AS-25 | Hook regex broaden for `S-XXa` suffix sprints | 🟡 backlog (LOW; current `^S-\d+$` in `~/.claude/hooks/work-phase-guard.ps1` won't match suffix sprints; defer to future maintenance — no current convention uses suffix) | docs/logs/S-04/manager.md Round 1 review |
+| AS-26 | `UArchSimModelRegistry` ClassWithin verify + ArchSimPieHarness NewObject outer mirror | 🟡 backlog (MEDIUM; HANDOFF_v0.3.0.md §4 AS-24 said "should also adopt the same pattern" but excluded from S-04 AS-24-u1 scope; needs UArchSimModelRegistry ClassWithin confirm then mirror at `ArchSimPieHarness.cpp:81`) | docs/logs/S-04/manager.md Round 1 review |
+| AS-27 | Stale doc references in ARCH_INDEX §8 + DriverLoopTest sub-check 1 comments | 🟡 backlog (LOW; cosmetic — §8 gate cheat-sheet still says `140 expected / 138 on non-cuDSS` (current 145/143; pre-existing); DriverLoopTest.cpp L54+L58 sub-check 1 comments have empirical-overclaim `always has`/`always provides`) | docs/logs/S-04/manager.md Round 2 review |
 
 ---
 

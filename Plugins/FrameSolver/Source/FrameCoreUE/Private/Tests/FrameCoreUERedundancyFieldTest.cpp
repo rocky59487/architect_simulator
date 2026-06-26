@@ -38,7 +38,8 @@ namespace
             }
         }
         // AS-24: GetTransientPackage() outer suppresses ClassWithin (UGameInstance)
-        // ensure() in isolated single-test runs where no real GameInstance exists.
+        // ensure() fired in UObjectGlobals.cpp when outer=null for a ClassWithin-constrained
+        // class. In isolated single-test runs the ensure cascades to NotNull.cpp fatal.
         return NewObject<UFrameInteractiveSubsystem>(GetTransientPackage());
     }
 

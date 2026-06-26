@@ -127,7 +127,7 @@ void AArchSimCharacter::NotifyControllerChanged()
                 // The asset must be assigned in the derived Blueprint's Details panel
                 // (ArchSim|Input category).  See docs/INPUT_MAPPING.md.
                 UE_LOG(LogArchSim, Warning,
-                       TEXT("AArchSimCharacter (%s): DefaultMappingContext is null — "
+                       TEXT("AArchSimCharacter [Input] (%s): DefaultMappingContext is null — "
                             "assign IMC_ArchSimDefault in the Blueprint Details panel "
                             "(ArchSim|Input). Input will not work."),
                        *GetName());
@@ -145,7 +145,7 @@ void AArchSimCharacter::NotifyControllerChanged()
         else
         {
             UE_LOG(LogArchSim, Warning,
-                   TEXT("AArchSimCharacter (%s): UEnhancedInputLocalPlayerSubsystem "
+                   TEXT("AArchSimCharacter [Input] (%s): UEnhancedInputLocalPlayerSubsystem "
                         "not found — is EnhancedInput enabled in project plugins?"),
                    *GetName());
         }
@@ -174,7 +174,7 @@ void AArchSimCharacter::SetupPlayerInputComponent(UInputComponent* PlayerInputCo
     if (!IsValid(EI))
     {
         UE_LOG(LogArchSim, Warning,
-               TEXT("AArchSimCharacter (%s): PlayerInputComponent is not a "
+               TEXT("AArchSimCharacter [Input] (%s): PlayerInputComponent is not a "
                     "UEnhancedInputComponent — Enhanced Input plugin may be "
                     "disabled.  Bindings skipped."),
                *GetName());
@@ -200,7 +200,7 @@ void AArchSimCharacter::SetupPlayerInputComponent(UInputComponent* PlayerInputCo
     else
     {
         UE_LOG(LogArchSim, Warning,
-               TEXT("AArchSimCharacter (%s): IA_Move is null — assign in BP Details (ArchSim|Input)."),
+               TEXT("AArchSimCharacter [Input] (%s): IA_Move is null — assign in BP Details (ArchSim|Input)."),
                *GetName());
     }
 
@@ -213,7 +213,7 @@ void AArchSimCharacter::SetupPlayerInputComponent(UInputComponent* PlayerInputCo
     else
     {
         UE_LOG(LogArchSim, Warning,
-               TEXT("AArchSimCharacter (%s): IA_Look is null — assign in BP Details (ArchSim|Input)."),
+               TEXT("AArchSimCharacter [Input] (%s): IA_Look is null — assign in BP Details (ArchSim|Input)."),
                *GetName());
     }
 
@@ -228,7 +228,7 @@ void AArchSimCharacter::SetupPlayerInputComponent(UInputComponent* PlayerInputCo
     else
     {
         UE_LOG(LogArchSim, Warning,
-               TEXT("AArchSimCharacter (%s): IA_Jump is null — assign in BP Details (ArchSim|Input)."),
+               TEXT("AArchSimCharacter [Input] (%s): IA_Jump is null — assign in BP Details (ArchSim|Input)."),
                *GetName());
     }
 
@@ -243,7 +243,7 @@ void AArchSimCharacter::SetupPlayerInputComponent(UInputComponent* PlayerInputCo
     else
     {
         UE_LOG(LogArchSim, Warning,
-               TEXT("AArchSimCharacter (%s): IA_Sprint is null — assign in BP Details (ArchSim|Input)."),
+               TEXT("AArchSimCharacter [Input] (%s): IA_Sprint is null — assign in BP Details (ArchSim|Input)."),
                *GetName());
     }
 
@@ -258,7 +258,7 @@ void AArchSimCharacter::SetupPlayerInputComponent(UInputComponent* PlayerInputCo
     else
     {
         UE_LOG(LogArchSim, Warning,
-               TEXT("AArchSimCharacter (%s): IA_Crouch is null — assign in BP Details (ArchSim|Input)."),
+               TEXT("AArchSimCharacter [Input] (%s): IA_Crouch is null — assign in BP Details (ArchSim|Input)."),
                *GetName());
     }
 }

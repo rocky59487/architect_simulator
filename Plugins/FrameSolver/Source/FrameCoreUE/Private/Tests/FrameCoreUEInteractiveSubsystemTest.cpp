@@ -243,7 +243,7 @@ bool FFrameCoreUEInteractivePerfBaselineTest::RunTest(const FString& /*Parameter
 // This test is the oracle that pins this contract.  If any refactor regresses
 // the graceful-fail path, this test will catch it.
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FFrameCoreUEEmptyModelStartSessionTest,
-    "FrameCore.UE.EmptyModelStartSession",
+    "FrameCore.UE.InteractiveSubsystem.EmptyModelStartSession",
     EAutomationTestFlags_ApplicationContextMask | EAutomationTestFlags::SmokeFilter)
 
 bool FFrameCoreUEEmptyModelStartSessionTest::RunTest(const FString& /*Parameters*/)

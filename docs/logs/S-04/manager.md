@@ -114,3 +114,100 @@ Subagent's technical claim correct. HANDOFF_v0.3.0.md §4 AS-24 first action spe
 No tag at this point. RELEASE-v0.3.1 (Unit 5) is the tag ceremony after PHASE5-NITS-u1 lands.
 
 Phase 4 will handle per-unit `git add` discipline to avoid AS-20+AS-24 cross-bundle.
+
+## 2026-06-26T21:25 — Phase 4 Round 1 commits landed (no tag)
+
+Per-unit feature-commit discipline applied:
+
+| Unit | Commit | Mode | Files |
+|---|---|---|---|
+| U-INFRA-u1 | (no commit; hook OUTSIDE repo) | ceremonial accept | hook + .bak preserved locally only |
+| AS-20-u1 | `4b6f094` | feature commit | 7 (2 ArchSim source + 5 sprint logs: scope/plan/manager/agent_U-INFRA/agent_AS-20) |
+| AS-24-u1 | `2883d40` | feature commit | 4 (3 FrameCoreUE tests + agent_AS-24) |
+
+No tag landed (mid-sprint). Tag `v0.3.1` deferred to RELEASE-v0.3.1 (Unit 5) per scope contract. No remote push.
+
+Commit-discipline note (per Phase 3 reviewer Finding #1): AS-20 and AS-24 changes are in **distinct commits**, so `git log --follow` and `git blame` correctly attribute each file to its unit. Working-tree race during gate run (both diffs co-existed) was a gate-evidence boundary issue, not a code-correctness issue — gate PASS is still valid for both units jointly because no diff conflict + 5-leg gate ran on combined working tree.
+
+## 2026-06-26T21:30 — Phase 5 Round 1 minimal docs sync
+
+Per S-03 cadence, mid-sprint feature commits do NOT trigger CLAUDE.md "現況" demotion or ARCHITECTURE_INDEX.md "Latest tag" line update — those happen at the RELEASE-v0.3.1 (Unit 5) Phase 5 sync after the v0.3.1 tag lands.
+
+What WAS updated this Phase 5:
+
+- **`docs/ARCHITECTURE_INDEX.md` § 7 backlog table**:
+  - AS-20 row: 🟡 backlog → ✅ closed S-04 Round 1 (cite commit `4b6f094`)
+  - AS-24 row: 🟡 backlog → ✅ closed S-04 Round 1 (cite commit `2883d40` + honest disclosure)
+  - AS-25 row: NEW 🟡 backlog (LOW; hook regex broaden — see U-INFRA review Finding #1)
+  - AS-26 row: NEW 🟡 backlog (MEDIUM; UArchSimModelRegistry ClassWithin verify + ArchSimPieHarness mirror — see AS-24 review Finding #1)
+
+- **`docs/logs/S-04/manager.md`**: this entry + the prior Round 1 dispatch/return/review/commit entries
+
+NOT updated:
+- `CLAUDE.md` "現況" block (still v0.3.0; demote happens at RELEASE-v0.3.1)
+- `ARCHITECTURE_INDEX.md` "Latest tag" line (still v0.3.0)
+- `ARCHITECTURE_INDEX.md` § 6 UE test inventory (count unchanged at 145/143)
+- `ARCHITECTURE_INDEX.md` § 2 class map (no new classes/structs)
+
+## 2026-06-26T21:30 — Decision: continue to next round
+
+Scope-exhausted criterion check:
+- Scoped units in plan: 10 dispatch units (U-INFRA + AS-20 + AS-24 + PHASE5-NITS + RELEASE-v0.3.1 + SPIKE-UE5.8 + SPIKE-Scenario-u1/u2/u3 + RELEASE-v0.4.0 conditional)
+- Shipped units (Phase 4 section landed): 3 (U-INFRA + AS-20 + AS-24)
+- Remaining dispatchable: 7
+- No BLOCKER cycle open
+- User has NOT signaled close
+
+→ **NOT scope-exhausted. Loop back to Phase 2 for next unit.**
+
+**Next dispatch:** PHASE5-NITS-u1 (Round 2 sequential, depends on AS-20 + AS-24 file co-tenancy on `FrameCoreUEInteractiveSubsystemTest.cpp`).
+
+Scope addition during Round 1: PHASE5-NITS-u1 picks up **NIT-g** — unify comment text across 3 FrameCoreUE test sites (per AS-24 reviewer Finding #2). This is folded into the existing 6-item PHASE5-NITS bundle, making it 7 items total. Plan budget remains 1.5h.
+
+## 2026-06-26T21:50 — Round 2 PHASE5-NITS-u1 iteration 1 returned PARTIAL with ESCALATE
+
+Subagent `a7f01620b58aa3ec5` completed 6/7 NITs with all [VERIFIED] but hit ESCALATE on NIT-c: `ArchSimCharacter.cpp` has 8 Warning sites (>2 ESCALATE trigger from spec). Step cap exceeded (60/40); planning under-estimate noted. 5-leg gate PASS @ 145 in this state.
+
+User adjudicated via AskUserQuestion: **Authorize 8-site fix → focused re-dispatch (Recommended)**.
+
+## 2026-06-26T22:02 — Round 2 iteration 2 returned DONE
+
+Fresh focused subagent `ae73031f7eecf3769` completed NIT-c only:
+- 8 sites uniform `[Input]` prefix in ArchSimCharacter.cpp
+- Display/Verbose/Error/Log levels untouched (verified)
+- UE build Succeeded
+- 5-leg gate PASS @ 145 (rerun on combined iteration 1 + 2 working tree)
+- Within budget (17/25 steps, 89K/100K tokens, 7m 25s)
+
+Combined budget across iterations: 77 steps / 232K tokens / 21m 49s for the full 7-NIT bundle. Original single-unit budget was 40 steps / 200K tokens / 28 min — iteration 1 was over-budget; iteration 2 fresh budget stayed within.
+
+## 2026-06-26T22:08 — Round 2 PHASE5-NITS-u1 reviewed NITS, accepted
+
+Adversarial reviewer `a9a8db834f2a34979`:
+- All 7 NITs verified ✅
+- 鐵則 ALL CONFIRMED
+- 3 NITS findings (1 MEDIUM scope-leak + 2 LOW pre-existing)
+- Iteration 1 step-cap violation = planning under-estimate (recommend future PHASE5-NIT budget = 60-80 steps)
+
+### Phase 3 closeout actions (main thread)
+
+1. **Inline-fixed Finding #1** (NIT-f sync leak at ARCH_INDEX §7 L270): `FrameCore.UE.EmptyModelStartSession` → `FrameCore.UE.InteractiveSubsystem.EmptyModelStartSession` + cite. 1-line Edit. Treated as NIT-f scope closeout; bundle in PHASE5-NITS-u1's commit.
+2. **AS-27 backlog opened** for Findings #2 + #3 (cosmetic; pre-existing; not unit-scope; defer to future patch).
+
+### New backlog opened during Round 2
+
+#### AS-27 — Stale doc references inside ARCH_INDEX + DriverLoopTest comments
+- File: `docs/ARCHITECTURE_INDEX.md` L288 + `Source/ArchSim/Private/Tests/ArchSimPieDriverLoopTest.cpp` L54+L58
+- Issue: (a) ARCH_INDEX §8 gate cheat-sheet still says `140 expected / 138 on non-cuDSS` (current is 145/143; pre-existing stale; should land in any future docs touch). (b) ArchSimPieDriverLoopTest.cpp sub-check 1 has `"always has at least one"`/`"always provides"` empirical-overclaim comments (pre-existing; NIT-a scope was PieHarness.h only).
+- Sprint: defer to future patch / docs sync window
+- Priority: LOW
+- Origin: S-04 Round 2 PHASE5-NITS-u1 review (reviewer Findings #2 + #3)
+
+### Round 2 commit decision
+
+PHASE5-NITS-u1 ships as ONE feature commit covering 9 source/script/docs files + Phase 3 closeout L270 fix:
+- 8 source/script files (per Round 2 spec) — see plan unit detail
+- `docs/ARCHITECTURE_INDEX.md` (NIT-e §5 + NIT-f sync §6/§7 + Phase 3 closeout L270 + AS-27 backlog row append in §7)
+- agent log + manager log append bundled
+
+No tag this commit (mid-sprint). Tag at RELEASE-v0.3.1 (next unit).

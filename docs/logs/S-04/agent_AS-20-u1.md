@@ -184,3 +184,30 @@ None.
 
 Advancing to Phase 4 (release-hardening) for AS-20-u1 commit.
 
+## Phase 4: Release-hardening 2026-06-26T21:25
+
+**Mode:** Mid-sprint feature commit (no tag; release-hardening invocation deferred to RELEASE-v0.3.1 Unit 5 which produces the `v0.3.1` annotated tag).
+
+**Commit SHA:** `4b6f094` (`feat(S-04): AS-20-u1 -- LogTemp -> LogArchSim umbrella sweep`)
+
+**Files committed (7):**
+- `Source/ArchSim/Private/Components/ArchSimMemberData.cpp` (modified)
+- `Source/ArchSim/Private/Tests/ArchSimSaveLoadTest.cpp` (modified)
+- `docs/logs/S-04/scope_2026-06-26T2030.md` (new — sprint open)
+- `docs/logs/S-04/plan_2026-06-26T2040.md` (new — sprint open)
+- `docs/logs/S-04/manager.md` (new — sprint open + Round 1 log)
+- `docs/logs/S-04/agent_U-INFRA-u1.md` (new — U-INFRA acceptance bundled here)
+- `docs/logs/S-04/agent_AS-20-u1.md` (new — this file's pre-Phase-4 content)
+
+**Diff stat:** 7 files changed, 979 insertions(+), 3 deletions(-)
+
+**Commit-discipline note (Phase 3 reviewer Finding #1):** AS-24-u1's 3 FrameCoreUE test files were NOT staged in this commit. They were separately staged in commit `2883d40`. Reviewer's MEDIUM warning addressed: the two units' diffs are now in distinct commits, so future `git log --follow` or `git blame` on each touched file correctly attributes to its own unit.
+
+**Tag:** N/A this commit. Tag at RELEASE-v0.3.1 (Unit 5) will be `v0.3.1` annotated with consolidated release notes.
+
+**Publish commands:** N/A this commit (tagless feature commit). Push will be authorized at RELEASE-v0.3.1 Phase 4 if user authorizes; otherwise stays local until session close.
+
+**Phase 5 chain:** ARCHITECTURE_INDEX.md and CLAUDE.md "現況" block are NOT updated for individual mid-sprint feature commits per S-03 cadence. Phase 5 will append a one-line manager.md entry for this commit. Full doc sync happens at RELEASE-v0.3.1 Phase 5.
+
+Advancing to Phase 5 (docs sync) for this commit.
+

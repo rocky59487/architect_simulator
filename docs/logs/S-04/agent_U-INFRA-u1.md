@@ -211,3 +211,21 @@ None.
 
 Advancing to Phase 4 (release-hardening) for U-INFRA-u1 commit ceremony (NOTE: nothing to commit in ArchSim repo — hook is OUTSIDE; Phase 4 will record this unit as a no-commit ceremonial accept).
 
+## Phase 4: Release-hardening 2026-06-26T21:25
+
+**Mode:** No-commit ceremonial accept (file lives OUTSIDE the repo).
+
+**Commit SHA:** N/A (hook at `~/.claude/hooks/work-phase-guard.ps1` is OUTSIDE the ArchSim git work tree; no `git diff` to capture).
+
+**Tag:** N/A (mid-sprint feature accept; tag deferred to RELEASE-v0.3.1 (Unit 5)).
+
+**Audit trail:** This agent log itself is committed under the AS-20-u1 sprint-open bundle (commit `4b6f094`). The hook's content change is preserved on the local filesystem under `.bak` (backup) and live file. No ArchSim git history records the hook change.
+
+**Publish commands:** N/A (no remote artifact to publish for this unit).
+
+**Future maintenance:** AS-25 backlog opened to track regex broaden (`^S-\d+$` → handle `S-XXa` suffix sprints). U-INFRA-followup tracked as in-agent-log NIT list (LOC accuracy, `$SharedStateFile` unused var, empty-state guard).
+
+**Phase 5 chain:** AS-20 + AS-24 commits triggered separate Phase 4 entries; this U-INFRA Phase 4 is a no-op for docs sync (no version pin change, no test count change, no API surface change). Phase 5 will record this in manager.md as "no-commit ceremonial accept" entry.
+
+Advancing to Phase 5 alongside AS-20-u1 + AS-24-u1.
+

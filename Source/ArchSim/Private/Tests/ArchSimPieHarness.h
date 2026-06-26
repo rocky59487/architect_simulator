@@ -49,9 +49,9 @@ class AArchSimCharacter;
 namespace ArchSimPieHarness
 {
     // Returns the first valid UWorld from GEngine's contexts.
-    // In -ExecCmds=Automation commandlet mode the engine always has at least one
-    // world context (the editor preview world). Returns nullptr ONLY if GEngine
-    // itself is null, which indicates a genuine engine init failure.
+    // In -ExecCmds=Automation commandlet mode the engine consistently has at least one
+    // world context (the editor preview world) in our verified test runs. Returns nullptr
+    // ONLY if GEngine itself is null, which indicates a genuine engine init failure.
     // Pattern: FrameCoreUEActorStressMeshTest.cpp:35-51 (proven, non-crashing).
     UWorld* GetOrFindWorld();
 
