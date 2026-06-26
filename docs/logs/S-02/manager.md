@@ -131,4 +131,35 @@
 
 ## 2026-06-26T12:25 — v0.1.5 tagged (bundles AS-02b + AS-02c)
 
-(Tag forthcoming in this session — see commit `<TBD>`)
+v0.1.5 tagged `2935e71`. Bundles AS-02b + AS-02c. 5-leg gate PASS 139.
+
+## 2026-06-26T12:42 — AS-03a accepted CLEAN
+
+- AArchSimCharacter subclass AAlsCharacter (foundation)
+- 3 files: header / cpp / Build.cs (ALS dep added Public)
+- UE build 8.11s OK (ALS link verified)
+- Phase 3 reviewer: 8/8 adversarial dimensions verified file:line
+- Feature commit `ea44014`, no tag (bundles to v0.2.0)
+
+## 2026-06-26T13:00 — AS-03b accepted CLEAN+3 LOW NITS
+
+- Enhanced Input: 5 IA + 1 IMC TObjectPtr slots + 7 handler bodies
+- HandleMove view-space (matches AAlsCharacterExample::Input_OnMove)
+- docs/INPUT_MAPPING.md UAsset spec for user to create in Editor
+- UE build 4.54s OK / gate PASS 139
+- NITS:
+  - N-01: HandleMove missing `ClampMagnitude012D` (LOW — analog stick prep) → **AS-14 backlog opened**
+  - N-02: Sprint edge-trigger vs ALS example every-frame (LOW — design choice, no backlog)
+  - N-03: include order style (LOW — no backlog)
+- Feature commit pending (will commit after this entry)
+
+### AS-14 opened (new backlog)
+
+#### AS-14 — Analog stick / gamepad input normalization
+
+- File: `Source/ArchSim/Private/Characters/ArchSimCharacter.cpp` HandleMove
+- Issue: missing `UAlsVector::ClampMagnitude012D(Value.Get<FVector2D>())` clamp before passing to view-space movement; ALS example does this in `Input_OnMove` L1
+- Impact: keyboard W+D gives raw `(1,1)` norm 1.41, but `AddMovementInput` normalizes internally so functionally OK. Becomes load-bearing for analog stick / gamepad — corner stick travel would over-drive.
+- Sprint: AS-03d Phase 4 cleanup OR next gameplay polish window
+- Priority: LOW
+- Origin: S-02 AS-03b Phase 3 NITS #1
