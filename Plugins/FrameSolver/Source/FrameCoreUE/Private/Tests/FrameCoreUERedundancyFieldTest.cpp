@@ -37,7 +37,9 @@ namespace
                 }
             }
         }
-        return NewObject<UFrameInteractiveSubsystem>();
+        // AS-24: GetTransientPackage() outer suppresses ClassWithin (UGameInstance)
+        // ensure() in isolated single-test runs where no real GameInstance exists.
+        return NewObject<UFrameInteractiveSubsystem>(GetTransientPackage());
     }
 
     AFrameRedundancyFieldActor* SpawnActor(UWorld* W)

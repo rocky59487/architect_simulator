@@ -46,7 +46,10 @@ namespace
         // to a transient subsystem instance — the subsystem's StartSession / Apply /
         // EndSession logic doesn't actually need a real GameInstance owner; only the
         // subsystem-manager lookup does.
-        return NewObject<UFrameInteractiveSubsystem>();
+        // AS-24: GetTransientPackage() outer suppresses ClassWithin (UGameInstance)
+        // ensure() fired in UObjectGlobals.cpp when outer=null for a ClassWithin-constrained
+        // class. In isolated single-test runs the ensure cascades to NotNull.cpp fatal.
+        return NewObject<UFrameInteractiveSubsystem>(GetTransientPackage());
     }
 
     // Single-member cantilever: 2 nodes, S235 steel, 100x100 rect, L = 2 m, P = 1000 N at tip.
