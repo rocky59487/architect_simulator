@@ -163,3 +163,37 @@ Phase 4 (release-hardening) for Round 1 — bundle decision deferred to Phase 4 
 - 鐵則 compliance ALL CONFIRMED (8/8 grep checks)
 - No new backlog opened
 
+
+## 2026-06-26T19:35 — Round 3 Unit 6 AS-13-u2 dispatched
+
+- Domain: ue5-engineer + qa-strategist
+- Sequential dispatch (depends on Unit 5 harness)
+- Pre-flight reality check: Level 3 means AS-10 trip + AS-02 driver-loop STILL unreachable; only AS-03d input runtime PARTIALLY advances via SpawnActor
+
+## 2026-06-26T19:55 — Unit 6 AS-13-u2 returned DONE
+
+- 3 new test files: PieRebaseline +125 / PieDriverLoop +133 / PieInputRuntime +148 = +406 LOC
+- $ExpectedUeTests 142→145 (cuDSS) / 140→143 (non-cuDSS)
+- Honest scope reduction discovered: `SetupPlayerInputComponent` + `NotifyControllerChanged` are `protected` virtual → C2248 → 7 sub-checks (down from planned 8-12); honestly removed direct invocation
+- Subagent identified pre-existing FrameCoreUE isolated-run crash (NewObject ClassWithin warning); full gate suite unaffected
+- Subagent ran full 5-leg gate: GATE PASS UE 145 / standalone / OpenSees / audit 104 / CLI
+
+## 2026-06-26T20:00 — Unit 6 AS-13-u2 reviewed CLEAN
+
+- 6/6 adversarial dimensions verified file:line
+- Reviewer Read 5 files, grep'd 10 patterns, cross-checked 8 claims
+- Confirmed `protected` access claim via grep (ArchSimCharacter.h:66-95)
+- Confirmed pre-existing FrameCoreUE crash truly pre-existing (since v3.5.1, NOT introduced by AS-17-u1)
+- 2 LOW NITs (both cosmetic): run_gate.ps1 comment drift; PieDriverLoop sub-check 4 tautology — both deferred to Phase 5
+
+### New backlog opened during Round 3
+
+#### AS-24 — FrameCoreUE NewObject outer for InteractiveSubsystem isolated runs
+- File: `Plugins/FrameSolver/Source/FrameCoreUE/Private/Tests/FrameCoreUEInteractiveSubsystemTest.cpp` (NewObject fallback path) — but **FrameCoreUE is NOT FROZEN** (only FrameCore engine is)
+- Issue: `NewObject<UFrameInteractiveSubsystem>()` without proper outer produces ClassWithin warning. In **isolated** test runs (e.g. running only `FrameCore.UE.InteractiveSubsystem.*` subset) this cascades to NotNull.cpp fatal. Full gate suite (`FrameCore+ArchSim`) handles the ensure non-fatally and runs cleanly.
+- Pre-existing since v3.5.1 (`5eeab2e`). AS-17-u1 and ArchSimPieHarness both reuse the same pattern.
+- Fix: provide a synthetic outer (e.g. `NewObject<UFrameInteractiveSubsystem>(GetTransientPackage(), UFrameInteractiveSubsystem::StaticClass())`) OR add a real GameInstance ctor in the fallback path
+- Sprint: defer (not blocking v0.3.0 ship — full gate works)
+- Priority: LOW
+- Origin: S-03 Round 3 AS-13-u2 review (reviewer cross-check finding)
+
