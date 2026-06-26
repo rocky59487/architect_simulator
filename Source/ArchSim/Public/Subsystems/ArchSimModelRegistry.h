@@ -82,26 +82,34 @@ public:
     [[nodiscard]] bool  IsSessionStarted() const { return bSessionStarted; }
 
     // ---- AS-10: rebaseline telemetry (pure observers) -------------------------
-    // PendingRankAccumulation accumulates per-call PatchRank in RequestSolve (cpp:272);
-    // resets to 0 in ExecuteSolve after any solve attempt (rebaseline or not, cpp:303/315/324/331).
-    // NOTE: in headless (NewObject, no GameInstance), RequestSolve early-returns at
-    // cpp:275 before reaching the trip check — so accum grows but is NEVER reset by
-    // ExecuteSolve in headless mode (GetGameInstance() returns nullptr, no timer/solve fires).
+    // PendingRankAccumulation accumulates per-call PatchRank inside RequestSolve
+    // (see RequestSolve body in .cpp — look for `PendingRankAccumulation +=`).
+    // It resets to 0 in ExecuteSolve after any solve attempt — rebaseline or not
+    // (see ExecuteSolve top + 3 early-exit paths in .cpp — look for
+    // `PendingRankAccumulation = 0`).
+    // NOTE: in headless (NewObject, no GameInstance), RequestSolve early-returns
+    // at the GI-null guard before reaching the trip check — so accum grows but is
+    // NEVER reset by ExecuteSolve in headless mode (no timer/solve fires).
     // This getter is exposed for AS-10 test that pins the strict `> MaxRankBeforeRebaseline`
     // trip semantic (97th cumulative rank trips rebaseline, NOT 96th) while acknowledging
     // the headless limitation in test comments.
     [[nodiscard]] int32 GetPendingRankAccumulation() const noexcept { return PendingRankAccumulation; }
 
-    // bNeedsRebaseline is set true the moment ExecuteSolve is scheduled to call
-    // Sub->Rebaseline() (i.e. when the >96 threshold trips, cpp:284). Clears at
-    // cpp:323 inside the `Sub != nullptr` branch of ExecuteSolve. In headless mode
-    // (no GI), this flag is never set because the trip path at cpp:281-286 is
-    // unreachable (early return at cpp:275 prevents it).
+    // bNeedsRebaseline is set true when the >MaxRankBeforeRebaseline threshold
+    // trips inside RequestSolve (see `bNeedsRebaseline = true` in .cpp).
+    // Clears inside ExecuteSolve's rebaseline branch (see `bNeedsRebaseline = false`
+    // after Sub->Rebaseline() call). In headless mode (no GI), this flag is never
+    // set because the trip path is unreachable (GI-null early-return prevents it).
     [[nodiscard]] bool IsRebaselineDue() const noexcept { return bNeedsRebaseline; }
 
     // Public mirror of the private constexpr for test assertion clarity (no
     // behaviour change; lets the test write assertions in terms of the real
     // constant rather than a magic literal 96).
+    //
+    // TODO(AS-12): consumer plan — when the HUD "rank budget" indicator ships
+    // (out of S-03 scope), it should read this via Registry->GetMaxRankBeforeRebaseline()
+    // so the on-screen budget UI stays in sync with the engine pin. Until then,
+    // this accessor is intentionally test-only (no production caller).
     [[nodiscard]] static constexpr int32 GetMaxRankBeforeRebaseline() noexcept { return MaxRankBeforeRebaseline; }
 
 private:

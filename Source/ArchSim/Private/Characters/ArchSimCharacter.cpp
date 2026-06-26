@@ -191,7 +191,13 @@ void AArchSimCharacter::SetupPlayerInputComponent(UInputComponent* PlayerInputCo
 void AArchSimCharacter::HandleMove(const FInputActionValue& Value)
 {
     // IA_Move is Axis2D: X = right, Y = forward (standard UE Enhanced Input convention).
-    const FVector2D MoveInput = Value.Get<FVector2D>();
+    // AS-14: clamp to unit circle before view-space projection. Analog stick corner
+    // input and simultaneous keyboard W+D produce norm=sqrt(2)~1.414, which
+    // over-drives AddMovementInput. UAlsVector::ClampMagnitude012D scales the vector
+    // down to norm=1 when the magnitude exceeds 1, preserving direction and leaving
+    // partial inputs (norm<1) unchanged. Matches AAlsCharacterExample::Input_OnMove
+    // (AlsCharacterExample.cpp:109). Keyboard single-axis (norm=1.0) is unaffected.
+    const FVector2D MoveInput = UAlsVector::ClampMagnitude012D(Value.Get<FVector2D>());
 
     // Use camera/view-space projection (same as AAlsCharacterExample::Input_OnMove).
     // Rationale: in ALS third-person, the character model faces the locomotion

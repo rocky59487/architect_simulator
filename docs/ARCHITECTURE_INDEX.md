@@ -189,6 +189,32 @@ UArchSimMemberData.CachedUtilization  (BP-readable; UI/heatmap consumes)
   Full runtime driver-loop + trip-path observability is deferred to **AS-13**
   PIE-world fixture (see § 7).
 
+### AS-18: Two-GameInstanceSubsystem teardown ordering
+
+**Context (S-02 review finding C-04):** `UArchSimModelRegistry` and
+`UFrameInteractiveSubsystem` are both `UGameInstanceSubsystem`s. UE tears them
+down in **reverse-init order** — the exact order is not guaranteed by the game
+code and depends on subsystem registration sequence at runtime.
+
+**Both orderings are race-safe — verified against the production source:**
+
+- **Registry deinitializes first** (`UArchSimModelRegistry::Deinitialize`,
+  `ArchSimModelRegistry.cpp` `Deinitialize` body): calls `Sub->EndSession()` if
+  `bSessionStarted`. `EndSession` on `UFrameInteractiveSubsystem` is idempotent
+  (`if (Session) { delete Session; Session = nullptr; }` — double-call is a
+  no-op). ✅ safe.
+
+- **Sub (`UFrameInteractiveSubsystem`) deinitializes first**: Registry's
+  `Deinitialize` calls `GetFrameSubsystem()` which calls
+  `GetGameInstance()->GetSubsystem<UFrameInteractiveSubsystem>()`. UE returns
+  `nullptr` for a subsystem that has already been deinitialized. The registry
+  body guards with `if (UFrameInteractiveSubsystem* Sub = GetFrameSubsystem())`
+  and skips the `EndSession` call. ✅ safe.
+
+**Conclusion:** no ordering bug under current architecture. **If you add a new
+cross-call between these two subsystems, or convert either to a
+`UWorldSubsystem` (different teardown lifecycle), re-verify this analysis.**
+
 ---
 
 ## 6. UE test inventory
