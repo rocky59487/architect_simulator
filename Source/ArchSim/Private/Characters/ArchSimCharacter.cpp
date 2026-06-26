@@ -263,6 +263,37 @@ void AArchSimCharacter::SetupPlayerInputComponent(UInputComponent* PlayerInputCo
     }
 }
 
+// AS-16 (D-08): CalcCamera override — route view through ALS camera pipeline.
+// Mirrors Plugins/ALS/Source/ALSExtras/Private/AlsCharacterExample.cpp:51-60.
+//
+// Why IsValid(Camera) guard (divergence from ALS example)?
+//   ALS's AlsCharacterExample::CalcCamera calls Camera->IsActive() directly without
+//   an IsValid() check, relying on Camera being a DefaultSubobject (always non-null
+//   after the ctor completes).  We add a defensive IsValid() because:
+//     1. CDO construction is invoked before module finalisation; a partial CDO state
+//        (e.g., a plugin loading mid-sequence) could leave Camera null momentarily.
+//     2. PIE teardown GC may mark the component for collection before the owning
+//        actor's EndPlay clears all camera update requests.
+//     3. Cost is a single pointer validity check — effectively free on the hot path.
+//   When Camera is null or GC-pending, we fall through to Super::CalcCamera(), which
+//   returns the pawn's actor location + controller rotation (safe default).
+//
+// Why NO UE_LOG warning on Super fallback?
+//   Camera->IsActive() returning false is a legitimate state (component deactivated,
+//   first-person mode, etc.).  Logging every frame on the fallback path would flood
+//   the output log with noise.  Real issues surface via the PIE camera being wrong —
+//   which is observable and actionable without a per-frame log.
+void AArchSimCharacter::CalcCamera(const float DeltaTime, FMinimalViewInfo& ViewInfo)
+{
+    if (IsValid(Camera) && Camera->IsActive())
+    {
+        Camera->GetViewInfo(ViewInfo);
+        return;
+    }
+
+    Super::CalcCamera(DeltaTime, ViewInfo);
+}
+
 // ---------------------------------------------------------------------------
 // AS-03b: Input handler implementations
 // ---------------------------------------------------------------------------

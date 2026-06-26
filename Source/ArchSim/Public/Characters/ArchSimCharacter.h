@@ -76,6 +76,22 @@ protected:
     // Gold-standard precedent: Plugins/ALS/Source/ALSExtras/Private/AlsCharacterExample.cpp L19-49.
     virtual void NotifyControllerChanged() override;
 
+    // AS-16 (D-08): Route camera through UAlsCameraComponent::GetViewInfo so the ALS
+    // state machine's computed view (FOV override, shoulder switch, post-process weight)
+    // actually reaches APlayerController::UpdateCameraManager.  Without this override,
+    // ACharacter::CalcCamera falls through to the default FollowCamera path and silently
+    // ignores everything UAlsCameraComponent ticked.
+    //
+    // Why override here (not in BeginPlay or tick)?
+    //   CalcCamera is the single canonical hook called by APlayerCameraManager each frame
+    //   to ask the viewed pawn for its desired view info.  Routing it here is the minimal,
+    //   correct intercept point — matches AAlsCharacterExample::CalcCamera exactly.
+    //
+    // Gold-standard precedent:
+    //   Plugins/ALS/Source/ALSExtras/Public/AlsCharacterExample.h:82
+    //   Plugins/ALS/Source/ALSExtras/Private/AlsCharacterExample.cpp:51-60
+    virtual void CalcCamera(float DeltaTime, FMinimalViewInfo& ViewInfo) override;
+
     virtual void SetupPlayerInputComponent(class UInputComponent* PlayerInputComponent) override;
 
     // ---- AS-03b: Enhanced Input handlers ----------------------------------

@@ -114,3 +114,27 @@ Phase 4 (release-hardening) for Round 1 — bundle decision deferred to Phase 4 
 - 鐵則 compliance ALL CONFIRMED — FROZEN 0 lines, ALS source READ-only, Phase 5 territory 0 lines
 - No new backlog opened
 
+
+## 2026-06-26T18:35 — Round 2 Unit 4 AS-16-u1 dispatched
+
+- Domain: ue5-engineer (primary, ALS camera component)
+- Sequential after Unit 3 (same-file co-tenancy resolved by ordering)
+- Pre-flight: post-Unit-3 ArchSimCharacter state confirmed; ALS precedent at AlsCharacterExample.cpp:51-60 (9-line override)
+
+## 2026-06-26T18:48 — Unit 4 AS-16-u1 returned DONE
+
+- 2 changes: header +17 (15 comment + 2 decl), cpp +25 (19 comment + 6 impl) = +42 LOC total / +8 code LOC
+- Notable divergence from ALS: `IsValid(Camera) &&` short-circuit guard before `Camera->IsActive()` — defensive against early-ctor / PIE teardown null
+- Skipped optional Change 3 test sub-check (CalcCamera not UFUNCTION → no FindFunctionByName reflection hook; runtime camera test deferred to AS-13-u2 PIE harness)
+- Subagent ran full 5-leg gate (sequential, no race): UE 141 / standalone / OpenSees / audit 104 / CLI ALL PASS
+
+## 2026-06-26T18:50 — Unit 4 AS-16-u1 reviewed NITS, accepted
+
+- Adversarial review: 5/5 dimensions verified file:line
+- Reviewer Read 5+ files (incl. AAlsCharacter.cpp super chain L183-188), grep'd 4 patterns, cross-checked 6 claims
+- 3 NITS findings, ALL no-action (intentional design):
+  - N-01: `const float` impl vs `float` header — matches ALS own convention
+  - N-02: super chain bypasses AAlsCharacter::OnCalculateCamera BP hook when Camera valid — intentional mirror of ALS example
+  - N-03: comment ratio high — justified by IsValid divergence reasoning
+- 鐵則 compliance ALL CONFIRMED; no backlog opened.
+
