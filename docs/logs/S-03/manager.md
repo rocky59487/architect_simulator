@@ -197,3 +197,74 @@ Phase 4 (release-hardening) for Round 1 — bundle decision deferred to Phase 4 
 - Priority: LOW
 - Origin: S-03 Round 3 AS-13-u2 review (reviewer cross-check finding)
 
+═════════════════════════════════════════════════════════════════
+## SESSION CLOSE — 2026-06-26T20:00 (Asia/Taipei)
+═════════════════════════════════════════════════════════════════
+
+**Mode:** B — single tag shipped (v0.3.0 minor bump consolidating the six S-03 feature commits). Scope fully consumed: 6 of 6 v0.3.0 dispatch units accepted + 1 release-hardening ceremony. v0.4.0 spike (Units 8 + 9) was eval-gated per scope contract and explicitly deferred to S-04 by user decision at the Unit 7 RELEASE gate — NOT a parked-mid-scope.
+
+**Final tag:** `v0.3.0` (commit `442670c`, local annotated, NOT pushed)
+**Session duration:** ~3h25m wall-clock (16:52 Phase 0 start → 20:17 Phase 6 close)
+**Tasks scoped:** 9 (6 v0.3.0 units + 1 RELEASE + 2 eval-gated v0.4.0 spike units)
+**Tasks accepted:** 7 (all 6 v0.3.0 units + RELEASE)
+**Tasks deferred:** 2 (SPIKE-UE5.8 + SPIKE-Scenario, eval-gated; user deferred to S-04)
+
+### Commits this session (six feature + one release-hardening)
+
+| # | Commit | Unit | Verdict | Notes |
+|---|---|---|---|---|
+| 1 | `8c6d14a` | LOW-batch-u1 (AS-11/12/14/18/19) | NITS | AS-20 backlog opened (LogTemp) |
+| 2 | `7eeb77b` | AS-17-u1 (StartSession audit) | NITS | 3 cosmetic NITs → Phase 5 |
+| 3 | `6a8e97a` | AS-15-u1 (Enhanced Input lifecycle) | CLEAN | 2 LOW cosmetic |
+| 4 | `8ca4008` | AS-16-u1 (CalcCamera override) | NITS | 3 cosmetic NITs intentional (match ALS) |
+| 5 | `f82f590` | AS-13-u1 (PIE harness) | CLEAN | Proven `GEngine->GetWorldContexts()` pattern |
+| 6 | `8c702a5` | AS-13-u2 (3 PIE tests) | CLEAN | AS-24 backlog opened (FrameCoreUE outer; pre-existing) |
+| 7 | `442670c` | RELEASE v0.3.0 | — | Annotated tag at release-hardening commit |
+
+### Adversarial review summary
+
+- **Total reviews dispatched:** 6 (one per unit, all in iteration 1 — zero BLOCKER cycles)
+- **CLEAN verdicts:** 3 (Units 3, 5, 6)
+- **NITS verdicts:** 3 (Units 1, 2, 4)
+- **BLOCKER verdicts:** 0
+- **Highest-value reviewer catches:**
+  - Unit 5 reviewer confirmed bit-identical FrameCoreUE precedent match (saved a fabrication risk)
+  - Unit 6 reviewer verified the `protected` access spec claim via grep on `ArchSimCharacter.h:66-95` (validated subagent compile-time scope reduction)
+  - Unit 6 reviewer confirmed the FrameCoreUE NewObject ClassWithin issue truly pre-existed since v3.5.1 (`5eeab2e`) — prevented misattributing to AS-17-u1 / AS-13-u2
+  - Unit 4 reviewer identified that super-chain → `AAlsCharacter::CalcCamera` bypasses the `OnCalculateCamera` BlueprintNativeEvent hook intentionally per ALS example
+- **Release-hardening Phase 1 (3 agents A/E/G):** 4 BLOCKERs in ARCHITECTURE_INDEX numeric sync caught + resolved inline; 0 privacy leaks; FROZEN integrity confirmed both path-level and behavior-level
+
+### Durable lessons (S-03 specific)
+
+1. **Pre-flight reads pay off.** AS-13-u1 plan called HIGH-risk; main-thread pre-flight surfaced proven `GEngine->GetWorldContexts()` pattern from FrameCoreUE precedent. Real risk dropped to LOW.
+2. **AS-07 lesson #1 honest defer at Level 3 is sustainable.** PieRebaseline + PieDriverLoop ship "what PINS / what CANNOT verify in Level 3" file-head structure — better than fake fires or skipped bodies.
+3. **`protected` virtual is a real planning input.** Test plans should grep `protected:` on the surface before committing sub-check budgets.
+4. **Pre-existing issues stay backlog'd, NOT in release scope.** Always git log to confirm "pre-existing" before adding to current scope.
+5. **Parallel-dispatch race lessons.** Parallel subagents must skip shared-resource ops (gate run); sequential mode doesn't need this.
+6. **Long-conversation hook state-file race.** Two commits hit `shop/myweb/*` state file overwrites. Workaround: 2-step state-write then commit. **Hook should be per-project-id or per-session-id; configuring this in `~/.claude/hooks/work-phase-guard.ps1` is an S-04 candidate.**
+
+### Deferred to S-04
+
+| ID | Why deferred | First action (S-04 day 1) |
+|---|---|---|
+| Z-01 v0.4.0 spike | User explicitly deferred at Unit 7 RELEASE gate | Re-invoke `/work` with explicit Tier 2 confirm; ack `scope_2026-06-26T1652.md` Units 8+9 still pending |
+| AS-20 (LOW) | LogTemp upgrade needs category-define-site decision | `grep -rn LogTemp Source/ArchSim/`; choose umbrella vs per-class category |
+| AS-24 (LOW) | Pre-existing since v3.5.1, not introduced by S-03 | Edit `FrameCoreUEInteractiveSubsystemTest.cpp` GetSubsystem fallback to pass `GetTransientPackage()` as outer |
+| Phase 5 docs-sync inline NITs (6 items) | Cosmetic only, fold into any S-04 docs commit | See `docs/HANDOFF_v0.3.0.md` §4 detailed list |
+| AS-04 / AS-05 / AS-06 / AS-08 / AS-09 | Pre-S-03 backlog, no S-04 commitment yet | See `docs/HANDOFF_v0.3.0.md` §4 |
+
+### Recommended next-session scope
+
+- **Goal**: Either (a) v0.4.0 spike eval (UE5.8 + Scenario editor sandbox) OR (b) v0.3.x patch cleanup (AS-20 + AS-24 + Phase 5 docs NITs bundled). Choose based on whether you want to push toward playable v0.4.0 user-visible feature or consolidate v0.3.x first.
+- **Tasks (if patch path)**: AS-20 + AS-24 + 6 cosmetic doc fixes → v0.3.1 patch tag (1 short session, ~3-4h)
+- **Tasks (if v0.4.0 spike path)**: SPIKE-UE5.8 → SPIKE-Scenario sequential evaluations; user re-authorizes after each evaluates clean
+- **Risk**: For patch path = safe; for spike path = experimental (per S-03 scope contract carry-forward)
+- **Audience**: same as S-03 (primary 試玩學生, secondary 答辯委員 + GitHub community)
+- **Anti-goals**: same as S-03 (FrameCore engine FROZEN, LevelSim FROZEN, 4 ext plugin source untouched, no force-push, no `git add -A`)
+
+### State file state at close
+
+- `~/.claude/state/work-phase.txt` cleared to `idle (no /work session; last: S-03 closed 2026-06-26T20:00)` after this commit
+- Session logs preserved at: `docs/logs/S-03/` (scope + plan + manager + 6 agent_*.md)
+- All v0.3.0 docs preserved: `docs/RELEASE_v0.3.0.md` + `docs/HANDOFF_v0.3.0.md` + `docs/ARCHITECTURE_INDEX.md` + `docs/SPRINT_NOTES.md` + `README.md`
+
