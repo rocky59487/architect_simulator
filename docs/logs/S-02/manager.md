@@ -163,3 +163,35 @@ v0.1.5 tagged `2935e71`. Bundles AS-02b + AS-02c. 5-leg gate PASS 139.
 - Sprint: AS-03d Phase 4 cleanup OR next gameplay polish window
 - Priority: LOW
 - Origin: S-02 AS-03b Phase 3 NITS #1
+
+## 2026-06-26T13:25 — AS-03c accepted NITS+inline fix
+
+- Camera DefaultSubobject (UAlsCameraComponent attach to Mesh) + AArchSimGameMode (AGameModeBase, DefaultPawnClass wire) + Config GlobalDefaultGameMode
+- 6 files: char .h/.cpp / Build.cs (ALSCamera dep) / GameMode .h/.cpp / DefaultEngine.ini
+- UE build 8.1s zero warning, gate PASS 139, UHT reflection confirmed
+- Phase 3 NITS-01: agent claim "_Direct not on USkeletalMeshComponent" was incorrect; ALS example uses `SetRelativeRotation_Direct({0,90,0})`. Roll drift -90 vs 0 — fixed inline before commit
+- Phase 3 NITS-02 dismissed (Build.cs diff context confusion, not real)
+- Tool calls 59/40 = +47% overshoot. 50-step hard cap not enforced — **hook configuration gap** logged for Phase 6 retrospective
+- Feature commit `c116760`
+
+## 2026-06-26T13:46 — AS-03d accepted CLEAN
+
+- Final AS-03 unit. New `ArchSimCharacterTest.cpp` (130 LOC, 7 sub-checks, 24 assertions) in `ArchSim.Gameplay.CharacterInput`
+- Verifies class hierarchy (AAlsCharacter → ACharacter → APawn), GameMode inherits AGameModeBase, DefaultPawnClass wire (TSubclassOf workaround via TestTrue), AS-03a controller-rotation flags, AS-03c UAlsCameraComponent subobject, AS-03b 6 Enhanced Input UPROPERTY null slots, LogArchSim link symbol, reflection names
+- $ExpectedUeTests bump 139 → 140 (cuDSS) / 137 → 138 (non-cuDSS)
+- Honest headless limitation: ALS state machine + Enhanced Input runtime + camera attachment runtime + actor movement all deferred to AS-13 PIE fixture
+- UE build 2.71s, gate PASS 140, test single-run `Result={成功}` exit 0
+- Phase 3 NITS-01 (extra IMC verification = positive) + NITS-02 (sub-check 6 link-time signal) both LOW, accepted
+
+## 2026-06-26T13:48 — v0.2.0 minor bump tagged
+
+- **AS-02 + AS-03 + AS-10 trilogy complete this Sprint S-02**
+- Bundle: 4 AS-03 feature commits (a/b/c/d) atop v0.1.5
+- Production code delta across S-02: ~530 LOC (ArchSimGameInstance + ArchSimCharacter + ArchSimGameMode + 3 telemetry getters)
+- Test delta: 3 new tests (RebaselineCeiling / TickDriver / CharacterInput) = +3 sub-checks namespace 4→5, gate count 137→140
+- Engine source delta this Sprint = 0 (FrameCore v4.0.0 FROZEN honored; LevelSim v1 FROZEN honored)
+- ArchSimModelRegistry.cpp delta = 0 (production logic byte-identical throughout)
+- 8 dispatch units fired: AS-02a / AS-10 / AS-02b / AS-02c / AS-03a / AS-03b / AS-03c / AS-03d
+- Adversarial reviews: 6 CLEAN + 2 NITS (1 fixed inline, 1 deferred to backlog)
+- Backlog opened during sprint: AS-11 (header comment precision) + AS-12 (GetMaxRankBeforeRebaseline consumer) + AS-13 (PIE-world fixture) + AS-14 (analog stick clamp)
+- 5-leg gate PASS 140 on cuDSS host

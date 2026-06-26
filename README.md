@@ -19,7 +19,52 @@ C++17-compatible; the UE module target is compiled as C++20 because of the curre
 > `v2.2+1` release packaged them together (FrameCore v2.2 + LevelSim v1.0.0). Every release
 > from `v2.3` onwards is FrameCore-only — LevelSim has not changed since `v2.2+1`.
 
-> **Status (2026-06-26, game-body `v0.1.5` — patch: Tick driver loop + smoke test, AS-02 trilogy complete):**
+> **Status (2026-06-26, game-body `v0.2.0` — minor: ALS pawn end-to-end, Sprint S-02 close):**
+> **First v0.x → v0.X+1 minor bump** of the game-body line. Bundles all four
+> AS-03 units (a/b/c/d) atop the v0.1.5 patch line. The user-visible feature:
+> opening any default map now spawns the ALS-driven third-person character
+> with a working camera and Enhanced Input action slots ready for BP-side
+> wiring. **AS-03a** lands `AArchSimCharacter : AAlsCharacter`
+> (`Source/ArchSim/Public/Characters/ArchSimCharacter.h` +24,
+> `Private/.cpp` +28) with controller-rotation flags all false and the
+> `"ALS"` module added to `PublicDependencyModuleNames`. **AS-03b** fills the
+> Enhanced Input plumbing: 5 `TObjectPtr<UInputAction>` UPROPERTY slots + 1
+> `TObjectPtr<UInputMappingContext>` slot in the character header; BeginPlay
+> pushes the IMC into `UEnhancedInputLocalPlayerSubsystem`;
+> SetupPlayerInputComponent binds 7 handlers covering WASD (view-space move
+> matching `AAlsCharacterExample::Input_OnMove`) + Mouse look + Jump + Sprint
+> + Crouch. `docs/INPUT_MAPPING.md` (new) tells the project author how to
+> create the 6 UAssets in the Editor and assign them to a BP subclass.
+> **AS-03c** lands `AArchSimGameMode : AGameModeBase` with
+> `DefaultPawnClass = AArchSimCharacter::StaticClass()` and adds the
+> `UAlsCameraComponent` default subobject (attached to the skeletal mesh
+> via `SetRelativeRotation_Direct({0, 90, 0})` matching the ALS example
+> precedent; an earlier draft used `SetRelativeRotation` with Roll=-90 and
+> was corrected inline after the Phase 3 adversarial reviewer caught the
+> false API claim). `Config/DefaultEngine.ini` gets
+> `GlobalDefaultGameMode=/Script/ArchSim.ArchSimGameMode` in the existing
+> `[GameMapsSettings]` section. **AS-03d** lands the headless smoke test
+> `Source/ArchSim/Private/Tests/ArchSimCharacterTest.cpp` (+130 LOC,
+> `ArchSim.Gameplay.CharacterInput`, 7 sub-checks / 24 assertions covering
+> class hierarchy, GameMode wire, controller-rotation defaults, camera
+> subobject, Enhanced Input UPROPERTY nulls, LogArchSim link, reflection
+> names). `Scripts/run_gate.ps1` line 29 `$ExpectedUeTests` 139 → 140
+> (non-cuDSS fallback 137 → 138). **Engine source delta across the entire
+> Sprint S-02 (v0.1.3 → v0.2.0) = 0 lines** under
+> `Plugins/FrameSolver/Source/FrameCore/`. **LevelSim source delta = 0**.
+> **`UArchSimModelRegistry.{h,cpp}` delta in v0.2.0 = 0** (production logic
+> byte-identical since v0.1.4 AS-10's telemetry getters). **ArchSim
+> production code delta vs v0.1.5 = ~287 lines**. Sprint S-02 totals: 8
+> dispatch units / 8 adversarial reviews / 6 CLEAN + 2 NITS (1 fixed
+> inline) / 0 BLOCKER / 0 ESCALATE / 4 backlog items opened (AS-11/12/13/14;
+> AS-13 PIE fixture flagged MEDIUM as the most load-bearing). Gate PASS
+> `(UE 140 tests green, ...)` 2026-06-26 on cuDSS host. Release notes:
+> [`docs/RELEASE_v0.2.0.md`](docs/RELEASE_v0.2.0.md) | handoff:
+> [`docs/HANDOFF_v0.2.0.md`](docs/HANDOFF_v0.2.0.md) | input UAsset spec:
+> [`docs/INPUT_MAPPING.md`](docs/INPUT_MAPPING.md) | sprint logs:
+> [`docs/logs/S-02/`](docs/logs/S-02/). v0.1.5 status block follows.
+
+> **Prior anchor — v0.1.5 (game-body patch: Tick driver loop + smoke test, AS-02 trilogy complete):**
 > Second S-02 release; closes the AS-02 (A1-06 full integration) backlog item.
 > **AS-02b** extends `UArchSimGameInstance::Tick()` (`Source/ArchSim/Private/ArchSimGameInstance.cpp`
 > +49) with a registered-count delta detector: each Tick reads

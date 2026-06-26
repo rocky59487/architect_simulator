@@ -7,8 +7,8 @@
 > **Owner:** session-driver skill (manager thread). Subagents read only.
 > Updated at Phase 6 of every release-hardening cycle.
 >
-> **Latest tag:** v0.1.3 (commit `c599ea9`, 2026-06-25)
-> **Latest minor target:** v0.2.0 (Sprint S-02 in progress)
+> **Latest tag:** v0.2.0 (Sprint S-02 close — game-body demo-ready foundation)
+> **Prior tags this session:** v0.1.4 / v0.1.5 (patch bundles for AS-02a+AS-10 / AS-02b+AS-02c)
 
 ---
 
@@ -64,12 +64,13 @@ CLAUDE.md amendment (see iron rule #1 in §9).
 | `Source/ArchSim/Public/Components/ArchSimMemberData.h` | `UArchSimMemberData` | UActorComponent linking a placed Actor to a FrameCore Member; 3 UPROPERTY(SaveGame): `MemberIdx`, `StructureGroupId`, `CachedUtilization` | v0.1 (A1-01) |
 | `Source/ArchSim/Public/Subsystems/ArchSimModelRegistry.h` | `UArchSimModelRegistry` | UGameInstanceSubsystem holding FFrameModelDef; `RegisterMember`/`DeactivateMember`/`SetCurrentDemand`/`RequestSolve`; 150 ms debounce; `MaxRankBeforeRebaseline=96` bounds PendingRankAccumulation in RequestSolve (NOT register count — see §7 backlog AS-07 closure); 3 telemetry getters added v0.1.4 AS-10 | v0.1 (A1-02..A1-05) |
 | `Source/ArchSim/Public/ArchSimGameInstance.h` | `UArchSimGameInstance` | UGameInstance + `FTickableGameObject`. Tick body detects `Registry->GetRegisteredCount()` delta since last frame and emits `RequestSolve(FFrameModelPatch{})` to bridge BeginPlay-time Member registrations into the solver (RegisterMember does NOT auto-trigger solve). 4 BP-pure getters: `GetTickCount` / `GetAccumulatedTime` / `GetLastSeenRegisteredCount` / `GetSolveTriggerCount`. `IsTickable()` three-condition AND. **Wired as `GameInstanceClass=/Script/ArchSim.ArchSimGameInstance` in `Config/DefaultEngine.ini`**. | v0.1.4 (AS-02a) + v0.1.5 (AS-02b) |
+| `Source/ArchSim/Public/Characters/ArchSimCharacter.h` | `AArchSimCharacter` | `AAlsCharacter` subclass — production-grade third-person locomotion via the ALS-Refactored v4.17 state machine. Adds 5 Enhanced Input `TObjectPtr<UInputAction>` slots + 1 `TObjectPtr<UInputMappingContext>` (default null in CDO, BP assigns from `Content/Input/*` UAssets per `docs/INPUT_MAPPING.md`). 7 handler methods (HandleMove view-space / HandleLook / HandleJumpPressed+Released / HandleSprintPressed+Released / HandleCrouchToggle) wire to ALS state setters. 1 `TObjectPtr<UAlsCameraComponent>` Camera default subobject attached to mesh (Yaw=90 via `SetRelativeRotation_Direct`). `bUseControllerRotation*` all false. | v0.2.0 (AS-03a/b/c) |
+| `Source/ArchSim/Public/ArchSimGameMode.h` | `AArchSimGameMode` | `AGameModeBase` subclass. `DefaultPawnClass = AArchSimCharacter::StaticClass()` so PIE spawns the ALS pawn. **Wired as `GlobalDefaultGameMode=/Script/ArchSim.ArchSimGameMode` in `Config/DefaultEngine.ini`**. | v0.2.0 (AS-03c) |
 
 ### Planned classes (with backlog ID; see §7 for status)
 
 | Path | Class | Purpose | Backlog ID |
 |---|---|---|---|
-| `Source/ArchSim/Public/Characters/ArchSimCharacter.h` | `AArchSimCharacter` | `AAlsCharacter` subclass with Enhanced Input + third-person camera | AS-03 |
 | (TBD when SPUD orchestration wires up) | (UE save-slot orchestration) | Connect `USpudSubsystem` to the registry's SaveGame surface | AS-08 |
 
 ### Tests (`Source/ArchSim/Private/Tests/`)
@@ -80,6 +81,7 @@ CLAUDE.md amendment (see iron rule #1 in §9).
 | `ArchSimSaveLoadTest.cpp` | `FArchSimMaxRankCeilingTest` | `ArchSim.Persistence.MaxRankCeiling` | 7+ sub-assertions: 97 sequential Register; pins true production semantic (no register-count ceiling; MaxRankBeforeRebaseline=96 bounds PendingRankAccumulation in RequestSolve) (AS-07, v0.1.3) |
 | `ArchSimRebaselineTest.cpp` | `FArchSimRebaselineCeilingTest` | `ArchSim.Persistence.RebaselineCeiling` | 7 sub-checks: strict `>` ceiling semantic (97th rank trips, not 96th); accumulator math; multi-rank single patch; empty-patch no-op; const-getter purity. Honest headless limitation (trip path unreachable via GI-null early-return) (AS-10, v0.1.4) |
 | `ArchSimGameInstanceTest.cpp` | `FArchSimTickDriverSmokeTest` | `ArchSim.Integration.TickDriver` | 7 sub-checks: Tick telemetry increment (5-tick / 100-tick); IsTickable filter (CDO + bIsActive=false); LastSeen/SolveTrigger initial state; const-getter purity. Honest headless limitation (driver-loop branch unreachable; GetSubsystem returns null without GameInstance pipeline — deferred PIE fixture AS-13) (AS-02c, v0.1.5) |
+| `ArchSimCharacterTest.cpp` | `FArchSimCharacterClassSmokeTest` | `ArchSim.Gameplay.CharacterInput` | 7 sub-checks (24 assertions): class hierarchy AAlsCharacter/ACharacter/APawn; AArchSimGameMode inherits AGameModeBase; DefaultPawnClass==AArchSimCharacter; AS-03a bUseControllerRotation* all false; AS-03c UAlsCameraComponent default subobject named "Camera"; AS-03b 6 Enhanced Input UPROPERTY slots null in CDO; LogArchSim link symbol; reflection GetName. Honest headless limitation (Enhanced Input + ALS state machine + camera attachment + actor movement deferred to AS-13 PIE fixture) (AS-03d, v0.2.0) |
 
 ---
 
@@ -185,20 +187,21 @@ UArchSimMemberData.CachedUtilization  (BP-readable; UI/heatmap consumes)
 
 ## 6. UE test inventory
 
-`IMPLEMENT_SIMPLE_AUTOMATION_TEST` count (as of v0.1.5):
+`IMPLEMENT_SIMPLE_AUTOMATION_TEST` count (as of v0.2.0):
 
 | Namespace | Count | Source |
 |---|---|---|
 | `FrameCore.*` (standalone) | 60 | `Plugins/FrameSolver/Source/FrameCore/Private/Tests/` |
 | `FrameCore.UE.*` (UE automation) | 75 | `Plugins/FrameSolver/Source/FrameCoreUE/Private/Tests/` |
-| `ArchSim.*` (game body) | 4 | `Source/ArchSim/Private/Tests/` |
-| **5-leg gate total** | **139** (cuDSS) / **137** (non-cuDSS) | run via `Scripts/run_gate.ps1 -RequireOpenSees` |
+| `ArchSim.*` (game body) | 5 | `Source/ArchSim/Private/Tests/` |
+| **5-leg gate total** | **140** (cuDSS) / **138** (non-cuDSS) | run via `Scripts/run_gate.ps1 -RequireOpenSees` |
 
 **Recent additions:**
 - v0.1.1: `ArchSim.Persistence.SaveLoadRoundTrip`
 - v0.1.3: `ArchSim.Persistence.MaxRankCeiling`
 - v0.1.4: `ArchSim.Persistence.RebaselineCeiling` (AS-10; pins strict `>` semantic of MaxRankBeforeRebaseline=96 in RequestSolve cpp:281; 7 sub-checks including accumulator math, boundary 96 stays/97 grows, const-getter purity, multi-rank patch, empty-patch no-op; note: trip path unreachable in headless NewObject fixture due to GI-null early-return at cpp:275 — this is honest per AS-07 lesson #1)
 - v0.1.5: `ArchSim.Integration.TickDriver` (AS-02c; UArchSimGameInstance Tick telemetry + IsTickable filter smoke; 7 sub-checks; headless cannot exercise full registry-delta driver-loop branch because GetSubsystem returns null without a real GameInstance pipeline — deferred to PIE-world fixture as AS-13)
+- v0.2.0: `ArchSim.Gameplay.CharacterInput` (AS-03d; AArchSimCharacter + AArchSimGameMode CDO/reflection smoke; 7 sub-checks covering class hierarchy, GameMode wire, AS-03a controller-rotation flags, AS-03c camera default subobject, AS-03b Enhanced Input UPROPERTY slots; full input + locomotion runtime deferred to AS-13)
 
 **Namespace convention for new tests:**
 - ArchSim tests: `ArchSim.<Category>.<TestName>` where Category ∈
@@ -213,7 +216,7 @@ UArchSimMemberData.CachedUtilization  (BP-readable; UI/heatmap consumes)
 |---|---|---|---|
 | AS-01 | `run_gate.ps1` ArchSim namespace coverage | ✅ closed v0.1.2 | (closed) |
 | AS-02 | A1-06 full integration (Tick + sync + BP) | ✅ closed v0.1.5 (Tick driver = registered-count delta; position sync deferred to AS-13 PIE fixture) | (closed) |
-| AS-03 | A2-01 ALS pawn integration | 🟡 open | HANDOFF_v0.1.3.md §4 #2 |
+| AS-03 | A2-01 ALS pawn integration | ✅ closed v0.2.0 (a/b/c/d: subclass AAlsCharacter + Enhanced Input + ALSCamera + GameMode + headless smoke; full input runtime deferred to AS-13 PIE fixture) | (closed) |
 | AS-04 | Gate 0 UE Editor Plugins panel visual | 🟡 open (human) | HANDOFF_v0.1.3.md §4 #3 |
 | AS-05 | K1-T2 / K4 art assets | 🟡 open (parallel) | HANDOFF_v0.1.3.md §4 #4 |
 | AS-06 | SPUD UE5.5 StructUtils deprecation | 🔵 deferred (pre-5.8 upgrade) | HANDOFF_v0.1.3.md §4 #5 |
@@ -223,7 +226,8 @@ UArchSimMemberData.CachedUtilization  (BP-readable; UI/heatmap consumes)
 | AS-10 | Genuine PendingRankAccumulation ceiling test | ✅ closed v0.1.4 (headless fixture with honest limitation notice; getter telemetry added to header; 7 sub-checks; trip path requires live GI — deferred to future PIE-world test) | (closed) |
 | AS-11 | Header comment precision for rebaseline reset points | 🟡 backlog (LOW; cosmetic doc) | docs/logs/S-02/manager.md AS-10 NITS #2 |
 | AS-12 | `GetMaxRankBeforeRebaseline()` production consumer | 🟡 backlog (LOW; HUD/heatmap "rank budget" indicator OR TODO comment) | docs/logs/S-02/manager.md AS-10 NITS #3 |
-| AS-13 | PIE-world fixture for driver-loop + trip-path observability | 🟡 backlog (needed for full AS-10 trip path verification + AS-02 driver loop integration) | docs/logs/S-02/manager.md AS-02c CLEAN note + AS-10 closure note |
+| AS-13 | PIE-world fixture for driver-loop + trip-path observability | 🟡 backlog (needed for full AS-10 trip path + AS-02 driver loop + AS-03d input runtime integration) | docs/logs/S-02/manager.md AS-02c + AS-10 + AS-03d closure notes |
+| AS-14 | Analog stick / gamepad input ClampMagnitude012D normalization | 🟡 backlog (LOW; HandleMove missing AlsVector clamp before view-space rotate) | docs/logs/S-02/manager.md AS-03b NITS #1 |
 
 ---
 
@@ -235,7 +239,7 @@ UArchSimMemberData.CachedUtilization  (BP-readable; UI/heatmap consumes)
     ArchSimEditor Win64 Development `
     -project="E:\project\ArchSim\ArchSim.uproject" -waitmutex
 
-# 5-leg gate (default 139 expected; pass 137 on non-cuDSS host)
+# 5-leg gate (default 140 expected; pass 138 on non-cuDSS host)
 .\Scripts\run_gate.ps1 -RequireOpenSees
 
 # Single UE test (replace path)
