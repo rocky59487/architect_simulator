@@ -19,7 +19,37 @@ C++17-compatible; the UE module target is compiled as C++20 because of the curre
 > `v2.2+1` release packaged them together (FrameCore v2.2 + LevelSim v1.0.0). Every release
 > from `v2.3` onwards is FrameCore-only — LevelSim has not changed since `v2.2+1`.
 
-> **Status (2026-06-25, game-body `v0.1.3` — patch: AS-07 MaxRankCeiling test + spec correction):**
+> **Status (2026-06-26, game-body `v0.1.4` — patch: Tick-driver foundation + real rebaseline-ceiling test):**
+> First S-02 release. Two-unit bundle: **AS-02a** lands `UArchSimGameInstance`
+> (`UGameInstance` + `FTickableGameObject` mixin, `Source/ArchSim/Public/ArchSimGameInstance.h`
+> +75 / `Private/ArchSimGameInstance.cpp` +68) as the production-only foundation
+> for the per-frame member-sync driver — Tick body is currently telemetry only
+> (`TickCount` / `AccumulatedSeconds`); the actual sync + `RequestSolve` loop is
+> AS-02b's job. `Config/DefaultEngine.ini` gets the `[GameMapsSettings]
+> GameInstanceClass=/Script/ArchSim.ArchSimGameInstance` wire. **AS-10** closes
+> the deferred `PendingRankAccumulation` ceiling test from v0.1.3's handoff:
+> new `Source/ArchSim/Private/Tests/ArchSimRebaselineTest.cpp` (+220 lines,
+> `ArchSim.Persistence.RebaselineCeiling`, 7 sub-checks) + 3 pure `[[nodiscard]]
+> const noexcept` telemetry getters on `UArchSimModelRegistry`. The test
+> honestly pins two production realities the v0.1.3 plan misstated: (a) the
+> trip semantic at `ArchSimModelRegistry.cpp:281` is **strict `>`** so the
+> **97-th** cumulative rank trips, not the 96-th; (b) `RequestSolve`'s GI-null
+> guard at `cpp:274-275` short-circuits the trip path entirely in headless
+> `-nullrhi -unattended` fixtures, so the test verifies the observable
+> accumulator math (96 boundary stays, 97 over the threshold accumulates) and
+> defers the full `Sub->Rebaseline()` observation to a future PIE-world
+> fixture. `Scripts/run_gate.ps1` line 29 `$ExpectedUeTests` 137 → 138 (non-cuDSS
+> fallback 135 → 136). **Engine source delta vs v0.1.3 = 0**;
+> **`UArchSimModelRegistry.cpp` delta = 0** (the 3 getters are header-only
+> inline; production logic byte-identical). **ArchSim production code delta =
+> 167 lines** across the 3 new production files + header amendment. Gate PASS
+> `(UE 138 tests green, ...)` 2026-06-26 on cuDSS host. Release notes:
+> [`docs/RELEASE_v0.1.4.md`](docs/RELEASE_v0.1.4.md) (includes §3 two honest spec
+> corrections) | handoff: [`docs/HANDOFF_v0.1.4.md`](docs/HANDOFF_v0.1.4.md) |
+> sprint logs: [`docs/logs/S-02/`](docs/logs/S-02/).
+> v0.1.3 status block follows.
+
+> **Prior anchor — v0.1.3 (game body patch: AS-07 MaxRankCeiling test + spec correction):**
 > AS-07 closure + public correction of a documented misunderstanding inherited
 > from v0.1.1 / v0.1.2. New test `ArchSim.Persistence.MaxRankCeiling` (+160 lines
 > appended to `Source/ArchSim/Private/Tests/ArchSimSaveLoadTest.cpp`) registers
@@ -34,9 +64,9 @@ C++17-compatible; the UE module target is compiled as C++20 because of the curre
 > cumulative comment append. **Engine source delta vs v0.1.2 = 0**;
 > **production code delta vs v0.1.2 = 0** (鐵則 "do not change production to pass
 > a test" honoured — the test pins reality instead). Gate PASS `(UE 137 tests
-> green, ...)` 2026-06-25 on cuDSS host. Release notes:
-> [`docs/RELEASE_v0.1.3.md`](docs/RELEASE_v0.1.3.md) (includes §6 Spec
-> correction notice) | handoff: [`docs/HANDOFF_v0.1.3.md`](docs/HANDOFF_v0.1.3.md).
+> green, ...)` 2026-06-25 on cuDSS host. v0.1.4 above bumps the count to 138.
+> Release notes: [`docs/RELEASE_v0.1.3.md`](docs/RELEASE_v0.1.3.md) (includes §6
+> Spec correction notice) | handoff: [`docs/HANDOFF_v0.1.3.md`](docs/HANDOFF_v0.1.3.md).
 > v0.1.2 status block follows.
 
 > **Prior anchor — v0.1.2 (game body patch: 5-leg gate covers ArchSim namespace):**

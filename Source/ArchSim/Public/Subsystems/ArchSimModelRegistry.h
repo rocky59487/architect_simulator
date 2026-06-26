@@ -81,6 +81,29 @@ public:
     [[nodiscard]] int32 GetRegisteredCount() const { return IndexToComponent.Num(); }
     [[nodiscard]] bool  IsSessionStarted() const { return bSessionStarted; }
 
+    // ---- AS-10: rebaseline telemetry (pure observers) -------------------------
+    // PendingRankAccumulation accumulates per-call PatchRank in RequestSolve (cpp:272);
+    // resets to 0 in ExecuteSolve after any solve attempt (rebaseline or not, cpp:303/315/324/331).
+    // NOTE: in headless (NewObject, no GameInstance), RequestSolve early-returns at
+    // cpp:275 before reaching the trip check — so accum grows but is NEVER reset by
+    // ExecuteSolve in headless mode (GetGameInstance() returns nullptr, no timer/solve fires).
+    // This getter is exposed for AS-10 test that pins the strict `> MaxRankBeforeRebaseline`
+    // trip semantic (97th cumulative rank trips rebaseline, NOT 96th) while acknowledging
+    // the headless limitation in test comments.
+    [[nodiscard]] int32 GetPendingRankAccumulation() const noexcept { return PendingRankAccumulation; }
+
+    // bNeedsRebaseline is set true the moment ExecuteSolve is scheduled to call
+    // Sub->Rebaseline() (i.e. when the >96 threshold trips, cpp:284). Clears at
+    // cpp:323 inside the `Sub != nullptr` branch of ExecuteSolve. In headless mode
+    // (no GI), this flag is never set because the trip path at cpp:281-286 is
+    // unreachable (early return at cpp:275 prevents it).
+    [[nodiscard]] bool IsRebaselineDue() const noexcept { return bNeedsRebaseline; }
+
+    // Public mirror of the private constexpr for test assertion clarity (no
+    // behaviour change; lets the test write assertions in terms of the real
+    // constant rather than a magic literal 96).
+    [[nodiscard]] static constexpr int32 GetMaxRankBeforeRebaseline() noexcept { return MaxRankBeforeRebaseline; }
+
 private:
     // Owned aggregate. Internal (not UPROPERTY): no need for GC reflection, and
     // FFrameModelDef contains TArray<FFrameNode> with nested TArray<bool> -- keeping
