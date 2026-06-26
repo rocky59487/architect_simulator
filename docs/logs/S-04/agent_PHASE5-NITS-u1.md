@@ -352,3 +352,38 @@ Advancing to Phase 3 (review) with all 7 NITs to verdict.
 3. **Iteration 1 step cap violation** logged as planning under-estimate; no rework.
 
 **Decision:** Accept with NITS. Advance to Phase 4 (release-hardening) for PHASE5-NITS-u1 commit. Combined diff (iteration 1 + iteration 2 + Phase 3 inline closeout) goes in one feature commit.
+
+## Phase 4: Release-hardening 2026-06-26T22:15
+
+**Mode:** Mid-sprint feature commit (no tag; release-hardening invocation deferred to RELEASE-v0.3.1 Unit 5).
+
+**Commit SHA:** `e763fa9` (`feat(S-04): PHASE5-NITS-u1 -- 7 cosmetic NITs bundle (S-03 carry + NIT-g fold-in)`)
+
+**Files committed (13):**
+
+PHASE5-NITS-u1 production / script / docs (8):
+- `Source/ArchSim/Private/Tests/ArchSimPieHarness.h` (NIT-a)
+- `Source/ArchSim/Private/Tests/ArchSimPieDriverLoopTest.cpp` (NIT-b)
+- `Source/ArchSim/Private/Characters/ArchSimCharacter.cpp` (NIT-c 8 sites)
+- `Scripts/run_gate.ps1` (NIT-d comment trim)
+- `docs/ARCHITECTURE_INDEX.md` (NIT-e + NIT-f sync §6/§7 + Phase 3 closeout L270 + AS-27 backlog row)
+- `Plugins/FrameSolver/Source/FrameCoreUE/Private/Tests/FrameCoreUEInteractiveSubsystemTest.cpp` (NIT-f rename + NIT-g)
+- `Plugins/FrameSolver/Source/FrameCoreUE/Private/Tests/FrameCoreUELoadPatchTest.cpp` (NIT-g)
+- `Plugins/FrameSolver/Source/FrameCoreUE/Private/Tests/FrameCoreUERedundancyFieldTest.cpp` (NIT-g)
+
+Sprint log carry-over from Round 1 commits (4):
+- `docs/logs/S-04/agent_U-INFRA-u1.md` (Phase 4 + Phase 5 sections appended post-Round-1)
+- `docs/logs/S-04/agent_AS-20-u1.md` (Phase 4 + Phase 5 sections)
+- `docs/logs/S-04/agent_AS-24-u1.md` (Phase 4 + Phase 5 sections)
+- `docs/logs/S-04/manager.md` (Round 1 Phase 4/5 + Round 2 dispatch/return/review entries)
+
+PHASE5-NITS-u1 new log (1):
+- `docs/logs/S-04/agent_PHASE5-NITS-u1.md` (new)
+
+**Diff stat:** 13 files / +563 / -24
+
+**Tag:** N/A (mid-sprint). Tag `v0.3.1` is at RELEASE-v0.3.1 (Unit 5 next).
+
+**Publish:** N/A (no remote action this commit).
+
+**Next:** Phase 5 minimal docs sync (ARCH_INDEX edits already landed in this commit; CLAUDE.md "現況" + ARCH_INDEX latest-tag line still stays at v0.3.0; tag bump happens at RELEASE-v0.3.1). Phase 5 then chains to Phase 4 (release-hardening) for RELEASE-v0.3.1 ceremony — RELEASE-v0.3.1 is a Phase-4-only unit (no Phase 2/3 since release-hardening IS the work).

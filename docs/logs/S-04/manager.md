@@ -211,3 +211,59 @@ PHASE5-NITS-u1 ships as ONE feature commit covering 9 source/script/docs files +
 - agent log + manager log append bundled
 
 No tag this commit (mid-sprint). Tag at RELEASE-v0.3.1 (next unit).
+
+## 2026-06-26T22:15 — Phase 4 Round 2 commit landed (no tag)
+
+| Unit | Commit | Mode | Files |
+|---|---|---|---|
+| PHASE5-NITS-u1 | `e763fa9` | mid-sprint feature commit | 13 (8 production/script/docs + 5 sprint logs) |
+
+Bundle includes:
+- All 7 NITs ship across both iterations (1 + 2)
+- ARCH_INDEX inline edits (NIT-e §5 + NIT-f sync §6/§7 L270 + AS-27 backlog row)
+- Sprint log carry-over (Phase 4/5 sections added to U-INFRA/AS-20/AS-24 logs since Round 1 commits + manager.md Round 1 closeout + Round 2 entries)
+- New PHASE5-NITS-u1 agent log
+
+Tag `v0.3.1` deferred to RELEASE-v0.3.1 (Unit 5, next dispatch).
+
+## 2026-06-26T22:18 — Phase 5 Round 2 minimal docs sync
+
+Per S-03 cadence, mid-sprint feature commits don't trigger CLAUDE.md "現況" demotion. ARCH_INDEX backlog table edits + AS-27 row + NIT-e/f surgical edits + Phase 3 closeout L270 were already in commit `e763fa9` (inline) — no further docs touch needed at this Phase 5.
+
+CLAUDE.md still references v0.3.0 (correct — `git describe --tags` returns v0.3.0; v0.3.1 tag arrives at RELEASE-v0.3.1).
+ARCH_INDEX "Latest tag" line still v0.3.0 (correct; bumps at RELEASE-v0.3.1 ceremony).
+
+## 2026-06-26T22:18 — Decision: chain to Phase 4 for RELEASE-v0.3.1 ceremony
+
+Scope check:
+- Scoped units in plan: 10
+- Shipped units (Phase 4 section landed): 4 (U-INFRA + AS-20 + AS-24 + PHASE5-NITS)
+- Remaining: 6 (RELEASE-v0.3.1 + SPIKE-UE5.8 + 3 SPIKE-Scenario + RELEASE-v0.4.0)
+- No BLOCKER cycle open
+- User has NOT signaled close
+
+→ **NOT scope-exhausted. Loop forward to RELEASE-v0.3.1.**
+
+**Routing note:** RELEASE-v0.3.1 is a **Phase-4-only ceremony unit** (no Phase 2/3 dispatch — release-hardening IS the work). Chaining directly to Phase 4 with release-hardening invocation, bypassing Phase 2 dispatch which has no semantic for ceremony units. State file pattern: `S-04/phase-5/docs-synced -> phase-4 RELEASE-v0.3.1 ceremony`.
+
+## 2026-06-27T00:30 — RELEASE-v0.3.1 ceremony (Phase 4 via release-hardening)
+
+Release-hardening skill invoked with full S-04 patch path context. Skipped Phase 1 7-agent audit (per-unit Phase 3 reviews already covered AS-20 / AS-24 / U-INFRA / PHASE5-NITS in work-hub flow). Skipped Phase 3 gate re-run (last gate at PHASE5-NITS-u1 iteration 2 was PASS @ 145 on combined working tree; no source change since).
+
+Deliverables produced:
+- `docs/RELEASE_v0.3.1.md` (new; 10-section release notes following v0.3.0 template)
+- `docs/HANDOFF_v0.3.1.md` (new; 6-section handoff with first-actions for AS-25/AS-26/AS-27/Z-01 + 7 durable lessons + S-05 recommended scope)
+- `docs/ARCHITECTURE_INDEX.md` Latest tag line `v0.3.0` → `v0.3.1`; Prior tags line includes v0.3.0 as prior-this-minor
+
+Files NOT updated (intentional per v0.x convention):
+- `CLAUDE.md` "現況" block — CLAUDE.md tracks FrameCore engine v4.x/v3.x/v2.x line only; v0.x game-body track is documented through ARCH_INDEX + HANDOFF/RELEASE notes (matches v0.3.0 / v0.2.0 cadence — neither bumped CLAUDE.md "現況")
+- `README.md` — top-level README is FrameCore engine README, not game-body track; status block unchanged at engine v4.0.0 stable seal
+
+Phase 4.5 final-integrator quick checks:
+- FROZEN integrity: `git diff --stat v0.3.0..HEAD -- Plugins/FrameSolver/Source/FrameCore/ Plugins/LevelSim/Source/LevelCore/` returns 0 lines ✓
+- No hardcoded `E:\project\...` newly introduced in v0.3.1 docs (use `$PWD` / `$env:UE_ENGINE_ROOT` matches v0.3.0 convention) ✓
+- No agent transcript paths / `~/.claude/projects/` / privacy fingerprints in committed files ✓
+- Cross-doc numeric consistency: 145 cuDSS / 143 non-cuDSS appears identically in RELEASE_v0.3.1.md §1d + §2 + HANDOFF_v0.3.1.md §2 + ARCH_INDEX §7 backlog rows (carry forward) + run_gate.ps1 L29 ✓
+- No verbal-FROZEN-amendment-without-CLAUDE.md-edit cases ✓
+
+Tag plan: `v0.3.1` annotated, **LOCAL ONLY (not pushed)** per scope contract anti-goal #2. Publish commands print to user for manual run after review.

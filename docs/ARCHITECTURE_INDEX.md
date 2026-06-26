@@ -7,8 +7,8 @@
 > **Owner:** session-driver skill (manager thread). Subagents read only.
 > Updated at Phase 6 of every release-hardening cycle.
 >
-> **Latest tag:** v0.3.0 (Sprint S-03 close — hardening + PIE-world test harness foundation) — see [`docs/logs/S-03/manager.md` § SESSION CLOSE](logs/S-03/manager.md) for retrospective + durable lessons + S-04 recommended scope
-> **Prior tags this minor:** v0.2.0 (Sprint S-02 close — ALS pawn end-to-end) / v0.1.5 / v0.1.4 (patch bundles)
+> **Latest tag:** v0.3.1 (Sprint S-04 patch close — S-03 carryover AS-20 + AS-24 + 7 cosmetic NITs + outside-repo hook fix) — see [`docs/RELEASE_v0.3.1.md`](RELEASE_v0.3.1.md) for changelog + [`docs/HANDOFF_v0.3.1.md`](HANDOFF_v0.3.1.md) for S-05 first-actions
+> **Prior tags this minor:** v0.3.0 (Sprint S-03 close — hardening + PIE-world test harness foundation) / v0.2.0 (Sprint S-02 close — ALS pawn end-to-end) / v0.1.5 / v0.1.4 (patch bundles)
 
 ---
 
