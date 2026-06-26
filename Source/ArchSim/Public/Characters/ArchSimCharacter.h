@@ -20,6 +20,9 @@ class UInputMappingContext;
 class UInputAction;
 struct FInputActionValue;
 
+// AS-03c: forward-decl only; AlsCameraComponent.h included in .cpp
+class UAlsCameraComponent;
+
 UCLASS(Blueprintable, BlueprintType)
 class ARCHSIM_API AArchSimCharacter : public AAlsCharacter
 {
@@ -27,6 +30,14 @@ class ARCHSIM_API AArchSimCharacter : public AAlsCharacter
 
 public:
     AArchSimCharacter(const FObjectInitializer& ObjectInitializer = FObjectInitializer::Get());
+
+    // ---- AS-03c: ALS Camera component ------------------------------------
+    // Third-person camera driven by ALS state machine (view modes, shoulder
+    // switch, FOV override, post-process weight). Attach to Mesh so it follows
+    // the skeletal hierarchy. Assign UAlsCameraSettings asset in Blueprint
+    // Details panel (Settings category).
+    UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "ArchSim|Camera")
+    TObjectPtr<UAlsCameraComponent> Camera;
 
     // ---- AS-03b: Enhanced Input asset bindings ----------------------------
     // The Input Mapping Context pushed on possession. Assign the

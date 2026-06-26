@@ -14,6 +14,9 @@
 // AS-03b: ALS vector utility for view-space movement projection
 #include "Utility/AlsVector.h"
 
+// AS-03c: ALS camera component (included in .cpp to avoid fan-out from .h)
+#include "AlsCameraComponent.h"
+
 // AS-03b: ALS GameplayTag namespaces (AlsStanceTags, AlsGaitTags)
 #include "Utility/AlsGameplayTags.h"
 
@@ -28,6 +31,20 @@ AArchSimCharacter::AArchSimCharacter(const FObjectInitializer& ObjectInitializer
     bUseControllerRotationYaw  = false;
     bUseControllerRotationPitch = false;
     bUseControllerRotationRoll  = false;
+
+    // AS-03c: ALS camera component.
+    // Attach to Mesh (not RootComponent) so the camera inherits the skeletal
+    // hierarchy origin — ALS camera logic uses GetParentComponent() to resolve
+    // the pivot and first-person eye location relative to the character mesh.
+    // Use SetRelativeRotation_Direct (inherited from USceneComponent via the
+    // skeletal-mesh parent chain) to bypass transform-dirty propagation in the
+    // CDO ctor — this is the canonical form used by
+    // AlsCharacterExample::AlsCharacterExample (Yaw=90 only; Roll=0).
+    // (NITS-01 from S-02 AS-03c review: an earlier draft used
+    // SetRelativeRotation with Roll=-90; fixed to align with the ALS example.)
+    Camera = CreateDefaultSubobject<UAlsCameraComponent>(TEXT("Camera"));
+    Camera->SetupAttachment(GetMesh());
+    Camera->SetRelativeRotation_Direct({0.0f, 90.0f, 0.0f});
 }
 
 void AArchSimCharacter::BeginPlay()
