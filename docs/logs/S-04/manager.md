@@ -406,3 +406,15 @@ Same as S-04 scope contract anti-goals:
 ═════════════════════════════════════════════════════════════════
 End of S-04 manager log. Append-only — do not edit prior entries.
 ═════════════════════════════════════════════════════════════════
+
+## 2026-06-27T01:00 — v0.3.1 PUBLISHED
+
+User authorized publish ("幫我推送") after Phase 6 close. All 3 publish steps succeeded:
+
+| Step | Output |
+|---|---|
+| `git push origin main` | `fa87629..615131a  main -> main` (5 commits) |
+| `git push origin v0.3.1` | `* [new tag]  v0.3.1 -> v0.3.1` |
+| `gh release create v0.3.1 --title "..." --notes-file docs/RELEASE_v0.3.1.md` | https://github.com/rocky59487/architect_simulator/releases/tag/v0.3.1 |
+
+Publish status: **PUBLISHED** (was: awaiting user). 5 S-04 commits + 1 SESSION CLOSE commit now visible on `origin/main`. v0.3.1 tag visible on GitHub releases page. Release notes rendered from `docs/RELEASE_v0.3.1.md`.
