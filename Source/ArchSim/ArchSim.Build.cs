@@ -18,5 +18,31 @@ public class ArchSim : ModuleRules
 		});
 
 		PrivateDependencyModuleNames.AddRange(new string[] {  });
+
+		// AS-SPIKE-Scenario-u1: Editor Utility Widget deps for UArchSimScenarioWidget.
+		// Gated by Target.Type == TargetType.Editor so packaged (shipping/client/server)
+		// targets never link against these Editor-only modules.
+		// WHY each dep:
+		//   Blutility         — UEditorUtilityWidget + UEditorUtilitySubsystem base classes
+		//   UMG               — UUserWidget (UEditorUtilityWidget's UMG parent)
+		//   UMGEditor         — Editor-time UMG tooling (Tab spawner, palette registration)
+		//
+		// WHY EditorScriptingUtilities is EXCLUDED: that module requires the
+		// EditorScriptingUtilities Plugin listed in ArchSim.uproject dependencies. Touching
+		// .uproject violates iron rule #5. Since PlaceK1Column uses GEditor->GetEditorWorldContext()
+		// + World->SpawnActor<> directly (no UEditorActorUtilities helper), the dep is unneeded.
+		// WHY UnrealEd: GEditor global + UEditorEngine::GetEditorWorldContext() live in the
+		// UnrealEd module. Without this dep, LNK2019 fires on __imp_GEditor and
+		// __imp_GetEditorWorldContext. UnrealEd is always present in Editor targets (it IS the
+		// Editor), so this dep is safe and doesn't bloat non-Editor builds (gate is TargetType.Editor).
+		if (Target.Type == TargetType.Editor)
+		{
+			PrivateDependencyModuleNames.AddRange(new string[] {
+				"Blutility",
+				"UMG",
+				"UMGEditor",
+				"UnrealEd",
+			});
+		}
 	}
 }
