@@ -78,7 +78,17 @@ UArchSimModelRegistry* ArchSimPieHarness::GetOrCreateModelRegistry()
 
     // Level 3 fallback: subsystem API is available even without a real GI.
     // Matches the honest defer pattern established in AS-02c / AS-10.
-    return NewObject<UArchSimModelRegistry>();
+    //
+    // AS-26: GetTransientPackage() outer for ClassWithin(UGameInstance) consistency.
+    // UArchSimModelRegistry inherits from UGameInstanceSubsystem which has the
+    // explicit UCLASS macro `UCLASS(Abstract, Within = GameInstance, MinimalAPI)`
+    // at UE5.7 GameInstanceSubsystem.h:15. Without an explicit outer here the
+    // NewObject default outer is already GetTransientPackage() (per UE5.7
+    // UObjectGlobals.h:1919 default arg `GetTransientPackageAsObject()`), so this
+    // change is technically equivalent to the no-arg call. The value of this fix
+    // is intent-documentation + parity with the AS-24 fix at FrameCoreUE 3 test
+    // sites (commit 2883d40). See HANDOFF_v0.3.0.md §4 AS-24 first-action.
+    return NewObject<UArchSimModelRegistry>(GetTransientPackage());
 }
 
 // ---------------------------------------------------------------------------
