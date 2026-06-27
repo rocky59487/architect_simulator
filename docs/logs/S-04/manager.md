@@ -267,3 +267,142 @@ Phase 4.5 final-integrator quick checks:
 - No verbal-FROZEN-amendment-without-CLAUDE.md-edit cases ✓
 
 Tag plan: `v0.3.1` annotated, **LOCAL ONLY (not pushed)** per scope contract anti-goal #2. Publish commands print to user for manual run after review.
+
+## 2026-06-27T00:45 — v0.3.1 tag landed
+
+- Release commit: `994be68` (5 files / +569 / -2)
+- Annotated tag: `v0.3.1` at `994be68`
+- `git for-each-ref --sort=-creatordate refs/tags | head -2` confirms: v0.3.1 → v0.3.0 in order
+- Publish: deferred to user authorization (push + gh release create commands printed)
+
+## 2026-06-27T00:50 — Phase 5 post-tag sync (minimal)
+
+Per v0.x track convention (matches v0.3.0 / v0.2.0 / v0.1.x cadence):
+- CLAUDE.md "現況" block: **NOT updated** — CLAUDE.md tracks FrameCore engine v4.x/v3.x line only; the v0.x game-body track is documented through ARCH_INDEX "Latest tag" + per-version HANDOFF/RELEASE notes
+- ARCH_INDEX "Latest tag" line: already updated to `v0.3.1` in release commit `994be68`
+- ARCH_INDEX § 7 backlog table: AS-20/AS-24 ticked closed + AS-25/AS-26/AS-27 added in earlier commits within this sprint
+- README.md: top-level README is FrameCore engine README at v4.0.0 stable seal; v0.x track not represented; intentionally unchanged
+
+Cross-doc consistency:
+- ARCH_INDEX "Latest tag": v0.3.1 ✓
+- docs/RELEASE_v0.3.1.md exists ✓
+- docs/HANDOFF_v0.3.1.md exists ✓
+- Git tag v0.3.1 → 994be68 ✓
+- CLAUDE.md "現況" stays at v4.0.0 (intentional; v0.x track separate cadence)
+
+## 2026-06-27T00:50 — Decision: user signaled close → Phase 6 Mode C
+
+User answer to "v0.3.1 本地成封 — 接下來進 SPIKE territory?" via AskUserQuestion: **"Park 在 v0.3.1 — 本 session 收手"**.
+
+Per hub's scope-exhausted criterion:
+- shipped == 5 of 10 dispatch units (U-INFRA + AS-20 + AS-24 + PHASE5-NITS + RELEASE-v0.3.1)
+- scoped == 10 (per plan)
+- blocker_open == 0
+- **user_requested_close = TRUE** → Phase 6 Mode C (parked mid-scope)
+
+Remaining 5 units deferred to S-05:
+- SPIKE-UE5.8-eval (Z-01 spike)
+- SPIKE-Scenario-u1 (skeleton + K1)
+- SPIKE-Scenario-u2 (wire-up)
+- SPIKE-Scenario-u3 (K2+K4+smoke)
+- RELEASE-v0.4.0 (conditional, depends on Scenario MVP playable)
+
+Phase 6 will:
+- Mode C: parked mid-scope (NOT scope-exhausted; user-initiated close)
+- Write SESSION CLOSE retrospective block
+- Draft S-05 recommended scope including unshipped Z-01 spike units
+- Clear state file to idle (or `idle (no /work session; last: S-04 closed 2026-06-27 at v0.3.1)`)
+- NO minor bump (Mode C = patch only; v0.3.1 is the session's final tag)
+
+═════════════════════════════════════════════════════════════════
+## SESSION CLOSE — 2026-06-27T00:55 (Asia/Taipei)
+═════════════════════════════════════════════════════════════════
+
+**Mode:** C — parked mid-scope. User explicitly chose "Park 在 v0.3.1 — 本 session 收手" at the post-tag check-in, declining to enter the SPIKE territory (UE5.8 + Scenario MVP) per the original "兩個都試" plan. The 5 unshipped scope units (SPIKE-UE5.8-eval + SPIKE-Scenario-u1/u2/u3 + conditional RELEASE-v0.4.0) roll to S-05.
+
+**Final tag:** `v0.3.1` (commit `994be68`, local annotated, NOT pushed)
+**Session duration:** ~4h 25m wall-clock (20:30 Phase 0 start → 00:55 Phase 6 close)
+**Tasks scoped:** 10 (4 patch units + 1 patch release + 4 spike units + 1 conditional minor release)
+**Tasks accepted:** 5 (4 patch units + 1 patch release)
+**Tasks deferred to S-05:** 5 (4 spike units + 1 conditional minor release)
+
+### Tags shipped this session
+
+| # | Tag | Unit(s) | Verdict | Notes |
+|---|---|---|---|---|
+| 1 | `v0.3.1` | RELEASE-v0.3.1 (consolidating AS-20-u1 + AS-24-u1 + PHASE5-NITS-u1; U-INFRA-u1 ceremonial accept outside repo) | — | 4 commits (`4b6f094` AS-20 + `2883d40` AS-24 + `e763fa9` PHASE5-NITS + `994be68` release-hardening); 0 BLOCKER cycles; all unit reviews NITS |
+
+### Adversarial review summary
+
+- **Total reviews dispatched:** 4 (one per unit; all iteration 1)
+- **CLEAN verdicts:** 0
+- **NITS verdicts:** 4 (U-INFRA / AS-20 / AS-24 / PHASE5-NITS final after iteration 2)
+- **BLOCKER verdicts:** 0
+- **ESCALATE handled:** 1 (PHASE5-NITS-u1 iteration 1 NIT-c scope expansion — user-authorized via AskUserQuestion → iteration 2 focused dispatch completed within budget)
+
+**Highest-value reviewer catches:**
+- **AS-24-u1 reviewer (a9492b66)** independently verified `UE5.7 UObjectGlobals.h:1918-1920` confirming that `NewObject<T>()` default outer IS already `GetTransientPackage()`. Validated subagent's honest disclosure that the fix is intent-documentation, not behavioural change — preserved both the ship and the project's truth-discipline.
+- **PHASE5-NITS-u1 reviewer (a9a8db83)** caught a NIT-f sync leak: ARCH_INDEX §7 backlog table L270 still had the old test name `FrameCore.UE.EmptyModelStartSession` after NIT-f sync purportedly updated §6 L237. Inline-fixed by main thread as Phase 3 closeout (1-line Edit) before commit, keeping the v0.3.1 release tight.
+- **U-INFRA-u1 reviewer (a7137f8a)** caught LOC delta inaccuracy: subagent reported `+14 code` but actual was `+19 code`. Flagged as honesty-verify rule #3 minor breach (not blocker; cosmetic).
+- **AS-20-u1 reviewer (acc61a68)** flagged parallel-dispatch working-tree contamination as a commit-discipline note, prompting the per-unit explicit `git add` discipline used at Phase 4 (commits 4b6f094 + 2883d40 each touched only their own unit's files).
+
+### Durable lessons (S-04 specific)
+
+1. **Pre-flight grep collapses or expands budget BEFORE dispatch.** AS-20 (1-1.5h → 30 min after umbrella discovered) + AS-24 (1 site → 3 after sister sites discovered) both moved the right direction at Phase 2 pre-flight rather than during the subagent's budget. **Save:** 5-10 min of pre-flight grep on the unit's target patterns at every Phase 2 dispatch. Higher-ROI than doing the same grep inside the subagent.
+2. **Honest disclosure of "fix is equivalent to default" preserves both ship and truth-discipline.** AS-24-u1 subagent surfaced + self-graded that `GetTransientPackage()` was the default; reviewer verified UE source; release notes documented the rationale honestly. **Pattern:** when a fix turns out to be a no-op equivalent of default behaviour, ship it as intent-documentation with the honest framing; don't silently ship "fix" or reject as "not really a fix".
+3. **Reviewer-found scope leak → inline fix as Phase 3 closeout, not new backlog.** PHASE5-NITS-u1 reviewer caught ARCH_INDEX §7 L270 sync leak; main thread fixed inline before Phase 4 commit. AS-27 only opened for true pre-existing items. **Pattern:** reviewer-found items that are extensions of the unit's own scope → fix; cross-cutting or pre-existing → backlog.
+4. **ESCALATE triggers can be over-conservative; user scope-confirm is fast.** PHASE5-NITS-u1 NIT-c triggered ESCALATE at >2 sites (found 8). User authorized 8-site fix in seconds via AskUserQuestion; iteration 2 finished within budget. **Pattern:** err ESCALATE triggers conservative; rely on user scope-confirm cheap round-trip; not on perfect upfront scope prediction.
+5. **Mid-sprint feature commits + final tag ceremony is the right cadence for patch releases.** S-04 = 3 mid-sprint feature commits + 1 release-hardening commit + v0.3.1 tag. Per-unit commits keep `git log --follow` and `git blame` clean per-file; tag captures cumulative. Matches v0.3.0 / v0.2.0 / v0.1.x cadence. **Save:** don't bundle into mega-commit; don't tag every mid-sprint commit.
+6. **Step-cap mechanical violation is usually a planning issue, not a subagent issue.** PHASE5-NITS-u1 iteration 1 blew 40-step budget. Reviewer's analysis: 7 NITs × ~6-8 steps each + verification + ESCALATE check = ~50 steps baseline. Phase 1 underestimated. **Save:** future PHASE5-NIT-style units with ≥6 items should budget 60-80 steps.
+7. **Parallel-dispatch + per-unit explicit staging keeps git blame clean.** Round 1 dispatched 3 units in parallel (no file overlap); Phase 4 per-unit `git add` explicit staging → 2 commits (one per touched unit) that each `git log --follow` cleanly to the touched file. The reviewer's "AS-24 diff present in AS-20 gate run" was documentation accuracy concern, not a quality issue. **Pattern:** parallel works when files don't overlap; per-unit explicit staging at commit-time is the discipline that makes it clean.
+
+### Deferred to S-05
+
+| ID | Why deferred | First action (S-05 day 1) |
+|---|---|---|
+| **Z-01** (5 plan units: SPIKE-UE5.8-eval + SPIKE-Scenario-u1/u2/u3 + conditional RELEASE-v0.4.0) | User explicitly parked at v0.3.1 post-tag — declined to enter SPIKE experimental sub-band in same session | Re-invoke `/work` in a new session; Phase 0 reads `docs/logs/S-04/scope_2026-06-26T2030.md` Tasks #6-#8 unshipped; decide-gate: UE5.8 install available + Research/ue58_attempt/ status + plugin compatibility re-verify? Then dispatch SPIKE-UE5.8 + SPIKE-Scenario-u1 in parallel. |
+| **AS-25** (LOW) | Hook regex broaden for `S-XXa` suffix sprints; OUTSIDE repo; no current convention needs it | Edit `~/.claude/hooks/work-phase-guard.ps1` content-sniff regex `^S-\d+$` → `^S-[\w]+$`; re-run 4-scenario stdin test |
+| **AS-26** (MEDIUM) | UArchSimModelRegistry ClassWithin verify + ArchSimPieHarness NewObject outer mirror | Read `Source/ArchSim/Public/Subsystems/ArchSimModelRegistry.h` confirm ClassWithin; if yes, mirror AS-24 fix at `Source/ArchSim/Private/Tests/ArchSimPieHarness.cpp:81`: `NewObject<UArchSimModelRegistry>(GetTransientPackage())` + AS-24-style WHY comment |
+| **AS-27** (LOW) | (a) ARCH_INDEX §8 stale 140/138 → 145/143; (b) DriverLoopTest L54/L58 sub-check 1 "always has"/"always provides" → empirical phrasing matching NIT-a closeout | One commit can bundle both items; ~10 min work |
+| **AS-04 / AS-05 / AS-06 / AS-08 / AS-09** | Pre-S-03 carry-overs, no S-05 commitment yet | See `docs/HANDOFF_v0.3.1.md` §4 detailed list |
+
+### Recommended next-session scope
+
+**Two viable paths for S-05:**
+
+#### Path A — Resume Z-01 spike (Scenario MVP focus)
+- **Goal:** Ship Scenario editor MVP (in-Editor utility widget letting designer drop K1/K2/K4 footprints → Registry → Solve → Heatmap display) on v0.3.1 base. Skip UE5.8 spike entirely OR run as parallel infra eval.
+- **Tasks:** SPIKE-Scenario-u1 (skeleton + K1 placement, 2h) → u2 (wire-up to solve+heatmap, 2h) → u3 (K2+K4+reload smoke, 2h) → conditional v0.4.0 minor (if playable)
+- **Optional parallel:** SPIKE-UE5.8-eval in `Research/ue58_attempt/` sandbox (3-5h, ESCALATE if no UE5.8 install)
+- **Risk:** Experimental sub-band (per S-04 scope contract carryover)
+- **Wall-clock estimate:** 6-9h if both spikes; 4-6h Scenario only
+
+#### Path B — Consolidate v0.3.x patches
+- **Goal:** Ship v0.3.2 patch bundling AS-25 + AS-26 + AS-27 (~3-4h, safe)
+- **Tasks:** AS-26 (Medium; ArchSimPieHarness mirror) → AS-27 bundle (2 cosmetic items) → AS-25 (hook regex; outside repo, ceremonial); RELEASE-v0.3.2 ceremony
+- **Risk:** Safe (all patch-shaped + well-defined)
+- **Audience benefit:** clean v0.3.x baseline for student trial; defer Scenario MVP to v0.4.0 properly
+- **Wall-clock estimate:** 2.5-3.5h
+
+**Recommendation:** Path A if user is energized + has UE5.8 install ready; Path B if user wants to consolidate before introducing experimental work. Path B can also serve as a half-session warm-up before pivoting to Path A in the same /work session.
+
+### Anti-goals carried forward to S-05
+
+Same as S-04 scope contract anti-goals:
+- FrameCore engine (`Plugins/FrameSolver/Source/FrameCore/`) FROZEN
+- LevelSim engine (`Plugins/LevelSim/Source/LevelCore/`) FROZEN
+- ALS / Prefabricator / SPUD / SUQS plugin source READ-only
+- No `git add -A`
+- No remote push / `gh release create` without user authorization
+- v0.4.0 minor bump only if Scenario MVP playable per GATE-B
+
+### State file state at close
+
+- `~/.claude/state/work-phase.txt` cleared to `idle (no /work session; last: S-04 closed 2026-06-27T00:55)` after this commit
+- Session logs preserved at: `docs/logs/S-04/` (scope + plan + manager + 5 agent logs: U-INFRA, AS-20, AS-24, PHASE5-NITS, [release ceremony bundled in manager])
+- All v0.3.1 docs preserved: `docs/RELEASE_v0.3.1.md` + `docs/HANDOFF_v0.3.1.md` + `docs/ARCHITECTURE_INDEX.md` (Latest tag bumped) + `docs/logs/S-04/manager.md` (this file with full audit)
+- v0.3.1 annotated tag exists locally at `994be68`; publish commands printed to user at Phase 4
+
+═════════════════════════════════════════════════════════════════
+End of S-04 manager log. Append-only — do not edit prior entries.
+═════════════════════════════════════════════════════════════════
