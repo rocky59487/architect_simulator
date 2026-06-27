@@ -392,3 +392,70 @@ Mid-sprint feature commit (no tag): `feat(S-05): SPIKE-Scenario-u2 -- Wire Regis
 Files: ArchSimScenarioWidget.h/.cpp + ScenarioSolveWireTest.cpp + run_gate.ps1 + agent log + manager.md
 
 Chaining to Phase 4 for SPIKE-Scenario-u2 mid-sprint commit → Phase 5 (minimal) → Phase 2 Round 4 (SPIKE-Scenario-u3 — K2+K4 + tutorial + voice/prompt + manual PIE 5min smoke gate for v0.4.0).
+
+## 2026-06-27T06:25 — SPIKE-Scenario-u3 dispatched (background, FINAL Path A spike unit)
+
+Subagent `a71e6d8720194df88` dispatched to extend `UArchSimScenarioWidget` with K2(2m beam)+ K4(2m brace 45°)placement methods, Tutorial state machine(6-state UENUM + AdvanceTutorialStep + BlueprintImplementableEvent overlay)+ text-only Voice prompt hook + ResetWidgetState reload smoke + **`docs/logs/S-05/u3_pie_smoke.md`** USER-DRIVEN PIE 5min smoke instructions(this doc is the **v0.4.0 hard gate**).
+
+## 2026-06-27T06:36 — SPIKE-Scenario-u3 returned DONE (with verification-scope misread)
+
+Subagent completed in ~11.9 min / 153K tokens / 51 steps (all within budget). **However**:
+- Subagent declined to run UE build / isolated tests / 5-leg gate (mislabeled them as `[NOT RUN — USER 步驟]`); only PIE 5min smoke was supposed to be USER's job per the dispatch prompt.
+- Subagent's code claims were honestly self-graded `[NEW CODE]` (unverified) rather than fabricated `[VERIFIED]`.
+
+**Main thread filled the verification gap** (substitute oracle):
+1. UE build initially **FAILED** with `error C2065: 'FUNC_BlueprintImplementableEvent': undeclared identifier` at `ArchSimScenarioTutorialTest.cpp:306, 325` — subagent guessed at a UE5 reflection API constant that doesn't exist. UE5.7 only defines `FUNC_BlueprintEvent` (covers both BlueprintImplementableEvent AND BlueprintNativeEvent) per `Engine/Source/Runtime/CoreUObject/Public/UObject/Script.h:163`.
+2. Main thread inline-fixed L306 + L325 + comment cite to use `FUNC_BlueprintEvent`.
+3. Post-fix verification:
+   - UE rebuild: `Result: Succeeded, 3.13s`
+   - 3 isolated Scenario tests PASS: `ScenarioSolveWire {成功}` + `ScenarioTutorial {成功}` + `ScenarioWidget {成功}` + `EXIT CODE: 0`
+   - Full 5-leg gate: `[1/5] standalone ALL PASS / [2/5] UE 148 tests / [3/5] OpenSees PASS / [4/5] audit 104 / [5/5] CLI PASS → GATE: PASS`
+
+Subagent's substantial deliverables (all complete + working):
+- 3 NEW files: `Source/ArchSim/Public/Editor/ArchSimScenarioWidget.h` (+230 LOC u3 extension) / `Source/ArchSim/Private/Editor/ArchSimScenarioWidget.cpp` (+280 LOC) / `Source/ArchSim/Private/Tests/ArchSimScenarioTutorialTest.cpp` (+310 LOC NEW class)
+- 1 NEW doc: `docs/logs/S-05/u3_pie_smoke.md` (+280 LOC) — **v0.4.0 hard gate doc**
+- 1 MODIFY: `Scripts/run_gate.ps1` (+2 LOC `$ExpectedUeTests` 147→148)
+
+Architectural deliverables (all WITH_EDITOR-guarded; PlaceKSetMember shared helper refactored K1/K2/K4):
+- `PlaceK2Beam` / `PlaceK4Brace` BP-callable methods (K2: 2m horizontal +X; K4: 2m 45° in XZ plane, hypotenuse 200.8cm)
+- `EArchSimTutorialState` UENUM (Welcome / PromptPlaceK1 / PromptPlaceK2 / PromptPlaceK4 / PromptPressTest / FreeExplore-terminal)
+- `TutorialState` UPROPERTY with `WITH_EDITORONLY_DATA` wrapper (u2 pattern carried forward)
+- `AdvanceTutorialStep()` linear transition + fires `OnTutorialStateChanged` + `OnVoicePromptShouldPlay` BlueprintImplementableEvent
+- `GetCurrentPromptText()` BP-pure FText accessor (LOCTEXT_NAMESPACE="ArchSimTutorial", 6 prompts + 1 fallback)
+- `ResetWidgetState()` — unsubscribe delegate + destroy HeatmapActor + clear PlacedActors reference list + reset state→Welcome (does NOT destroy K-set actors per honest design — student's data)
+- `PlacedActors` TArray<TObjectPtr<AActor>> UPROPERTY (widget soft ownership; PIE world holds real ownership)
+- 8 sub-checks in NEW `ArchSim.Gameplay.ScenarioTutorial` test class
+
+## 2026-06-27T06:46 — SPIKE-Scenario-u3 reviewed NITS, accepted
+
+Adversarial reviewer (synchronous, 6 tool calls, 120s):
+- Verdict: NITS
+- 4 NIT findings (all comment / doc precision):
+  - N-01: `ArchSimScenarioWidget.h:231-235` `OnVoicePromptShouldPlay` doc 舉例 "ElevenLabs / SpeechSynthesis node" — vendor商標 hardcode → **Inline-fixed** generic "any BP-callable TTS node"
+  - N-02: `ArchSimScenarioWidget.cpp` BuildMemberGeometryFromRegistry Cy/Cz comment 冗餘 — accepted (clarity OK, future refactor can simplify)
+  - N-03: `ArchSimScenarioTutorialTest.cpp:139` NumEnums-1 假設 UHT MAX entry → **Inline-fixed** strengthened ASSUMPTION comment + defence-in-depth rationale
+  - N-04: `u3_pie_smoke.md §7 P6/P7/P8` MemberIdx hardcoded 數字 → **Inline-fixed** monotonic relative description (N / M=N+1 / K=M+1)
+- 鐵則 ALL CONFIRMED (FROZEN / never-touch incl. ArchSim.uproject + Registry/Subsystem source / no stub / [VERIFIED] oracle main-thread verified)
+- **u3_pie_smoke.md actionability assessment: YES** — 9 sections complete + 16 specific PASS criteria + FAIL recovery triage table + evidence template. Reviewer evaluated user 5min read sufficient.
+- Subagent verification-scope misread: NIT not BLOCKER (main thread filled gap; no fabrication concern)
+
+### Phase 3 closeout for SPIKE-Scenario-u3
+
+3 inline fixes applied (N-01 + N-03 + N-04). N-02 accepted as documented design choice. Main thread re-verified build still PASS after inline fixes (9.20s rebuild Succeeded).
+
+No new backlog AS-XX (all NITs unit-scope inline-fixed or accepted with documented rationale).
+
+### v0.4.0 hard gate status
+
+✅ All Path A spike units shipped (u1 + u2 + u3 = full Scenario MVP code path)
+✅ `docs/logs/S-05/u3_pie_smoke.md` actionable v0.4.0 hard gate doc landed
+⏳ **USER must execute PIE 5min smoke per `u3_pie_smoke.md`** before final release decision:
+   - **PASS** → RELEASE-v0.4.0 minor bump (Scenario MVP playable for student trial)
+   - **FAIL** → fall-back RELEASE-v0.3.2 patch (Path B bundle only: AS-25 + AS-26 + AS-27; Scenario u1/u2/u3 WIP commits roll to S-06)
+
+### SPIKE-Scenario-u3 commit decision
+
+Mid-sprint feature commit (no tag yet): `feat(S-05): SPIKE-Scenario-u3 -- K2+K4 placement + tutorial overlay + reload smoke + PIE 5min smoke doc`
+Files: ArchSimScenarioWidget.h/.cpp + ScenarioTutorialTest.cpp + run_gate.ps1 + u3_pie_smoke.md + agent log + manager.md
+
+Chaining to Phase 4 for SPIKE-Scenario-u3 mid-sprint commit. After commit lands, ask USER to run PIE 5min smoke + adjudicate v0.4.0 vs v0.3.2 release path.

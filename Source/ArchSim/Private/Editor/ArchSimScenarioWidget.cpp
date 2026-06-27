@@ -1,24 +1,37 @@
 // ArchSim — UArchSimScenarioWidget implementation.
-// Sprint S-05, SPIKE-Scenario-u1/u2. Plan ref: docs/logs/S-05/plan_*.md § SPIKE-Scenario.
+// Sprint S-05, SPIKE-Scenario-u1/u2/u3. Plan ref: docs/logs/S-05/plan_*.md § SPIKE-Scenario.
 //
 // Architecture decision confirmed: Option A (WITH_EDITOR guard in runtime module).
 // If a future audit requires Option B (separate ArchSimEditor module), the ESCALATE trigger
 // would be: "Source/ArchSim/Public/Editor/ subdir structure conflicts UE convention OR
 // WITH_EDITOR guard is insufficient for packaging."
 //
-// PlaceK1Column flow (u1, unchanged):
+// PlaceKSetMember shared helper (u3 refactor, replaces duplicated PlaceK1Column body):
 //   1. Obtain Editor World via GEditor->GetEditorWorldContext().World().
 //   2. SpawnActor<AActor> at LocationWorld.
-//   3. NewObject<UArchSimMemberData>; default offsets = 1 m horizontal beam along +X.
+//   3. NewObject<UArchSimMemberData>; set EndIOffsetUE / EndJOffsetUE from params.
 //   4. RegisterComponent() + Actor->AddInstanceComponent().
 //   5. UArchSimModelRegistry::RegisterMember(Comp) — no-op in edit-mode (Registry null).
+//   6. Append to PlacedActors (widget's soft list; GC-safe via TObjectPtr).
 //
-// RequestSolveAndVisualize flow (u2):
+// PlaceK1Column (u1): delegates to PlaceKSetMember(-50,0,0 / +50,0,0 cm).
+// PlaceK2Beam   (u3): delegates to PlaceKSetMember(-100,0,0 / +100,0,0 cm) — 2 m +X.
+// PlaceK4Brace  (u3): delegates to PlaceKSetMember(-71,0,-71 / +71,0,+71 cm) — 2 m 45° XZ.
+//
+// RequestSolveAndVisualize flow (u2, unchanged):
 //   1. Prefer PIE world (GEditor->PlayWorld); fall back to Editor world.
 //   2. UArchSimModelRegistry::Get(World) — null without live GameInstance → return false.
 //   3. Subscribe OnSolveComplete (idempotent; skip if SolveCompleteDelegateHandle.IsValid).
 //   4. RequestSolve(empty FFrameModelPatch{}) — fires the 150 ms debounce.
 //   5. OnSolveComplete callback: lazy-spawn HeatmapActor → populate → BuildHeatmap().
+//
+// Tutorial state machine (u3):
+//   AdvanceTutorialStep() advances TutorialState linearly; fires OnTutorialStateChanged +
+//   OnVoicePromptShouldPlay (both BlueprintImplementableEvent). FreeExplore is terminal.
+//
+// ResetWidgetState (u3):
+//   Unsubscribes delegate, destroys HeatmapActor if valid, resets TutorialState = Welcome,
+//   clears PlacedActors list (does NOT destroy the K-set actors — student keeps them).
 //
 // WHY PIE world preference:
 //   GEditor->PlayWorld is the live PIE world while PIE is active. UArchSimModelRegistry is
@@ -63,8 +76,61 @@ DECLARE_LOG_CATEGORY_EXTERN(LogArchSim, Log, All);
 // Forward-declare the file-scope static helper so OnSolveComplete can call it before
 // its definition (C++ requires declaration-before-use for file-scope functions).
 // FFrameMemberGeometry and UArchSimModelRegistry are fully visible here (both already
-// included above). Definition is below OnSolveComplete (after PlaceK1Column / solve flow).
+// included above). Definition is below OnSolveComplete (after K-set placement / solve flow).
 static TArray<FFrameMemberGeometry> BuildMemberGeometryFromRegistry(UArchSimModelRegistry* Registry);
+
+// ---------------------------------------------------------------------------
+// Tutorial state machine helpers (file-scope, no class coupling needed)
+// ---------------------------------------------------------------------------
+
+// Map each tutorial state to its prompt FText. Called by GetCurrentPromptText() and
+// AdvanceTutorialStep(). Separated here to keep the switch out of the header and avoid
+// FText LOCTEXT macro pollution in a header included by UHT.
+// WHY LOCTEXT with explicit namespace: ArchSimTutorial — prevents key collision with
+// other LOCTEXT namespaces in the same binary.
+#define LOCTEXT_NAMESPACE "ArchSimTutorial"
+static FText GetPromptForState(EArchSimTutorialState State)
+{
+    switch (State)
+    {
+    case EArchSimTutorialState::Welcome:
+        return LOCTEXT("WelcomePrompt",
+            "Welcome! You are about to test structural ideas. Click Next to begin.");
+    case EArchSimTutorialState::PromptPlaceK1:
+        return LOCTEXT("PlaceK1Prompt",
+            "Place a K1 Column. Click a spot in the world, then press Place Column.");
+    case EArchSimTutorialState::PromptPlaceK2:
+        return LOCTEXT("PlaceK2Prompt",
+            "Place a K2 Beam. Click a spot, then press Place Beam.");
+    case EArchSimTutorialState::PromptPlaceK4:
+        return LOCTEXT("PlaceK4Prompt",
+            "Place a K4 Brace. Click a spot, then press Place Brace.");
+    case EArchSimTutorialState::PromptPressTest:
+        return LOCTEXT("PressTestPrompt",
+            "Press Test Structure to run the structural analysis.");
+    case EArchSimTutorialState::FreeExplore:
+        return LOCTEXT("FreeExplorePrompt",
+            "Great work! Explore freely. Add more elements and keep testing.");
+    default:
+        return LOCTEXT("UnknownPrompt", "Continue exploring.");
+    }
+}
+#undef LOCTEXT_NAMESPACE
+
+// Linear state transition table (terminal: FreeExplore stays FreeExplore).
+static EArchSimTutorialState NextTutorialState(EArchSimTutorialState Current)
+{
+    switch (Current)
+    {
+    case EArchSimTutorialState::Welcome:         return EArchSimTutorialState::PromptPlaceK1;
+    case EArchSimTutorialState::PromptPlaceK1:   return EArchSimTutorialState::PromptPlaceK2;
+    case EArchSimTutorialState::PromptPlaceK2:   return EArchSimTutorialState::PromptPlaceK4;
+    case EArchSimTutorialState::PromptPlaceK4:   return EArchSimTutorialState::PromptPressTest;
+    case EArchSimTutorialState::PromptPressTest: return EArchSimTutorialState::FreeExplore;
+    case EArchSimTutorialState::FreeExplore:     return EArchSimTutorialState::FreeExplore; // terminal
+    default:                                     return EArchSimTutorialState::FreeExplore;
+    }
+}
 
 void UArchSimScenarioWidget::NativeOnInitialized()
 {
@@ -102,7 +168,15 @@ void UArchSimScenarioWidget::BeginDestroy()
     Super::BeginDestroy();
 }
 
-AActor* UArchSimScenarioWidget::PlaceK1Column(FVector LocationWorld)
+// ---------------------------------------------------------------------------
+// Shared K-set placement helper (u3 refactor)
+// ---------------------------------------------------------------------------
+
+AActor* UArchSimScenarioWidget::PlaceKSetMember(
+    FVector LocationWorld,
+    FVector EndIOffsetUE,
+    FVector EndJOffsetUE,
+    const TCHAR* MemberTag)
 {
     // -- Step 1: Obtain the Editor world -----------------------------------------
     // GEditor->GetEditorWorldContext() returns the active Edit-mode level context.
@@ -111,8 +185,8 @@ AActor* UArchSimScenarioWidget::PlaceK1Column(FVector LocationWorld)
     if (!GEditor)
     {
         UE_LOG(LogArchSim, Warning,
-               TEXT("UArchSimScenarioWidget::PlaceK1Column — GEditor is null; "
-                    "cannot place K1 outside of Editor context."));
+               TEXT("UArchSimScenarioWidget::PlaceKSetMember[%s] — GEditor is null; "
+                    "cannot place K-set outside of Editor context."), MemberTag);
         return nullptr;
     }
 
@@ -120,13 +194,13 @@ AActor* UArchSimScenarioWidget::PlaceK1Column(FVector LocationWorld)
     if (!World)
     {
         UE_LOG(LogArchSim, Warning,
-               TEXT("UArchSimScenarioWidget::PlaceK1Column — Editor World is null; "
-                    "open a level before placing K1."));
+               TEXT("UArchSimScenarioWidget::PlaceKSetMember[%s] — Editor World is null; "
+                    "open a level before placing K-set."), MemberTag);
         return nullptr;
     }
 
-    // -- Step 2: Spawn a plain AActor as the K1 placeholder ----------------------
-    // No mesh asset is required at u1 scope; the Blueprint child class can assign a
+    // -- Step 2: Spawn a plain AActor as the K-set placeholder -------------------
+    // No mesh asset is required at u3 scope; the Blueprint child class can assign a
     // StaticMeshComponent asset in the Details panel (AS-05 art asset backlog).
     FActorSpawnParameters SpawnParams;
     SpawnParams.SpawnCollisionHandlingOverride =
@@ -140,15 +214,15 @@ AActor* UArchSimScenarioWidget::PlaceK1Column(FVector LocationWorld)
     if (!PlacedActor)
     {
         UE_LOG(LogArchSim, Warning,
-               TEXT("UArchSimScenarioWidget::PlaceK1Column — SpawnActor failed "
+               TEXT("UArchSimScenarioWidget::PlaceKSetMember[%s] — SpawnActor failed "
                     "at location (%.1f, %.1f, %.1f)."),
-               LocationWorld.X, LocationWorld.Y, LocationWorld.Z);
+               MemberTag, LocationWorld.X, LocationWorld.Y, LocationWorld.Z);
         return nullptr;
     }
 
-    // -- Step 3: Attach UArchSimMemberData with default 1 m beam geometry --------
-    // Default EndIOffsetUE(-50,0,0) / EndJOffsetUE(+50,0,0) cm = 1 m along +X local
-    // (matches UArchSimMemberData ctor defaults — no extra assignment needed).
+    // -- Step 3: Attach UArchSimMemberData with caller-supplied offsets ----------
+    // WHY NewObject with outer=PlacedActor: the component's lifetime is tied to the
+    // actor. GC will collect the component when the actor is destroyed.
     UArchSimMemberData* MemberComp =
         NewObject<UArchSimMemberData>(PlacedActor,
                                       UArchSimMemberData::StaticClass(),
@@ -156,10 +230,14 @@ AActor* UArchSimScenarioWidget::PlaceK1Column(FVector LocationWorld)
     if (!MemberComp)
     {
         UE_LOG(LogArchSim, Warning,
-               TEXT("UArchSimScenarioWidget::PlaceK1Column — NewObject<UArchSimMemberData> "
-                    "failed; actor will be spawned without registry link."));
+               TEXT("UArchSimScenarioWidget::PlaceKSetMember[%s] — NewObject<UArchSimMemberData> "
+                    "failed; actor will be spawned without registry link."), MemberTag);
         return PlacedActor; // Still return the actor — non-fatal for skeleton
     }
+
+    // Apply per-archetype geometry offsets (overwrite UArchSimMemberData ctor defaults).
+    MemberComp->EndIOffsetUE = EndIOffsetUE;
+    MemberComp->EndJOffsetUE = EndJOffsetUE;
 
     // RegisterComponent wires the component into the actor's lifecycle (BeginPlay,
     // Tick, EndPlay). AddInstanceComponent makes it visible in the Details panel
@@ -169,7 +247,7 @@ AActor* UArchSimScenarioWidget::PlaceK1Column(FVector LocationWorld)
 
     // -- Step 4: Register with UArchSimModelRegistry if available ----------------
     // Registry is a GameInstanceSubsystem — null in pure edit-mode without PIE.
-    // PlaceK1Column is still useful (spawns + attaches component) even without Registry.
+    // PlaceKSetMember is still useful (spawns + attaches component) even without Registry.
     // BeginPlay on MemberData will also attempt auto-registration, so the defer is safe.
     UArchSimModelRegistry* Registry = UArchSimModelRegistry::Get(World);
     if (Registry)
@@ -178,16 +256,16 @@ AActor* UArchSimScenarioWidget::PlaceK1Column(FVector LocationWorld)
         if (AssignedIdx < 0)
         {
             UE_LOG(LogArchSim, Warning,
-                   TEXT("UArchSimScenarioWidget::PlaceK1Column — RegisterMember returned -1 "
+                   TEXT("UArchSimScenarioWidget::PlaceKSetMember[%s] — RegisterMember returned -1 "
                         "(validation failure: check actor origin / member axis). "
-                        "Actor spawned but not registered."));
+                        "Actor spawned but not registered."), MemberTag);
         }
         else
         {
             UE_LOG(LogArchSim, Display,
-                   TEXT("UArchSimScenarioWidget::PlaceK1Column — K1 registered at "
+                   TEXT("UArchSimScenarioWidget::PlaceKSetMember[%s] — registered at "
                         "MemberIdx=%d, loc=(%.1f,%.1f,%.1f)."),
-                   AssignedIdx, LocationWorld.X, LocationWorld.Y, LocationWorld.Z);
+                   MemberTag, AssignedIdx, LocationWorld.X, LocationWorld.Y, LocationWorld.Z);
         }
     }
     else
@@ -197,11 +275,153 @@ AActor* UArchSimScenarioWidget::PlaceK1Column(FVector LocationWorld)
         // In pure edit-mode (no PIE) Get(World) returns nullptr. BeginPlay on
         // UArchSimMemberData will attempt registration when PIE starts.
         UE_LOG(LogArchSim, Display,
-               TEXT("UArchSimScenarioWidget::PlaceK1Column — Registry not available "
-                    "(edit-mode, no PIE). Actor placed; registration deferred to BeginPlay."));
+               TEXT("UArchSimScenarioWidget::PlaceKSetMember[%s] — Registry not available "
+                    "(edit-mode, no PIE). Actor placed; registration deferred to BeginPlay."),
+               MemberTag);
     }
 
+    // -- Step 5: Track actor in PlacedActors list --------------------------------
+    // WHY append: widget holds a soft ownership list so ResetWidgetState() can clear it
+    // without searching the world. GC keeps entries valid as TObjectPtr<AActor>.
+    PlacedActors.Add(PlacedActor);
+
     return PlacedActor;
+}
+
+// ---------------------------------------------------------------------------
+// K1 column (u1, refactored to delegate to PlaceKSetMember)
+// ---------------------------------------------------------------------------
+
+AActor* UArchSimScenarioWidget::PlaceK1Column(FVector LocationWorld)
+{
+    // Default K1 geometry: 1 m horizontal beam along +X.
+    // EndI(-50,0,0) cm / EndJ(+50,0,0) cm = 1 m (100 cm) total length.
+    // WHY 1 m: ZPD Level 1 baseline element; matches UArchSimMemberData ctor defaults.
+    return PlaceKSetMember(LocationWorld,
+                           FVector(-50.f, 0.f, 0.f),
+                           FVector(+50.f, 0.f, 0.f),
+                           TEXT("K1"));
+}
+
+// ---------------------------------------------------------------------------
+// K2 horizontal beam (u3 new)
+// ---------------------------------------------------------------------------
+
+AActor* UArchSimScenarioWidget::PlaceK2Beam(FVector LocationWorld)
+{
+    // K2 geometry: 2 m horizontal beam along +X.
+    // EndI(-100,0,0) cm / EndJ(+100,0,0) cm = 2 m (200 cm) total length.
+    // WHY 2 m: visually distinct from K1; teaches students a longer span deflects more.
+    return PlaceKSetMember(LocationWorld,
+                           FVector(-100.f, 0.f, 0.f),
+                           FVector(+100.f, 0.f, 0.f),
+                           TEXT("K2"));
+}
+
+// ---------------------------------------------------------------------------
+// K4 diagonal brace (u3 new)
+// ---------------------------------------------------------------------------
+
+AActor* UArchSimScenarioWidget::PlaceK4Brace(FVector LocationWorld)
+{
+    // K4 geometry: 2 m diagonal brace at 45° in the XZ plane.
+    // EndI(-71,0,-71) cm / EndJ(+71,0,+71) cm.
+    // Full member length = 2 * sqrt(71^2 + 71^2) = 2 * 71 * sqrt(2) ≈ 200.8 cm ≈ 2 m.
+    // WHY XZ plane (not XY): Z is vertical in UE; a brace rising in XZ teaches students
+    // the classic cross-brace portal that resists lateral sway — visually intuitive.
+    // WHY 71 (not 70.71): integer cm approximation of 100/sqrt(2); introduces <0.1% error.
+    return PlaceKSetMember(LocationWorld,
+                           FVector(-71.f, 0.f, -71.f),
+                           FVector(+71.f, 0.f, +71.f),
+                           TEXT("K4"));
+}
+
+// ---------------------------------------------------------------------------
+// Tutorial state machine (u3)
+// ---------------------------------------------------------------------------
+
+void UArchSimScenarioWidget::AdvanceTutorialStep()
+{
+    // FreeExplore is terminal — no-op to prevent wrapping or surprising the student.
+    if (TutorialState == EArchSimTutorialState::FreeExplore)
+    {
+        return;
+    }
+
+    TutorialState = NextTutorialState(TutorialState);
+    const FText Prompt = GetPromptForState(TutorialState);
+
+    // Fire the BP overlay event — BP child class implements this to update the UMG widget.
+    // WHY non-modal: per PhET implicit scaffolding principle, the overlay must be
+    // dismissible / non-blocking at any time. BP child decides when to show it.
+    OnTutorialStateChanged(TutorialState, Prompt);
+
+    // Fire the voice TTS hook — text-only; no C++ SDK invocation. BP decides whether
+    // to speak, display, or ignore. toString() of FText for the voice string.
+    OnVoicePromptShouldPlay(Prompt.ToString());
+
+    UE_LOG(LogArchSim, Display,
+           TEXT("UArchSimScenarioWidget::AdvanceTutorialStep — state → %d, prompt: \"%s\""),
+           static_cast<int32>(TutorialState), *Prompt.ToString());
+}
+
+FText UArchSimScenarioWidget::GetCurrentPromptText() const
+{
+    // Delegate to the file-scope helper so the switch stays in one place.
+    return GetPromptForState(TutorialState);
+}
+
+// ---------------------------------------------------------------------------
+// Reload / reset smoke (u3)
+// ---------------------------------------------------------------------------
+
+void UArchSimScenarioWidget::ResetWidgetState()
+{
+    UE_LOG(LogArchSim, Display,
+           TEXT("UArchSimScenarioWidget::ResetWidgetState — resetting widget state."));
+
+    // -- 1. Unsubscribe OnSolveComplete delegate (same path as BeginDestroy) -----
+    // WHY do this here instead of relying on BeginDestroy: the student may reopen the
+    // widget without GC-ing it (EditorUtilityWidgets are persistent until Editor close).
+    // If we don't unsubscribe before re-subscribing on the new PIE session, we'd get
+    // double callbacks on the same widget instance.
+    if (SolveCompleteDelegateHandle.IsValid())
+    {
+        if (UArchSimModelRegistry* Registry = SubscribedRegistry.Get())
+        {
+            Registry->OnSolveComplete.Remove(SolveCompleteDelegateHandle);
+        }
+        SolveCompleteDelegateHandle.Reset();
+        SubscribedRegistry.Reset();
+    }
+
+    // -- 2. Destroy the heatmap actor if it is still valid in the PIE world ------
+    // WHY IsValid(): the PIE world may have been torn down already, in which case
+    // the actor is pending kill and DestroyActor is already a no-op.
+    if (IsValid(HeatmapActor))
+    {
+        HeatmapActor->Destroy();
+        HeatmapActor = nullptr;
+    }
+
+    // -- 3. Reset tutorial state to Welcome ---------------------------------------
+    // After reset the student sees the welcome prompt again. BP overlay should update
+    // via the explicit OnTutorialStateChanged call below.
+    TutorialState = EArchSimTutorialState::Welcome;
+    const FText WelcomePrompt = GetPromptForState(EArchSimTutorialState::Welcome);
+    OnTutorialStateChanged(EArchSimTutorialState::Welcome, WelcomePrompt);
+    OnVoicePromptShouldPlay(WelcomePrompt.ToString());
+
+    // -- 4. Clear PlacedActors list (soft ref list only; actors stay in world) ---
+    // WHY NOT destroy: the student's placed K-set actors are their design work — silently
+    // destroying them would be surprising and irreversible. The widget's job is to track
+    // them for reference counting, not to own their lifetime. The Registry remains the
+    // authoritative source of truth about registered members.
+    PlacedActors.Empty();
+
+    UE_LOG(LogArchSim, Display,
+           TEXT("UArchSimScenarioWidget::ResetWidgetState — done. "
+                "TutorialState=Welcome, HeatmapActor=null, PlacedActors cleared."));
 }
 
 bool UArchSimScenarioWidget::RequestSolveAndVisualize()
