@@ -334,3 +334,61 @@ Mid-sprint feature commit (no tag):
 - Files: ArchSimScenarioWidget.h/.cpp + Test.cpp + Build.cs + run_gate.ps1 + agent log
 
 Chaining to Phase 4 for SPIKE-Scenario-u1 mid-sprint commit, then Phase 5 (minimal docs sync) → Phase 2 Round 3 (SPIKE-Scenario-u2 wire solve+heatmap).
+
+## 2026-06-27T03:15 — SPIKE-Scenario-u2 dispatched (background)
+
+Subagent `a308a135d39fc77c8` dispatched to extend `UArchSimScenarioWidget` with `RequestSolveAndVisualize()` BP-callable + `HeatmapActor` UPROPERTY + `OnSolveComplete` delegate callback + `BeginDestroy` unsubscribe + 7 sub-check smoke test (`ArchSim.Gameplay.ScenarioSolveWire`). Architecture: PIE-required (Registry GI-bound); graceful-fail when no PIE.
+
+## 2026-06-27T03:32 — SPIKE-Scenario-u2 truncated by Anthropic session limit + main-thread verified
+
+**Anomalous return path** (not normal subagent completion):
+
+Subagent hit Anthropic session limit (reset 2pm Asia/Taipei) at 60/50 tool calls (120%) + ~16.5min, terminating BEFORE producing a `## Status` self-report. However, substantial code changes were already in working tree at cut-off point.
+
+**Main thread independently verified** (substitute oracle):
+- UE incremental build: `Result: Succeeded, 2.10s, Target is up to date` (binary already current from subagent's prior session-internal build)
+- Isolated tests: `ScenarioSolveWire` + `ScenarioWidget` both `Result={成功}` + `EXIT CODE: 0`
+- Full 5-leg gate (main-thread direct run, no PowerShell truncation):
+  - `[1/5] standalone: ALL PASS (failures=0)` / `[2/5] UE 147 tests run, exit 0` / `[3/5] OpenSees PASS` / `[4/5] deep audit 104 PASS` / `[5/5] CLI roundtrip ALL PASS` → `GATE: PASS`
+
+Subagent code-deliverable inventory (working tree at cut-off):
+- 3 NEW files: `Source/ArchSim/Public/Editor/ArchSimScenarioWidget.h` (+87 LOC u2 extension on u1 base) / `Source/ArchSim/Private/Editor/ArchSimScenarioWidget.cpp` (+300/-38) / `Source/ArchSim/Private/Tests/ArchSimScenarioSolveWireTest.cpp` (+183 NEW class)
+- 1 MODIFY: `Scripts/run_gate.ps1` (+5 LOC `$ExpectedUeTests` 146→147 / fallback 144→145)
+
+Key architectural deliverables (all complete, no half-finished bodies):
+- `RequestSolveAndVisualize()` UFUNCTION: PIE-world prefer + Editor-world fallback + Registry null fail-graceful + idempotent AddUObject subscribe + RequestSolve(empty patch)
+- `OnSolveComplete(const FFrameSolveResult&)` private callback: bSingular early-out + PIE-world acquire + lazy-spawn HeatmapActor + populate Solution+MemberGeometry + BuildHeatmap
+- `HeatmapActor` UPROPERTY with `#if WITH_EDITORONLY_DATA` wrapper (UHT 5.4+ best practice)
+- `BeginDestroy()` override (initially Reset-only; reviewer Finding #1 → main-thread inline-fix adds explicit Remove())
+- `BuildMemberGeometryFromRegistry()` file-scope static helper (avoid transitive header pollution to unity TUs)
+- `FDelegateHandle SolveCompleteDelegateHandle` + (post-inline-fix) `TWeakObjectPtr<UArchSimModelRegistry> SubscribedRegistry`
+
+## 2026-06-27T06:15 — SPIKE-Scenario-u2 reviewed NITS, accepted
+
+Adversarial reviewer (synchronous, 17 tool calls, 140s):
+- Verdict: NITS
+- 4 findings:
+  - N-01 (substantive): `BeginDestroy` 沒 explicit `Registry->OnSolveComplete.Remove(Handle)` — UE multicast 不自動清 subscriber;`AddUObject` weak-object protection 是實作非 contract → **Inline-fixed** with `TWeakObjectPtr<UArchSimModelRegistry> SubscribedRegistry` cache + explicit Remove before Reset
+  - N-02: includes outside WITH_EDITOR guard for transitive header — accepted (subagent design rationale documented)
+  - N-03: sub-check 3/4 tautology `TestTrue(..., true)` — accepted (AS-13 honest-defer precedent + WHY comment)
+  - N-04 (INFO): `.cpp:44` comment imprecise (`FFrameMemberGeometry` is in `FrameCoreUETypes.h` not `FrameCoreUEVisualTypes.h`) — **Inline-fixed**
+- 鐵則 ALL CONFIRMED (FROZEN / never-touch incl. ArchSim.uproject + Registry/Subsystem source / no stub / [VERIFIED] oracle no fabrication)
+- Exhaustive-check declared: 7 files Read (incl. all FrameCoreUE types referenced) / 4 patterns grep'd / 5 claims cross-checked (all type field names independently verified: `FFrameMember.bActive/I/J/SecIdx` + `FFrameNode.Pos` + `FFrameSection.Cy/Cz` + `FFrameMemberGeometry.MemberIdx/Start/End/Width/Depth/EndI/EndJNodeIdx` ALL CONFIRMED)
+- Session-limit truncation honesty: ✅ main-thread synthetic agent return properly labelled / ✅ main-thread verification sufficient substitute oracle / ✅ no half-finished function bodies
+
+### Phase 3 closeout for SPIKE-Scenario-u2
+
+Per S-04 lesson #3: N-01 (substantive) + N-04 (comment cite) inline-fixed; N-02 + N-03 accepted with documented WHY rationale.
+
+**Main-thread re-verification after inline fixes (2026-06-27T06:20):**
+- UE rebuild after .h/.cpp edits: `Result: Succeeded, 8.28s` ([5/7] Link UnrealEditor-ArchSim.lib + [6/7] Link DLL + [7/7] WriteMetadata confirm real recompile)
+- Isolated tests still PASS: `ScenarioSolveWire {成功}` + `ScenarioWidget {成功}` + `EXIT CODE: 0`
+
+No new backlog AS-XX (all NITs inline-fixed or accepted-with-WHY).
+
+### SPIKE-Scenario-u2 commit decision
+
+Mid-sprint feature commit (no tag): `feat(S-05): SPIKE-Scenario-u2 -- Wire Registry→Solve→Heatmap visualization`
+Files: ArchSimScenarioWidget.h/.cpp + ScenarioSolveWireTest.cpp + run_gate.ps1 + agent log + manager.md
+
+Chaining to Phase 4 for SPIKE-Scenario-u2 mid-sprint commit → Phase 5 (minimal) → Phase 2 Round 4 (SPIKE-Scenario-u3 — K2+K4 + tutorial + voice/prompt + manual PIE 5min smoke gate for v0.4.0).
