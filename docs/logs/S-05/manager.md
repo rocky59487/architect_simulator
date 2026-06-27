@@ -459,3 +459,30 @@ Mid-sprint feature commit (no tag yet): `feat(S-05): SPIKE-Scenario-u3 -- K2+K4 
 Files: ArchSimScenarioWidget.h/.cpp + ScenarioTutorialTest.cpp + run_gate.ps1 + u3_pie_smoke.md + agent log + manager.md
 
 Chaining to Phase 4 for SPIKE-Scenario-u3 mid-sprint commit. After commit lands, ask USER to run PIE 5min smoke + adjudicate v0.4.0 vs v0.3.2 release path.
+
+## 2026-06-27T07:00 — USER chose RELEASE-v0.4.0 path (PIE smoke proxy authorized)
+
+User adjudicated: headless gate 148 PASS + reviewer u3_pie_smoke.md actionability assessment + 3 isolated Scenario tests PASS + main-thread comprehensive verification = **sufficient proxy** for v0.4.0 release. PIE 5min smoke remains as USER-DRIVEN gate to be run any time post-publish per `docs/logs/S-05/u3_pie_smoke.md`. If PIE smoke fails post-publish → post-publish hotfix protocol (mark v0.4.0 prerelease + ship v0.4.0.1 hotfix or revert via v0.3.2 patch path).
+
+## 2026-06-27T07:05 — RELEASE-v0.4.0 release-hardening invoked
+
+Release-hardening skill invoked for minor bump. Per /work hub Phase 4 spec + v0.x cadence:
+
+**Phase 0-3 SKIPPED** — per-unit Phase 3 reviews already covered (7 reviews across the sprint: AS-25/26/27 + UE5.8-eval + u1/u2/u3, all NITS-with-inline-fix); 5-leg gate already verified at 148 PASS by main thread (u3 post-inline-fix).
+
+**Phase 4 docs sync** — produced:
+- `docs/RELEASE_v0.4.0.md` (new; 8-section release notes following v0.3.1 template + Scenario MVP-specific highlights + USER-DRIVEN PIE 5min smoke proxy disclosure)
+- `docs/HANDOFF_v0.4.0.md` (new; 6-section handoff with first-actions for AS-28/AS-29/Z-01-PhaseB/PIE-smoke-real-world + AS-04/05/06/08/09 carry-overs + 7 durable S-05 lessons + S-06 recommended scope)
+- `docs/ARCHITECTURE_INDEX.md` surgical updates: Latest tag v0.3.1 → v0.4.0; Prior tags line includes v0.3.1; § 2 class map adds `UArchSimScenarioWidget` row; § 2 Tests section adds 3 new test class rows; § 6 UE test inventory bumps 145 → 148 (cuDSS) / 143 → 146 (non-cuDSS) + 3 new "Recent additions" entries
+- Files NOT updated (intentional per v0.x cadence): `CLAUDE.md` "現況" block (tracks FrameCore engine v4.x/v3.x line only); `README.md` top-level (engine README; unchanged)
+
+**Phase 4.5 final-integrator pass** — confirmed:
+- Cross-doc numeric consistency: 148 / 146 appears identically in `RELEASE_v0.4.0.md` § 1d + § 2 + § 3 + `HANDOFF_v0.4.0.md` § 2 + § 3 + `ARCHITECTURE_INDEX.md` § 6 + `Scripts/run_gate.ps1:29` (`$ExpectedUeTests = 148`) + L30 comment
+- FROZEN integrity: `git diff --name-only v0.3.1..HEAD -- Plugins/FrameSolver/Source/FrameCore/ Plugins/LevelSim/Source/LevelCore/` returns 0 lines
+- Privacy: no hardcoded `C:\Users\<who>\` paths, no agent transcript file paths (`/tmp/claude/`, `AppData/Temp/claude/`, `.output`, `.transcript`, `agentId=`) in any committed file. References to `~/.claude/hooks/work-phase-guard.ps1` are intentional (AS-25 OUTSIDE-repo doc reference)
+- Reproducibility: every gate / build command in RELEASE / HANDOFF uses `$PWD` / `$env:UE_ENGINE_ROOT` / `$env:USERPROFILE` style, no hardcoded `E:\project\...`
+
+**Phase 5 release commit + tag plan**:
+- Single release commit bundling: `docs/RELEASE_v0.4.0.md` + `docs/HANDOFF_v0.4.0.md` + `docs/ARCHITECTURE_INDEX.md` + `docs/logs/S-05/manager.md` (this file)
+- Annotated tag `v0.4.0` at the release commit (LOCAL only)
+- Publish commands printed for USER manual run (per project rule: no remote push / no `gh release create` without explicit user authorization at command time)
