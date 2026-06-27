@@ -51,11 +51,12 @@ IMPLEMENT_SIMPLE_AUTOMATION_TEST(
 bool FArchSimPieDriverLoopTest::RunTest(const FString& /*Parameters*/)
 {
     // ---- Sub-check 1: Harness World is non-null --------------------------------
-    // Level 3 commandlet always has at least one world context. A null World here
-    // means GEngine is broken — unrecoverable for this test.
+    // In -ExecCmds=Automation commandlet mode the engine consistently provides at
+    // least one world context in our verified test runs (mirrors PieHarness.h:52).
+    // A null World here means GEngine is broken — unrecoverable for this test.
     UWorld* World = ArchSimPieHarness::GetOrFindWorld();
     if (!TestNotNull(TEXT("Sub-check 1: GetOrFindWorld() non-null "
-                          "(commandlet always provides a world context)"), World))
+                          "(non-null in headless commandlet in our verified runs)"), World))
     {
         AddError(TEXT("GetOrFindWorld() returned null — cannot continue."));
         return false;

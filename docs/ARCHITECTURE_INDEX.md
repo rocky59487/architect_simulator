@@ -286,7 +286,7 @@ cross-call between these two subsystems, or convert either to a
     ArchSimEditor Win64 Development `
     -project="$PWD\ArchSim.uproject" -waitmutex
 
-# 5-leg gate (default 140 expected; pass 138 on non-cuDSS host)
+# 5-leg gate (default 145 expected; pass 143 on non-cuDSS host)
 .\Scripts\run_gate.ps1 -RequireOpenSees
 
 # Single UE test (replace path)
