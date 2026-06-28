@@ -22,6 +22,26 @@
 
 #include "InputActionValue.h"
 
+// FIX(v0.5.0 U-ALS iter 2): ALS data asset types needed at runtime-late timing.
+// Root cause [INFERRED from ALS L400 code pattern, supported by ConstructorHelpers fail
+// evidence at Saved/Logs/ArchSim-backup-2026.06.28-03.37.00.log:L916-929]:
+//   AAlsCharacter::RefreshMeshProperties() (AlsCharacter.cpp:400) dereferences
+//   AnimationInstance which is null when the mesh has no AnimBlueprint assigned.
+//   ALS design expects a Blueprint child class to wire Settings / MovementSettings /
+//   mesh / AnimBP in Details panel. Since AArchSimGameMode spawns AArchSimCharacter
+//   directly (no BP child), we must wire them in C++.
+//
+//   Iter 1 used ConstructorHelpers::FObjectFinder in the ctor (CDO phase), but ALS
+//   plugin content is NOT mounted at CDO construction time, causing all 4 finders to
+//   fail (evidence: ArchSim-backup-2026.06.28-03.37.00.log:L916-929). Iter 2 switches
+//   to LoadObject<T>() called from PostInitProperties() + BeginPlay() fallback, which
+//   run after plugin content is mounted.
+#include "Settings/AlsCharacterSettings.h"
+#include "Settings/AlsMovementSettings.h"
+#include "Components/SkeletalMeshComponent.h"
+#include "Engine/SkeletalMesh.h"
+#include "Animation/AnimInstance.h"
+
 AArchSimCharacter::AArchSimCharacter(const FObjectInitializer& ObjectInitializer)
     : Super(ObjectInitializer)
 {
@@ -31,6 +51,11 @@ AArchSimCharacter::AArchSimCharacter(const FObjectInitializer& ObjectInitializer
     bUseControllerRotationYaw  = false;
     bUseControllerRotationPitch = false;
     bUseControllerRotationRoll  = false;
+
+    // FIX(v0.5.0 U-ALS iter 2): ALS asset wiring moved to PostInitProperties() /
+    // BeginPlay() via LoadAlsAssetsLate(). ConstructorHelpers are NOT used here because
+    // ALS plugin content is not mounted during CDO construction (ctor) phase.
+    // See LoadAlsAssetsLate() below for the runtime-late approach.
 
     // AS-03c: ALS camera component.
     // Attach to Mesh (not RootComponent) so the camera inherits the skeletal
@@ -47,8 +72,133 @@ AArchSimCharacter::AArchSimCharacter(const FObjectInitializer& ObjectInitializer
     Camera->SetRelativeRotation_Direct({0.0f, 90.0f, 0.0f});
 }
 
+// FIX(v0.5.0 U-ALS iter 2): Runtime-late ALS asset loader helper.
+//
+// WHY LoadObject not ConstructorHelpers:
+//   ConstructorHelpers::FObjectFinder runs at CDO construction time (ctor call,
+//   module load phase). At that point the ALS plugin content has not been mounted
+//   yet — all 4 finders returned null (evidence: ArchSim-backup-2026.06.28-03.37.00.log
+//   L916-929: "CDO Constructor (ArchSimCharacter): Failed to find /ALS/...").
+//   LoadObject<T>() works at any point after module load when the asset registry
+//   is available; PostInitProperties() / BeginPlay() satisfy this requirement.
+//
+// WHY guard each load individually:
+//   AAlsCharacter already guards every AnimationInstance usage site with
+//   .IsValid() (L141, L156, L215, L260, L271, L409); Settings/MovementSettings are
+//   similarly guarded. If an asset path changes after an ALS upgrade, the null
+//   pointer will produce a Warning log here rather than a silent miss, and the
+//   ALS_ENSURE in AAlsCharacter::BeginPlay() (L139-141) will fire visibly.
+//
+// WHY SetAnimInstanceClass via TSubclassOf path:
+//   LoadObject<UClass> with the _C generated-class path returns the anim instance
+//   UClass directly (no separate FClassFinder step needed at runtime).
+void AArchSimCharacter::LoadAlsAssetsLate()
+{
+    // ALS character settings — view / mantling / ragdoll parameters.
+    if (!IsValid(Settings))
+    {
+        UAlsCharacterSettings* LoadedSettings = LoadObject<UAlsCharacterSettings>(
+            nullptr, TEXT("/ALS/Data/Character/CS_Als_Default.CS_Als_Default"));
+        if (IsValid(LoadedSettings))
+        {
+            Settings = LoadedSettings;
+            UE_LOG(LogArchSim, Display,
+                   TEXT("AArchSimCharacter [ALS] (%s): Settings loaded: %p"), *GetName(), Settings.Get());
+        }
+        else
+        {
+            UE_LOG(LogArchSim, Warning,
+                   TEXT("AArchSimCharacter [ALS] (%s): LoadObject failed for CS_Als_Default — "
+                        "ALS content may not be mounted yet or path changed."), *GetName());
+        }
+    }
+
+    // ALS movement settings — walk/run/sprint speeds and acceleration curves.
+    if (!IsValid(MovementSettings))
+    {
+        UAlsMovementSettings* LoadedMovement = LoadObject<UAlsMovementSettings>(
+            nullptr, TEXT("/ALS/Data/Character/Movement/MS_Als_Normal.MS_Als_Normal"));
+        if (IsValid(LoadedMovement))
+        {
+            MovementSettings = LoadedMovement;
+            UE_LOG(LogArchSim, Display,
+                   TEXT("AArchSimCharacter [ALS] (%s): MovementSettings loaded: %p"), *GetName(), MovementSettings.Get());
+        }
+        else
+        {
+            UE_LOG(LogArchSim, Warning,
+                   TEXT("AArchSimCharacter [ALS] (%s): LoadObject failed for MS_Als_Normal — "
+                        "ALS content may not be mounted yet or path changed."), *GetName());
+        }
+    }
+
+    // ALS skeletal mesh — Manny-based rig the ALS state machine was authored for.
+    if (IsValid(GetMesh()) && !IsValid(GetMesh()->GetSkeletalMeshAsset()))
+    {
+        USkeletalMesh* LoadedMesh = LoadObject<USkeletalMesh>(
+            nullptr, TEXT("/ALS/Character/SKM_Als.SKM_Als"));
+        if (IsValid(LoadedMesh))
+        {
+            GetMesh()->SetSkeletalMeshAsset(LoadedMesh);
+            UE_LOG(LogArchSim, Display,
+                   TEXT("AArchSimCharacter [ALS] (%s): SkeletalMesh loaded: %s"), *GetName(), *LoadedMesh->GetName());
+        }
+        else
+        {
+            UE_LOG(LogArchSim, Warning,
+                   TEXT("AArchSimCharacter [ALS] (%s): LoadObject failed for SKM_Als — "
+                        "ALS content may not be mounted yet or path changed."), *GetName());
+        }
+    }
+
+    // ALS Animation Blueprint — UAlsAnimationInstance-derived graph driving the ALS state machine.
+    // Without this, GetMesh()->GetAnimInstance() returns null, leaving AnimationInstance unset,
+    // causing AAlsCharacter::RefreshMeshProperties():L400 to null-deref.
+    // Load the generated _C UClass directly via LoadObject<UClass>.
+    if (IsValid(GetMesh()) && GetMesh()->GetAnimClass() == nullptr)
+    {
+        UClass* LoadedAnimClass = LoadObject<UClass>(
+            nullptr, TEXT("/ALS/Character/AB_Als.AB_Als_C"));
+        if (LoadedAnimClass != nullptr)
+        {
+            GetMesh()->SetAnimInstanceClass(LoadedAnimClass);
+            UE_LOG(LogArchSim, Display,
+                   TEXT("AArchSimCharacter [ALS] (%s): AnimClass loaded: %s"), *GetName(), *LoadedAnimClass->GetName());
+        }
+        else
+        {
+            UE_LOG(LogArchSim, Warning,
+                   TEXT("AArchSimCharacter [ALS] (%s): LoadObject failed for AB_Als_C — "
+                        "ALS content may not be mounted yet or path changed."), *GetName());
+        }
+    }
+}
+
+void AArchSimCharacter::PostInitProperties()
+{
+    Super::PostInitProperties();
+    // FIX(v0.5.0 U-ALS iter 2): attempt to load ALS assets at PostInitProperties timing.
+    // This runs after ctor (CDO phase) but before BeginPlay — may succeed if plugin
+    // content is mounted by this point (depends on plugin loading order).
+    // BeginPlay() provides a second-chance fallback for cases where mount completes later.
+    UE_LOG(LogArchSim, Display,
+           TEXT("AArchSimCharacter [ALS] PostInitProperties: attempting LoadAlsAssetsLate"));
+    LoadAlsAssetsLate();
+}
+
 void AArchSimCharacter::BeginPlay()
 {
+    // FIX(v0.5.0 U-ALS iter 2 fallback): if PostInitProperties() LoadObject returned null
+    // (plugin content not yet mounted at that timing), try again here. BeginPlay fires
+    // post-PIE-start, by which point all plugin content is fully mounted.
+    if (!IsValid(Settings) || !IsValid(MovementSettings))
+    {
+        UE_LOG(LogArchSim, Display,
+               TEXT("AArchSimCharacter [ALS] BeginPlay: Settings/MovementSettings still null — "
+                    "re-attempting LoadAlsAssetsLate (BeginPlay fallback)"));
+        LoadAlsAssetsLate();
+    }
+
     Super::BeginPlay();
     UE_LOG(LogArchSim, Display,
            TEXT("AArchSimCharacter BeginPlay: %s"), *GetName());

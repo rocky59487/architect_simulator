@@ -64,6 +64,12 @@ public:
     TObjectPtr<UInputAction> IA_Crouch;
 
 protected:
+    // FIX(v0.5.0 U-ALS iter 2): PostInitProperties runs after CDO phase and is the
+    // earliest safe timing to call LoadObject for ALS plugin content (plugin content
+    // is not mounted at ctor CDO construction time — see ConstructorHelpers fail evidence
+    // at Saved/Logs/ArchSim-backup-2026.06.28-03.37.00.log:L916-929).
+    virtual void PostInitProperties() override;
+
     virtual void BeginPlay() override;
     virtual void EndPlay(const EEndPlayReason::Type EndPlayReason) override;
 
@@ -122,4 +128,12 @@ protected:
 
     // Called on ETriggerEvent::Started for IA_Crouch (toggle Standing <-> Crouching).
     void HandleCrouchToggle(const FInputActionValue& Value);
+
+    // FIX(v0.5.0 U-ALS iter 2): Runtime-late ALS asset loader.
+    // Called from PostInitProperties() and again from BeginPlay() as a fallback.
+    // Uses LoadObject<T>() instead of ConstructorHelpers, which only works at CDO
+    // construction time. LoadObject can be called at any point after module load.
+    // Each asset load is individually guarded; failures produce a Warning log and
+    // leave the pointer null (AAlsCharacter guards each usage site).
+    void LoadAlsAssetsLate();
 };

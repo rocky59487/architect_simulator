@@ -1,0 +1,58 @@
+From: ArchSim project (S-06 U-ALS, v0.5.0 release)
+Subject: [PATCH] Guard null AnimationInstance in AAlsCharacter::RefreshMeshProperties L400
+
+Root cause [INFERRED from code pattern, evidence:
+  Saved/Logs/ArchSim-backup-2026.06.28-03.37.00.log:L916-929]:
+When AArchSimCharacter is spawned directly (no Blueprint child class wiring an
+AnimBlueprint), GetMesh()->GetAnimInstance() returns null in
+PostInitializeComponents(), leaving AnimationInstance unset (TWeakObjectPtr
+not bound). All other AnimationInstance usage sites in this file already
+guard with .IsValid() (lines 141, 156, 215, 260, 271, 1512) — this line was
+the sole missing guard, causing EXCEPTION_ACCESS_VIOLATION on PIE start under
+AArchSimGameMode.
+
+AArchSimCharacter iter 2 (Source/ArchSim/Private/Characters/ArchSimCharacter.cpp)
+uses LoadObject<> at PostInitProperties / BeginPlay timing to wire Settings,
+MovementSettings, SkeletalMesh, AnimBlueprint. This guard is a defensive
+second line of safety for headless / fixture builds where plugin content may
+not be loaded.
+
+Upstream issue: none filed yet (consider filing against ALS-Refactored v4.17+).
+Tracked by Plugins/ALS/ untracked-third-party convention (see Tools/patches/README.md).
+
+Apply with:
+  cd <ArchSim repo root>
+  git apply Tools/patches/als_l400_animinstance_guard.patch
+OR (POSIX patch):
+  patch -p1 < Tools/patches/als_l400_animinstance_guard.patch
+
+---
+ Plugins/ALS/Source/ALS/Private/AlsCharacter.cpp | 14 +++++++++++++-
+ 1 file changed, 13 insertions(+), 1 deletion(-)
+
+diff --git a/Plugins/ALS/Source/ALS/Private/AlsCharacter.cpp b/Plugins/ALS/Source/ALS/Private/AlsCharacter.cpp
+index 0000000..0000001 100644
+--- a/Plugins/ALS/Source/ALS/Private/AlsCharacter.cpp
++++ b/Plugins/ALS/Source/ALS/Private/AlsCharacter.cpp
+@@ -397,6 +397,18 @@ void AAlsCharacter::RefreshMeshProperties() const
+
+ 	if (!bMeshIsTicking)
+ 	{
+-		AnimationInstance->MarkPendingUpdate();
++		// FIX(v0.5.0 U-ALS, ArchSim project): guard against null AnimationInstance.
++		// Root cause [INFERRED from code pattern, evidence: ArchSim-backup-2026.06.28-03.37.00.log:L916-929]:
++		// when AArchSimCharacter is spawned directly (no BP child class wiring an
++		// AnimBlueprint), GetMesh()->GetAnimInstance() returns null in
++		// PostInitializeComponents(), leaving AnimationInstance unset. All other
++		// AnimationInstance uses in this file already guard with .IsValid()
++		// (lines 141, 156, 215, 260, 271, 409) — this line was the sole missing guard.
++		// AArchSimCharacter iter 2 uses LoadObject<> at PostInitProperties/BeginPlay
++		// timing to wire the AnimBP. This guard is a defensive second line of safety
++		// for headless / fixture builds where plugin content may not be loaded.
++		// Upstream issue: none filed yet.
++		if (AnimationInstance.IsValid())
++		{
++			AnimationInstance->MarkPendingUpdate();
++		}
+ 	}
+ }
