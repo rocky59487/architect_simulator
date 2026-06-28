@@ -348,6 +348,194 @@ AActor* UArchSimScenarioWidget::PlaceK4Brace(FVector LocationWorld)
 }
 
 // ---------------------------------------------------------------------------
+// AS-30: boundary support + default portal frame fixture
+// ---------------------------------------------------------------------------
+
+int32 UArchSimScenarioWidget::PlaceFixedSupport(FVector LocationWorld)
+{
+    // -- Acquire world (PIE-preferred, matching v0.4.0.1 cross-world fix) --------
+    // WHY PlayWorld first: UArchSimModelRegistry is a GameInstanceSubsystem; it only
+    // exists when a live GameInstance is running. GEditor->GetEditorWorldContext().World()
+    // returns the Editor world which has no GI → Registry null.
+    if (!GEditor)
+    {
+        UE_LOG(LogArchSim, Warning,
+               TEXT("UArchSimScenarioWidget::PlaceFixedSupport — GEditor is null; "
+                    "cannot place support outside Editor context."));
+        return -1;
+    }
+
+    UWorld* World = GEditor->PlayWorld.Get()
+                    ? GEditor->PlayWorld.Get()
+                    : GEditor->GetEditorWorldContext().World();
+    if (!World)
+    {
+        UE_LOG(LogArchSim, Warning,
+               TEXT("UArchSimScenarioWidget::PlaceFixedSupport — World is null; "
+                    "open a level before placing supports."));
+        return -1;
+    }
+
+    // -- Acquire Registry (null without live GameInstance / PIE) -----------------
+    UArchSimModelRegistry* Registry = UArchSimModelRegistry::Get(World);
+    if (!Registry)
+    {
+        UE_LOG(LogArchSim, Warning,
+               TEXT("UArchSimScenarioWidget::PlaceFixedSupport — Registry not available "
+                    "(no PIE). Enter PIE first."));
+        return -1;
+    }
+
+    // -- Convert world cm → FrameCore mm -----------------------------------------
+    // WHY ×10: 1 UE unit = 1 cm; FrameCore engine stores positions in mm.
+    // This mirrors ArchSimModelRegistry.cpp kCmToMm=10 (used in RegisterMember).
+    const FVector PosMm = LocationWorld * 10.0;
+
+    // -- Delegate to Registry::RegisterFixedSupport (single dedup authority) ------
+    // WHY not reimplement FindOrAddNode here: Registry owns node dedup; the widget
+    // is the BP-facing surface. Keeping the dedup in Registry ensures a column placed
+    // at (-100,0,0) and a support at (-100,0,0) share the same node automatically.
+    const int32 NodeIdx = Registry->RegisterFixedSupport(PosMm);
+
+    if (NodeIdx >= 0)
+    {
+        UE_LOG(LogArchSim, Display,
+               TEXT("UArchSimScenarioWidget::PlaceFixedSupport — NodeIdx=%d at "
+                    "world (%.1f,%.1f,%.1f) cm = mm (%.1f,%.1f,%.1f)."),
+               NodeIdx,
+               LocationWorld.X, LocationWorld.Y, LocationWorld.Z,
+               PosMm.X, PosMm.Y, PosMm.Z);
+    }
+
+    return NodeIdx;
+}
+
+bool UArchSimScenarioWidget::SpawnDefaultPortalFrame()
+{
+    // -- Step 1: verify we can reach the Registry (bail early before any spawn) --
+    // WHY early check before spawning: partial spawns (actors in world but model
+    // incomplete) are harder to diagnose than a clean early-exit log.
+    if (!GEditor)
+    {
+        UE_LOG(LogArchSim, Warning,
+               TEXT("UArchSimScenarioWidget::SpawnDefaultPortalFrame — GEditor null; "
+                    "cannot spawn outside Editor context."));
+        return false;
+    }
+
+    UWorld* World = GEditor->PlayWorld.Get()
+                    ? GEditor->PlayWorld.Get()
+                    : GEditor->GetEditorWorldContext().World();
+    if (!World)
+    {
+        UE_LOG(LogArchSim, Warning,
+               TEXT("UArchSimScenarioWidget::SpawnDefaultPortalFrame — World null; "
+                    "open a level before calling SpawnDefaultPortalFrame."));
+        return false;
+    }
+
+    UArchSimModelRegistry* Registry = UArchSimModelRegistry::Get(World);
+    if (!Registry)
+    {
+        // Expected in transient widget / headless test: Registry is a
+        // GameInstanceSubsystem — null without a live PIE GameInstance.
+        UE_LOG(LogArchSim, Warning,
+               TEXT("UArchSimScenarioWidget::SpawnDefaultPortalFrame — Registry null "
+                    "(no PIE). Enter PIE first, then call SpawnDefaultPortalFrame."));
+        return false;
+    }
+
+    // -- Step 2: place 2 fully-fixed base supports --------------------------------
+    // WHY fixed at both bases: portal frame with pin-pin top and fixed-fixed base
+    // is statically determinate in 2D (for lateral loads) and trivially solvable.
+    // Fixed-fixed ensures 0 global free DOFs for the 3-member, 4-node system:
+    //   4 nodes × 6 DOF = 24 total; 2 fixed nodes × 6 = 12 removed; 12 free DOF
+    //   for 2 columns (2×2 end DOF) + 1 beam (2 end DOF) = 3 × 12 member end DOF
+    //   but the shared nodes mean K assembly is 12×12 free — solvable by LDLT.
+    // WHY (-100,0,0) and (+100,0,0): 2 m base width matches the 2 m column height
+    // for a square portal frame. Easy for students to recognise as a building frame.
+    const int32 SupportA = PlaceFixedSupport(FVector(-100.f, 0.f, 0.f));
+    const int32 SupportB = PlaceFixedSupport(FVector(+100.f, 0.f, 0.f));
+
+    if (SupportA < 0 || SupportB < 0)
+    {
+        UE_LOG(LogArchSim, Warning,
+               TEXT("UArchSimScenarioWidget::SpawnDefaultPortalFrame — "
+                    "fixed support registration failed (A=%d B=%d); aborting."),
+               SupportA, SupportB);
+        return false;
+    }
+
+    // -- Step 3: place 2 K1 columns ----------------------------------------------
+    // Column A: (-100,0,0) to (-100,0,200) cm = 2 m vertical left column.
+    // Column B: (+100,0,0) to (+100,0,200) cm = 2 m vertical right column.
+    // WHY PlaceKSetMember with explicit offsets: columns are vertical (+Z in UE),
+    // but K1 default offsets are horizontal (±50 cm X). We override with vertical
+    // offsets so the column rises from base to top-corner.
+    // WHY actor origin at base: the offset pair (0,0,-100)/(0,0,+100) centres the
+    // actor at mid-column (same-origin convenience), but we spawn the actor AT
+    // the base and use offsets from there → EndI=(0,0,0) EndJ=(0,0,200) in world.
+    // We use PlaceKSetMember with LocationWorld at the base and offset from 0→200 Z.
+    // EndIOffsetUE=(0,0,0) would produce zero-length axis rejection in RegisterMember,
+    // so we use a symmetric pair around the column midpoint:
+    //   EndI=(0,0,-100) cm EndJ=(0,0,+100) cm centred at column mid-height (0,0,100).
+    // The actor is spawned at the column midpoint; base and top resolve to
+    //   base  = (±100,0,0) + (0,0,-100)  = (±100,0,-100)+actor_loc=(±100,0,100-100)
+    //         = (±100,0,0) ← matches support node via FindOrAddNode 1 mm tolerance ✓
+    //   top   = (±100,0,0) + (0,0,+100)  = (±100,0,200) ← beam connection node ✓
+    AActor* ColA = PlaceKSetMember(
+        FVector(-100.f, 0.f, 100.f),   // actor origin at column mid-height
+        FVector(  0.f,  0.f, -100.f),  // EndI offset → world (-100,0,0) = base support A
+        FVector(  0.f,  0.f, +100.f),  // EndJ offset → world (-100,0,200) = top-left corner
+        TEXT("K1-ColA"));
+
+    AActor* ColB = PlaceKSetMember(
+        FVector(+100.f, 0.f, 100.f),   // actor origin at column mid-height
+        FVector(  0.f,  0.f, -100.f),  // EndI offset → world (+100,0,0) = base support B
+        FVector(  0.f,  0.f, +100.f),  // EndJ offset → world (+100,0,200) = top-right corner
+        TEXT("K1-ColB"));
+
+    if (!ColA || !ColB)
+    {
+        UE_LOG(LogArchSim, Warning,
+               TEXT("UArchSimScenarioWidget::SpawnDefaultPortalFrame — "
+                    "column spawn failed (ColA=%s ColB=%s); aborting."),
+               ColA ? TEXT("ok") : TEXT("null"),
+               ColB ? TEXT("ok") : TEXT("null"));
+        return false;
+    }
+
+    // -- Step 4: place 1 K2 beam -------------------------------------------------
+    // Beam: (-100,0,200) to (+100,0,200) cm = 2 m horizontal top beam.
+    // Actor origin at beam midpoint (0,0,200) cm; EndI=(-100,0,0) EndJ=(+100,0,0).
+    // WHY K2 offsets ±100 X: K2 default is already ±100 X for a 2 m span; the top
+    // nodes snap to the column tops (-100,0,200) and (+100,0,200) via FindOrAddNode.
+    AActor* Beam = PlaceKSetMember(
+        FVector(  0.f, 0.f, 200.f),    // actor origin at beam midpoint / top of frame
+        FVector(-100.f, 0.f, 0.f),     // EndI offset → world (-100,0,200) = top-left corner
+        FVector(+100.f, 0.f, 0.f),     // EndJ offset → world (+100,0,200) = top-right corner
+        TEXT("K2-Beam"));
+
+    if (!Beam)
+    {
+        UE_LOG(LogArchSim, Warning,
+               TEXT("UArchSimScenarioWidget::SpawnDefaultPortalFrame — "
+                    "beam spawn failed; frame is incomplete."));
+        return false;
+    }
+
+    UE_LOG(LogArchSim, Display,
+           TEXT("UArchSimScenarioWidget::SpawnDefaultPortalFrame — "
+                "portal frame spawned: SupportA=%d SupportB=%d ColA=%s ColB=%s Beam=%s. "
+                "4 nodes (2 fixed base + 2 top corners), 3 members. "
+                "Call RequestSolveAndVisualize() to solve and view heatmap."),
+           SupportA, SupportB,
+           *ColA->GetName(), *ColB->GetName(), *Beam->GetName());
+
+    return true;
+}
+
+// ---------------------------------------------------------------------------
 // Tutorial state machine (u3)
 // ---------------------------------------------------------------------------
 

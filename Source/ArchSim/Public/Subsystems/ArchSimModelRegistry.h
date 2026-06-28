@@ -51,6 +51,27 @@ public:
     // failure -- nullptr Owner, zero-length axis, etc).
     int32 RegisterMember(UArchSimMemberData* Comp);
 
+    // ---- AS-30: boundary support API -------------------------------------------
+    // Register a fully-fixed support node at the given FrameCore-mm position.
+    // WHY: K1/K2/K4 placed without any Fixed nodes produce a mechanism (12-DOF-free
+    // model for a 3-member portal frame) → LDLT rejects → no heatmap. This API
+    // lets SpawnDefaultPortalFrame (and future widget UI) pin base nodes before solve.
+    //
+    // Internally calls private FindOrAddNode for 1 mm tolerance node dedupe, then
+    // writes Fixed (length 6 enforced by FrameCore marshal layer = [Ux,Uy,Uz,Rx,Ry,Rz]).
+    //
+    // Idempotent: repeated calls at the same position re-confirm Fixed=all-true
+    // without duplicating or changing any node. Node dedup is fully delegated to the
+    // existing FindOrAddNode linear-scan logic — no separate dedup path here.
+    //
+    // Does NOT trigger a solve (fixed-node registration is part of model topology
+    // setup; the caller should batch topology changes and request solve separately,
+    // or let RegisterMember's next call coalesce into the debounced solve).
+    //
+    // Returns NodeIdx (>= 0) on success, -1 on validation failure (PosMm contains
+    // NaN or the Nodes array is unexpectedly full; both conditions are logged).
+    [[nodiscard]] int32 RegisterFixedSupport(const FVector& PosMm);
+
     // Hand the current model to UFrameInteractiveSubsystem and start a session.
     // Idempotent on the first call after construction; subsequent calls (after a
     // model rebuild) end the prior session first. Returns false + logs on failure.

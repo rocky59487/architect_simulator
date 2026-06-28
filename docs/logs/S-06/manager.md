@@ -214,4 +214,52 @@ Phase 4 entry per S-05 cadence:**mid-sprint feature commits不調 release-harden
 - `.git/hooks/pre-commit`(U-IWYU 安裝的)是本機 only,不進 git
 - `Research/ue58_attempt/` carry-over from S-05(SPIKE-UE5.8-eval sandbox)
 
-(Below appended per-commit after each `git commit` completes.)
+### Round 1 commits landed (no tag)
+
+| # | Unit | Commit SHA | Files | LOC |
+|---|---|---|---|---|
+| 1 | U-LOW | `625f703` | 6 files(docs ARCH_INDEX+HANDOFF + scope+plan+manager+agent_U-LOW) | +703 / -2 |
+| 2 | U-IWYU | `f195746` | 4 files(Tools/check_iwyu + test + IWYU_VALIDATOR.md + agent_U-IWYU) | +1010 / -0 |
+| 3 | U-ALS | `9b99691` | 6 files(ArchSimCharacter.{h,cpp} + Test.cpp + Tools/patches/{patch,README} + agent_U-ALS) | +806 / -6 |
+
+**Total Round 1 delta vs v0.4.0.1:** 16 files / +2519 / -8。No tag(v0.5.0 tag 由 Phase 6 close ceremony 收尾)。No publish action needed mid-sprint。
+
+**Untracked working-tree state(per S-05 convention):**
+- `Plugins/ALS/Source/ALS/Private/AlsCharacter.cpp` 本機改動保留(本機 PIE 可動);canonical artifact = `Tools/patches/als_l400_animinstance_guard.patch` 已 committed
+- `.git/hooks/pre-commit`(U-IWYU 安裝)本機 only,不進 git;README 給 install 指引
+- Other untracked dirs(Content/, Plugins/SPUD/SUQS/Prefabricator/ALS/, Research/ue58_attempt/)= carry from prior sprints
+
+## 2026-06-28T05:15Z — Phase 5 mid-sprint docs sync complete
+
+Per S-05 mid-sprint cadence:**not** Phase 6 final docs sync,只做 Round 1 真實 delta 對應的 ARCH_INDEX surgical update。
+
+**What WAS updated this Phase 5:**
+- `docs/ARCHITECTURE_INDEX.md` § 2 class map `AArchSimCharacter` row addendum:加 **S-06 U-ALS:** sub-paragraph 描述 `PostInitProperties / BeginPlay / LoadAlsAssetsLate` runtime-late asset wiring + 引用 `Saved/Logs/ArchSim-backup-2026.06.28-03.37.00.log:L916-929` ConstructorHelpers CDO fail evidence + 引用 `Tools/patches/als_l400_animinstance_guard.patch` 為 companion artifact;Introduced 欄改 `v0.2.0 (AS-03a/b/c) + v0.5.0 (S-06 U-ALS)`
+- ARCH_INDEX § 7 backlog table 已由 U-LOW commit 處理(AS-28 closed / AS-29 description refined / AS-30 NEW HIGH row),Phase 5 不重覆動
+
+**What was NOT updated(intentional per v0.x mid-sprint cadence — defer 到 Phase 6 close):**
+- `E:\project\CLAUDE.md` "現況" block(latest tag 仍 v0.4.0.1;v0.5.0 tag 要等 Phase 6 release-hardening 才產;不 demote)
+- ARCH_INDEX top line `Latest tag: v0.4.0.1`(無 tag bump)
+- ARCH_INDEX § 6 UE test inventory count 148(無新 IMPLEMENT_SIMPLE_AUTOMATION_TEST 加;只 U-ALS Test.cpp 加 sub-check 6a/6b 同 class)
+- ARCH_INDEX § 4 external plugins(Tools/patches/ 屬新 convention 但不屬 plugin entry point;README 文件化已足夠)
+- 既有 closed rows / § 1 / § 8 / § 9 / § 10
+
+**Cosmetic NITS deferred to next session backlog(per Phase 3 review collective verdicts):**
+- U-IWYU N1:`docs/IWYU_VALIDATOR.md:L79` `cp ... # already there` NOP self-copy 行(cosmetic README polish)
+- U-IWYU N2:`.git/hooks/pre-commit:L41` exit code 1 vs 2 訊息不分(defensive coding)
+- U-ALS iter 2 N1:`Plugins/ALS/Source/ALS/Private/AlsCharacter.cpp:L406` comment 列 6 行號實際 7(L411 本行 + L1512 漏);patch file Tools/patches/als_l400_animinstance_guard.patch:L33 內容同步漏(off-by-2 cite)— 都 cosmetic comment
+- 不開新 AS-XX backlog(全部 minor cosmetic;Phase 6 close 時可 batch 一行 release note 提)
+
+## 2026-06-28T05:15Z — Scope-exhausted criterion check
+
+- Scoped units(scope contract Tasks table):4(U-IWYU / U-LOW / U-ALS / AS-30)
+- Shipped(Phase 4 commits with section in agent log):3(U-IWYU + U-LOW + U-ALS)
+- Remaining dispatchable:1(AS-30 — Round 2 sequential)
+- BLOCKER cycle open:0
+- User has NOT signaled close
+
+→ **NOT scope-exhausted. Loop back to Phase 2 for next unit AS-30。**
+
+**Next dispatch:** AS-30(Round 2 sequential — Scenario valid-frame fixture + boundary support API)。Per plan budget:9h / 250K tokens / 50 steps / 30 min hard timeout。Domain:ue5-engineer + cpp-engineer。
+
+State file pattern:`S-06/phase-5/docs-synced -> advancing to phase-2 Round 2 AS-30`。

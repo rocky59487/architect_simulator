@@ -193,12 +193,41 @@ All of the following must be true for the smoke to PASS:
 - [ ] **P8** PlaceK4Brace log shows `registered at MemberIdx=K` where K = M+1 (monotonic; the three placement actions form a contiguous sequence).
 - [ ] **P9** RequestSolveAndVisualize returns true (log confirms `Solve requested`).
 - [ ] **P10** OnSolveComplete fires; HeatmapActor spawned; BuildHeatmap returns true.
+  **AS-30 update (S-06):** To trigger a solvable model reliably, call `SpawnDefaultPortalFrame()`
+  before `RequestSolveAndVisualize()`. In the widget Output Log you can execute:
+  `KismetSystemLibrary.ExecuteConsoleCommand("ke * SpawnDefaultPortalFrame")` or wire a
+  BP button to `SpawnDefaultPortalFrame`. Expected: 3 actors spawn (2 K1 columns + 1 K2 beam;
+  plus 2 fixed support nodes registered in the model — no separate support marker actors in the
+  default implementation). The model has 4 nodes (2 fully-fixed base + 2 free top corners) and
+  3 members — LDLT can resolve the 12 free-DOF system without the "Solve is singular" warning.
 - [ ] **P11** Heatmap colour visible in PIE viewport (blue→red spectrum on placed actors).
+  **AS-30 update (S-06):** With the portal frame fixture, P11 is relaxed to:
+  HeatmapActor spawns successfully AND at least 1 member visualization shows non-trivial colour
+  (any non-default-white). Portal frame under self-weight: both columns carry vertical compression,
+  beam carries bending; D/C ratios are non-zero even with no explicit loads. Specific colour values
+  are not pinned (depend on section/material defaults S275 + 200×200 mm rect and solver rounding).
 - [ ] **P12** Free explore: 5+ actors + 5+ Test Structure calls in 5+ min, no crash.
 - [ ] **P13** ResetWidgetState: log confirms `done. TutorialState=Welcome`; HeatmapActor gone from viewport.
 - [ ] **P14** Widget close + PIE stop: no hang, no Ensure/Fatal in shutdown.
 - [ ] **P15** Widget reopen: Welcome prompt shown (reload smoke).
 - [ ] **P16** Re-PIE + Test Structure: heatmap appears again (re-subscription works).
+- [ ] **P14 (AS-30, S-06)** Headless automation: `ArchSim.Gameplay.ScenarioFixture` reports
+  6+ sub-checks PASS in `Saved/Logs/ArchSim.log` after running:
+  ```powershell
+  & "$env:UE_ENGINE_ROOT\Engine\Binaries\Win64\UnrealEditor-Cmd.exe" `
+      "E:\project\ArchSim\ArchSim.uproject" `
+      -ExecCmds="Automation RunTests ArchSim.Gameplay.ScenarioFixture; Quit" `
+      -unattended -nullrhi -log
+  ```
+  Covers: PlaceFixedSupport + SpawnDefaultPortalFrame UFunction reflection (SC1/SC2);
+  Registry headless `RegisterFixedSupport` at FVector(0,0,0) → NodeIdx >= 0 + Fixed.Num()==6
+  + all-true (SC3); node-snap dedupe — second call same position returns same idx (SC4);
+  idempotent Fixed after second call (SC5); transient widget graceful-fail (SC6).
+  No PIE required; runs in the standard 5-leg headless gate.
+- [ ] **P15 (AS-30, S-06)** Transient widget graceful-fail (headless verification):
+  `SpawnDefaultPortalFrame()` on a `NewObject<UArchSimScenarioWidget>` (no PIE) returns
+  false and does NOT crash. Verified by SC6 in `ArchSim.Gameplay.ScenarioFixture` — no
+  separate manual step needed if P14 passes.
 
 ---
 

@@ -26,8 +26,8 @@
 #     `-RequireOpenSees`, missing OpenSeesPy is a gate failure rather than a soft skip.
 param(
     [switch]$RequireOpenSees,       # CI: fail (not skip) when openseespy is absent
-    [int]$ExpectedUeTests = 148,
-    #   cuDSS build: 148 | non-cuDSS (FRAMECORE_CUDA=0, F67/F67s compile out): pass -ExpectedUeTests 146
+    [int]$ExpectedUeTests = 149,
+    #   cuDSS build: 149 | non-cuDSS (FRAMECORE_CUDA=0, F67/F67s compile out): pass -ExpectedUeTests 147
     #
     #   Count history — major anchors only (intermediate counts omitted):
     #   v0.1.1  +1  ArchSim.Persistence.SaveLoadRoundTrip
@@ -43,6 +43,7 @@ param(
     #   S-05    +1  ArchSim.Gameplay.ScenarioWidget (SPIKE-Scenario-u1; UArchSimScenarioWidget CDO/reflection smoke)
     #   S-05    +1  ArchSim.Gameplay.ScenarioSolveWire (SPIKE-Scenario-u2; RequestSolveAndVisualize reflection + graceful-fail)
     #   S-05    +1  ArchSim.Gameplay.ScenarioTutorial (SPIKE-Scenario-u3; K2/K4 UFunction + Tutorial state machine + Reset headless smoke)
+    #   S-06    +1  ArchSim.Gameplay.ScenarioFixture (AS-30; RegisterFixedSupport + SpawnDefaultPortalFrame reflection + headless dedup oracle)
     [string]$Root = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path,
     [string]$Engine = $env:UE_ENGINE_ROOT,
     [string]$UProject = ''

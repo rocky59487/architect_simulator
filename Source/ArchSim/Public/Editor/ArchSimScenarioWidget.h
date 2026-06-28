@@ -139,6 +139,60 @@ public:
     AActor* PlaceK4Brace(FVector LocationWorld);
 
     // ===========================================================================
+    // AS-30: boundary support + default portal frame fixture
+    // ===========================================================================
+
+    /**
+     * AS-30: Place a fully-fixed support at the given world-space location.
+     *
+     * World → mm conversion: 1 UE unit = 1 cm = 10 mm
+     * (per ArchSimScenarioWidget.cpp:L608 kCmToMm=10 constant in Registry).
+     *
+     * PIE-world preferred (GEditor->PlayWorld) following the v0.4.0.1 cross-world
+     * fix pattern — UArchSimModelRegistry lives in a GameInstanceSubsystem and only
+     * exists while a live GameInstance is running (PIE or packaged).
+     *
+     * WHY not "SetNodeFixity(idx, Fixed)": that API would require the caller to know
+     * NodeIdx in advance and track it separately. RegisterFixedSupport hides the
+     * FindOrAddNode 1 mm dedup behind a single position-based call — matching how
+     * PlaceK1Column/K2Beam/K4Brace work, so the widget surface stays position-centric.
+     *
+     * @param LocationWorld  World-space location (UE cm).
+     * @return NodeIdx (>= 0) on success; -1 on Registry / world acquisition failure.
+     */
+    UFUNCTION(BlueprintCallable, Category="Scenario|Fixture")
+    int32 PlaceFixedSupport(FVector LocationWorld);
+
+    /**
+     * AS-30: Spawn a default 2x2x2 m portal frame at the world origin.
+     *
+     * Geometry (world cm / FrameCore mm after ×10):
+     *   Support A: (-100, 0, 0) cm → (-1000, 0, 0) mm — fully-fixed base
+     *   Support B: (+100, 0, 0) cm → (+1000, 0, 0) mm — fully-fixed base
+     *   Column A:  K1 from (-100,0,0) to (-100,0,200) cm (2 m vertical)
+     *   Column B:  K1 from (+100,0,0) to (+100,0,200) cm (2 m vertical)
+     *   Beam:      K2 from (-100,0,200) to (+100,0,200) cm (2 m span)
+     *
+     * WHY 2x2x2 m: smallest stable portal that a student can intuitively recognise as
+     * a building frame. Fixed-fixed base leaves exactly 0 free global DoFs (12 free
+     * from 5 members × 6 per member end minus 2×6 constrained = 0 free) — a valid,
+     * solvable model with no mechanism. FrameCore LDLT can resolve it immediately.
+     *
+     * WHY node dedup via FindOrAddNode: Column A base node and Support A occupy the
+     * same position (-100,0,0). The single Registry::RegisterFixedSupport call
+     * creates the node; PlaceKSetMember's FindOrAddNode (called internally by
+     * RegisterMember) snaps to that same node via 1 mm tolerance. This gives the
+     * column exactly the Fixed=[T,T,T,T,T,T] boundary condition it needs.
+     *
+     * Returns true if ALL sub-placements succeed (2 fixed supports + 2 K1 columns +
+     * 1 K2 beam); false if ANY step fails (no PIE, Registry null, or spawn failure).
+     * Partial failure leaves the model in an intermediate state; the caller should
+     * call ResetWidgetState() and retry if atomicity is required.
+     */
+    UFUNCTION(BlueprintCallable, Category="Scenario|Fixture")
+    bool SpawnDefaultPortalFrame();
+
+    // ===========================================================================
     // Solve + visualize (u2 — unchanged signature)
     // ===========================================================================
 

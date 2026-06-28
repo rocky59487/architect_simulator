@@ -128,6 +128,55 @@ FVector UArchSimModelRegistry::PickRefVecForAxis(const FVector& AxisUnit)
     return FVector(0.0, 0.0, 1.0);
 }
 
+// ----- AS-30: boundary support API ------------------------------------------
+
+int32 UArchSimModelRegistry::RegisterFixedSupport(const FVector& PosMm)
+{
+    // Validate position — NaN coords would corrupt the node array silently.
+    if (PosMm.ContainsNaN())
+    {
+        UE_LOG(LogArchSimRegistry, Warning,
+               TEXT("RegisterFixedSupport: PosMm contains NaN (%.2f,%.2f,%.2f); rejected."),
+               PosMm.X, PosMm.Y, PosMm.Z);
+        return -1;
+    }
+
+    // WHY EnsureDefaultLibraries here: FindOrAddNode may be the very first call
+    // on a fresh Registry (support placed before any member). The default material +
+    // section must exist before a subsequent RegisterMember call uses idx 0.
+    // This mirrors what RegisterMember does at its own entry point.
+    EnsureDefaultLibraries();
+
+    // Delegate dedup entirely to the existing 1 mm tolerance linear-scan.
+    // WHY NOT reimplement: FindOrAddNode is the single source of truth for node
+    // dedup; duplicating the scan here would risk drift and violates DRY.
+    const int32 NodeIdx = FindOrAddNode(PosMm);
+
+    if (!CurrentModel.Nodes.IsValidIndex(NodeIdx))
+    {
+        // Unexpected: FindOrAddNode returned an out-of-range index.
+        UE_LOG(LogArchSimRegistry, Warning,
+               TEXT("RegisterFixedSupport: FindOrAddNode returned out-of-range idx=%d "
+                    "(Nodes.Num()=%d); rejected."),
+               NodeIdx, CurrentModel.Nodes.Num());
+        return -1;
+    }
+
+    // Write Fixed = [true x6]. SetNum is a no-op if length is already 6 (idempotent).
+    // WHY Init(true,6) unconditionally: the node may have been previously added with
+    // all-free fixity by a RegisterMember call. Overwriting with all-true is correct
+    // and idempotent (a second RegisterFixedSupport call at the same point does the
+    // same write — net effect is unchanged).
+    TArray<bool>& FixedDofs = CurrentModel.Nodes[NodeIdx].Fixed;
+    FixedDofs.Init(true, 6);   // length-6 enforced by FrameCore marshal layer
+
+    UE_LOG(LogArchSimRegistry, Display,
+           TEXT("RegisterFixedSupport: NodeIdx=%d at (%.1f,%.1f,%.1f) mm → Fixed=[T,T,T,T,T,T]."),
+           NodeIdx, PosMm.X, PosMm.Y, PosMm.Z);
+
+    return NodeIdx;
+}
+
 // ----- A1-03: registration ---------------------------------------------------
 
 int32 UArchSimModelRegistry::RegisterMember(UArchSimMemberData* Comp)
