@@ -446,12 +446,16 @@ bool UArchSimScenarioWidget::SpawnDefaultPortalFrame()
     }
 
     // -- Step 2: place 2 fully-fixed base supports --------------------------------
-    // WHY fixed at both bases: portal frame with pin-pin top and fixed-fixed base
-    // is statically determinate in 2D (for lateral loads) and trivially solvable.
-    // Fixed-fixed ensures 0 global free DOFs for the 3-member, 4-node system:
-    //   4 nodes × 6 DOF = 24 total; 2 fixed nodes × 6 = 12 removed; 12 free DOF
-    //   for 2 columns (2×2 end DOF) + 1 beam (2 end DOF) = 3 × 12 member end DOF
-    //   but the shared nodes mean K assembly is 12×12 free — solvable by LDLT.
+    // WHY fixed at both bases: portal frame with fixed-fixed base + rigid joints
+    // at top is 3x statically indeterminate (3D frame with axial + bending
+    // constraints); reduced K matrix is well-conditioned for LDLT and definitely
+    // not a mechanism.
+    // DOF accounting for the 3-member, 4-node system:
+    //   4 nodes × 6 DOF = 24 total nodal DOF.
+    //   2 fixed nodes × 6 = 12 removed; leaves 12 free DOF on the 2 top corner
+    //   nodes (6 each). Reduced K matrix dimension is therefore 12 × 12.
+    //   (Disassembled member-level count is 3 members × 12 end-DOF = 36, but
+    //   shared corner nodes collapse it to the 12-free assembly above.)
     // WHY (-100,0,0) and (+100,0,0): 2 m base width matches the 2 m column height
     // for a square portal frame. Easy for students to recognise as a building frame.
     const int32 SupportA = PlaceFixedSupport(FVector(-100.f, 0.f, 0.f));

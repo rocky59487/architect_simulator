@@ -25,7 +25,7 @@ Before starting the smoke run, verify all of the following:
    ```powershell
    .\Scripts\run_gate.ps1 -RequireOpenSees
    ```
-   Expected: `[2/5] UE headless automation: 148/148 PASS` (cuDSS) or `146/146 PASS` (non-cuDSS).
+   Expected: `[2/5] UE headless automation: 149/149 PASS` (cuDSS) or `147/147 PASS` (non-cuDSS).
    If gate fails, do NOT proceed with PIE smoke — fix the headless failures first.
 
 3. **BP child class exists** — you must have a Blueprint child of `UArchSimScenarioWidget`
@@ -184,7 +184,7 @@ This step verifies stability under sustained student interaction.
 All of the following must be true for the smoke to PASS:
 
 - [ ] **P1** UE Build exits 0 before smoke.
-- [ ] **P2** Headless gate reports `148/148` (cuDSS) or `146/146` (non-cuDSS) PASS.
+- [ ] **P2** Headless gate reports `149/149` (cuDSS) or `147/147` (non-cuDSS) PASS.
 - [ ] **P3** Widget opens without crash; log has no `Fatal` at open.
 - [ ] **P4** PIE launches; Registry + InteractiveSubsystem initialize (log confirms).
 - [ ] **P5** Tutorial advances: Welcome → PromptPlaceK1 → PromptPlaceK2 → PromptPlaceK4 → PromptPressTest → FreeExplore without crash.
@@ -267,7 +267,7 @@ Host OS: Windows 11 (or other)
 UE version: UE_5.7 (or specify)
 GPU: (e.g., RTX 5070 Ti)
 cuDSS build: yes / no
-$ExpectedUeTests: 148 / 146
+$ExpectedUeTests: 149 / 147
 
 ### P1 UE Build
 Exit code: ___

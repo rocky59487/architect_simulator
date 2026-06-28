@@ -263,3 +263,113 @@ Per S-05 mid-sprint cadence:**not** Phase 6 final docs sync,只做 Round 1 真�
 **Next dispatch:** AS-30(Round 2 sequential — Scenario valid-frame fixture + boundary support API)。Per plan budget:9h / 250K tokens / 50 steps / 30 min hard timeout。Domain:ue5-engineer + cpp-engineer。
 
 State file pattern:`S-06/phase-5/docs-synced -> advancing to phase-2 Round 2 AS-30`。
+
+## 2026-06-28T05:42Z — Phase 5 final docs sync complete (scope-exhausted)
+
+**Scope check:** shipped=4(U-LOW + U-IWYU + U-ALS + AS-30)= scoped=4;BLOCKER cycle 0;user 未 signal close → **scope-exhausted = TRUE → 進 Phase 6 close ceremony for v0.5.0 minor bump**。
+
+### Phase 5 NIT fixes(從 AS-30 Phase 3 review 3 findings)
+- **F1 fix:** `docs/logs/S-05/u3_pie_smoke.md` 3 處 `148/146` → `149/147`(L28 expected line / L187 P2 checkbox / L270 §9 template)
+- **F2 fix:** `Source/ArchSim/Private/Editor/ArchSimScenarioWidget.cpp:L448-461` DoF comment 矛盾消除 — 刪「`0 global free DOFs`」+「statically determinate in 2D」(2D 靜定描述混入到 3D frame 是錯字)+ 統一描述為「3x statically indeterminate 3D frame;12 free DOF on 2 top corner nodes;K matrix 12×12 well-conditioned for LDLT」
+- **F3 fix:** `docs/ARCHITECTURE_INDEX.md` § 2 Registry row `RegisterFixedSupport` 描述加「**Does NOT auto-trigger Solve** — caller is expected to batch supports + members and rely on RegisterMember's 150 ms debounce timer」+ cross-link L68-69 header doc
+
+### 3 NIT fixes 還在 working tree(uncommitted)
+Phase 6 release-hardening 會將 3 NIT fix + 任何 RELEASE_v0.5.0.md / HANDOFF_v0.5.0.md / CLAUDE.md 「現況」block / ARCH_INDEX「Latest tag」line 更新 + version pin bumps **統一打包成單一 release commit + v0.5.0 annotated tag**。Phase 5 不獨自 commit。
+
+### What is NOT updated in this Phase 5(留 Phase 6)
+- `E:\project\CLAUDE.md` 「現況」block —— Phase 6 release-hardening 加新 block + demote 既有 v0.4.0.1 anchor
+- `docs/ARCHITECTURE_INDEX.md` 頂部 `Latest tag: v0.4.0.1` line —— Phase 6 bump 到 v0.5.0
+- `docs/ARCHITECTURE_INDEX.md` 「Prior tags this minor」list —— Phase 6 add v0.4.0.1 in 前 + v0.4.0(prerelease)
+- `docs/RELEASE_v0.5.0.md` —— Phase 6 release notes 全文
+- `docs/HANDOFF_v0.5.0.md` —— Phase 6 next-session handoff doc + Z-01 first-action(包含 user-driven PIE smoke instruction 因為 hard gate 仍待 user)
+- v0.5.0 tag —— Phase 6 release-hardening `git tag -a` annotated tag
+
+### Cross-doc consistency baseline(pre-Phase-6)
+| doc | content |
+|---|---|
+| CLAUDE.md 「現況」(latest) | v0.4.0.1(待 demote)|
+| ARCH_INDEX Latest tag | v0.4.0.1(待 bump v0.5.0) |
+| Latest release notes file | docs/RELEASE_v0.4.0.1.md(待加 docs/RELEASE_v0.5.0.md) |
+| Latest HANDOFF | docs/HANDOFF_v0.4.0.1.md(待加 docs/HANDOFF_v0.5.0.md) |
+| run_gate.ps1 $ExpectedUeTests | 149 cuDSS / 147 non-cuDSS ✓(AS-30 已 bump) |
+| ARCH_INDEX § 6 UE test count | 149 ✓(AS-30 已 update) |
+| ARCH_INDEX § 7 backlog | AS-28 closed S-06 U-LOW / AS-29 PS env race 仍 backlog / AS-30 closed S-06 ✓ |
+
+### S-06 全 4 unit shipped summary
+| Unit | Phase 3 verdict | Iter count | Commit |
+|---|---|---|---|
+| U-LOW | NITS(3 findings, all cosmetic) | 1 | `625f703` |
+| U-IWYU | NITS(6 findings, all cosmetic) | 1 | `f195746` |
+| U-ALS | NITS-with-HIGH iter 1 → NITS iter 2 closed(user adjudicated re-dispatch) | 2 | `9b99691`(含 Tools/patches/als_l400_animinstance_guard.patch)|
+| AS-30 | NITS(3 findings,Phase 5 fixed)| 1 | `5caa751` |
+
+**Total v0.4.0.1..HEAD:** 4 commits / 26 tracked files / +3428 LOC / -18 LOC。Untracked working tree:Plugins/ALS/ (含 L400 fix) / .git/hooks/pre-commit / Content/ / Plugins/Prefabricator|SPUD|SUQS|FrameSolver Grasshopper bin/ / Research/ue58_attempt/ — 全 carry from S-05 + 預期 untracked。
+
+State file pattern:`S-06/phase-5/all-units-done -> advancing to phase-6 close (Mode A: single v0.5.0 minor tag at session close)`。
+
+═════════════════════════════════════════════════════════════════
+## SESSION CLOSE — 2026-06-28T05:55Z
+═════════════════════════════════════════════════════════════════
+
+**Mode:** A (user-explicit direct minor bump v0.4.0.1 → v0.5.0;non-auto-trigger because 0 patch tags shipped this session)
+**Final tag:** `v0.5.0`
+**Session duration:** ~2 h 39 min(2026-06-28T03:16Z scope lock → 2026-06-28T05:55Z release)
+**Tasks scoped:** 4
+**Tasks accepted:** 4(100% — full scope completion)
+**Tasks deferred:** 0(scope-exhausted;新 backlog AS-31/32/33/34 opened during release for cosmetic/follow-up;不算 deferred)
+
+### Tags shipped this session
+| # | Tag | Type | Commit | Verdict | Notes |
+|---|---|---|---|---|---|
+| 1 | (no tag) | mid-sprint U-LOW | `625f703` | NITS-iter1 | 3 cosmetic findings;Phase 5 fixed 1 / cosmetic queued 0 |
+| 2 | (no tag) | mid-sprint U-IWYU | `f195746` | NITS-iter1 | 6 cosmetic findings;Phase 5 queued 3 to AS-31 backlog |
+| 3 | (no tag) | mid-sprint U-ALS | `9b99691` | NITS-iter2 closed | iter1 NITS-with-2-HIGH user adjudicated re-dispatch → iter2 4 closed + 1 residual NIT to AS-31 |
+| 4 | (no tag) | mid-sprint AS-30 | `5caa751` | NITS-iter1 | 3 cosmetic findings;Phase 5 fixed all 3 |
+| 5 | **`v0.5.0`** | **Mode A minor bump** | (release commit tag-time) | — | Aggregate of 1-4 + Phase 5 NIT fixes + RELEASE_v0.5.0.md + HANDOFF_v0.5.0.md + ARCH_INDEX Latest tag bump |
+
+### Adversarial review summary
+- Total Phase 3 review dispatches:**5**(U-LOW / U-IWYU / U-ALS iter 1 / U-ALS iter 2 / AS-30)
+- Total review wall time:~12 min(105+185+196+100+160 s)
+- Total review tool calls:**~145**(12+24+46+16+25+16 misc)
+- BLOCKER verdicts:**0**(NITS-with-2-HIGH on U-ALS iter 1 user-adjudicated as effective BLOCKER via AskUserQuestion;re-dispatched)
+- Re-prompt cycles:**1**(U-ALS iter 1 → iter 2,within 3-cycle Phase 3 cap)
+- Honest [VERIFIED] vs [NEW CODE, PIE required] discipline:**after U-ALS iter 1 F1 (fabricated log reference HIGH) caught, U-ALS iter 2 + AS-30 全部 labels 嚴守 [NEW CODE, PIE required] 給 PIE-依賴 claim**
+- Notable findings(highest-value catches):
+  - **U-ALS iter 1 F2 HIGH** — ConstructorHelpers ALL fail in Editor CDO phase(evidence at `Saved/Logs/ArchSim-backup-2026.06.28-03.37.00.log:L916-929`),Fix A 82 LOC ctor wiring 在 PIE 實際 non-functional → triggered user adjudication → iter 2 改 PostInitProperties + BeginPlay LoadObject path 全 fix;**這個 catch 防止 v0.5.0 ship 帶 dead code 的災難**
+  - **U-LOW F1 MEDIUM** — subagent `git status` self-report 包含其他 unit dirty(U-ALS in parallel)— reporting clarity nit 文件化在 manager.md 防 future session 混淆 parallel-dispatch git state semantics
+  - **AS-30 reviewer SC6 correction** — subagent 自報「UCLASS(Abstract) NewObject 回 null → SC6 if-body 跳過」是 mechanism 錯;reviewer 正確指出 Abstract class + StaticClass() non-null + runner GEditor exists → Widget non-null → SC6 真實 test「Registry null 時 SpawnDefaultPortalFrame 回 false 不 crash」;test 行為對 mechanism 描述錯 — 加 documentation 教 future Abstract-class headless test pattern
+
+### Durable lessons(write to project memory if cross-cutting;見 HANDOFF_v0.5.0.md § 5 詳)
+1. **Pre-flight 讀現有 surface 能省大量工作量**(AS-30 從 9h budget → 15 min actual,因 FindOrAddNode 已有 1mm tolerance)
+2. **Subagent silent budget overrun 是 NIT 但要明確 ESCALATE >80% rule**(U-LOW 115% / U-IWYU 143% / U-ALS iter 1 180% steps;AS-30 在 budget 內證明 scope-appropriate 可達)
+3. **[VERIFIED] claim 必須 oracle-backed 且 reviewer 可 reproduce**(U-ALS iter 1 引不存在 log L1532 是鐵則 #3 violation;iter 2 修為 [INFERRED] + cite 真實 log L916-929)
+4. **UCLASS(Abstract) headless NewObject 行為複雜**(GEditor present 回 non-null;commandlet -nullrhi 回 null)
+5. **Third-party plugin patch 應分 in-tree wiring + patch file 兩層**(U-ALS Fix A in-tree + Fix B Tools/patches/ artifact)
+6. **Phase 5 mid-sprint 不 demote CLAUDE.md「現況」**(per S-05 cadence;那是 Phase 6 release ceremony 的工作)
+7. **Mode A v0.5.0 direct minor bump 是合理 user-explicit 選項**(Phase 6 Mode 決策應尊重 scope contract explicit choice 優先於 auto-trigger heuristic)
+
+### Deferred to next session(新 backlog AS-31/32/33/34;見 HANDOFF_v0.5.0.md § 4 detail)
+- **AS-31** S-06 cosmetic NIT bundle(IWYU README L79 NOP / hook L41 message conflation / L38 unquoted spaces / AlsCharacter.cpp L406 off-by-2)— cosmetic cleanup window
+- **AS-32** ALS L411 guard upstream contribution(file issue against ALS-Refactored v4.17+;update Tools/patches/README.md 用 upstream issue # 替「none filed yet」)
+- **AS-33** Evaluate BP child + GameMode.cpp DefaultPawnClass swap vs PostInitProperties LoadObject(based on PIE smoke results + LoadObject path 維護成本)
+- **AS-34** PIE smoke P10/P11「heatmap colour」具體 oracle 化(run 1 healthy baseline + 寫 expected pattern)
+
+Plus carry-overs unchanged from v0.4.0.1 backlog:AS-04(human GUI)/ AS-05(art)/ AS-06(SPUD pre-5.8)/ AS-08(SPUD audit when wired)/ AS-09(non-cuDSS verify)/ AS-29(PS env race diagnosis)。
+
+### Recommended next-session(S-07)scope
+- **Goal:** PIE smoke v0.5.0 user-driven validation + AS-30 P10/P11 specific oracle(AS-34);若 PIE smoke FAIL 走 v0.5.0.1 hotfix protocol
+- **Tasks(recommended ordering):** USER PIE smoke first → adjudicate Mode A continue (AS-31/34 cleanup) vs Mode B emergency (v0.5.0.1 hotfix path)
+- **Risk:** Conservative(PIE validation only)若 smoke PASS;Experimental 若 smoke FAIL(diagnose new bug)
+- **Audience:** 試玩學生(若 smoke PASS → 開始 student trial)/ 自己(若 smoke FAIL → 排查)
+- **Anti-goals:**
+  - FROZEN 全守(預設 inherited)
+  - 不開新 feature scope before PIE validation 確認 v0.5.0 ready
+
+### State at end of cycle
+- Sprint logs:`docs/logs/S-06/` 7 files(scope + plan + manager + 4 agent_*.md)
+- Total commits this session:5(4 mid-sprint feature commits + 1 release commit)
+- Total tracked files modified vs v0.4.0.1:~30 files / ~3500 LOC additive
+- Untracked carry-over(unchanged from S-05):.claude/ / Content/ / Plugins/{ALS,Prefabricator,SPUD,SUQS,FrameSolver/Grasshopper/v2/{Rhino/,}/bin}/ / Research/ue58_attempt/
+- Working tree post-release commit:clean(only carry-over untracked)
+
+═════════════════════════════════════════════════════════════════
