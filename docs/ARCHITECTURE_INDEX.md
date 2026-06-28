@@ -7,8 +7,8 @@
 > **Owner:** session-driver skill (manager thread). Subagents read only.
 > Updated at Phase 6 of every release-hardening cycle.
 >
-> **Latest tag:** v0.4.0 (Sprint S-05 close — Scenario MVP minor bump: AS-25/26/27 cleanup + Scenario MVP u1/u2/u3 Editor Utility Widget + UE5.8 NO-GO eval) — see [`docs/RELEASE_v0.4.0.md`](RELEASE_v0.4.0.md) for changelog + [`docs/HANDOFF_v0.4.0.md`](HANDOFF_v0.4.0.md) for S-06 first-actions + [`docs/logs/S-05/manager.md`](logs/S-05/manager.md) for full sprint trail + [`docs/logs/S-05/u3_pie_smoke.md`](logs/S-05/u3_pie_smoke.md) for the USER-DRIVEN PIE 5min smoke instructions
-> **Prior tags this minor:** v0.3.1 (Sprint S-04 patch close — S-03 carryover AS-20 + AS-24 + 7 cosmetic NITs + outside-repo hook fix) / v0.3.0 (Sprint S-03 close — hardening + PIE-world test harness foundation) / v0.2.0 (Sprint S-02 close — ALS pawn end-to-end) / v0.1.5 / v0.1.4 (patch bundles)
+> **Latest tag:** v0.4.0.1 (S-05 patch — AS-28 Scenario widget cross-world hotfix + IWYU first-header rebuild fix; ships valid widget→PIE-world Registry wire; PIE smoke P3..P9 + P13 PASS, P10/P11 FAIL on separately-scoped AS-29 fixture mechanism) — see [`docs/RELEASE_v0.4.0.1.md`](RELEASE_v0.4.0.1.md) + [`docs/HANDOFF_v0.4.0.1.md`](HANDOFF_v0.4.0.1.md). Prior tag `v0.4.0` is **marked prerelease** because its PIE end-to-end flow was broken by the cross-world bug.
+> **Prior tags this minor:** v0.4.0 (Sprint S-05 close — Scenario MVP minor bump: AS-25/26/27 cleanup + Scenario MVP u1/u2/u3 Editor Utility Widget + UE5.8 NO-GO eval; prerelease per above) / v0.3.1 (Sprint S-04 patch close — S-03 carryover AS-20 + AS-24 + 7 cosmetic NITs + outside-repo hook fix) / v0.3.0 (Sprint S-03 close — hardening + PIE-world test harness foundation) / v0.2.0 (Sprint S-02 close — ALS pawn end-to-end) / v0.1.5 / v0.1.4 (patch bundles)
 
 ---
 

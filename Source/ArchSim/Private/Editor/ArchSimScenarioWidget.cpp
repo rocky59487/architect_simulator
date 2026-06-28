@@ -51,13 +51,17 @@
 //
 // FROZEN guard: zero lines under Plugins/FrameSolver/Source/FrameCore/ (v4.0.0 FROZEN).
 
+// v0.4.0.1 (AS-28): own header MUST be the first #include (UE5.5+ IWYU first-header rule).
+// Prior order placed FrameCoreUE headers first, which made UBT reject the obj rebuild
+// silently (Result: Succeeded but obj stale) — that's why the cross-world fix wasn't
+// taking effect until include order was corrected.
+#include "Editor/ArchSimScenarioWidget.h"
+
 // FrameCoreUEVisualTypes.h included before WITH_EDITOR guard because FFrameMemberGeometry
 // is used in BuildMemberGeometryFromRegistry's return type, and the header declaration
 // (also outside WITH_EDITOR) needs the complete type to be visible in the same TU.
 #include "FrameCoreUE/FrameCoreUEVisualTypes.h"   // FFrameModelPatch (FFrameMemberGeometry is in FrameCoreUETypes.h, pulled in transitively)
 #include "FrameCoreUE/FrameCoreUEModelTypes.h"    // FFrameModelDef, FFrameNode, FFrameMember, FFrameSection
-
-#include "Editor/ArchSimScenarioWidget.h"
 
 #if WITH_EDITOR
 
@@ -178,10 +182,15 @@ AActor* UArchSimScenarioWidget::PlaceKSetMember(
     FVector EndJOffsetUE,
     const TCHAR* MemberTag)
 {
-    // -- Step 1: Obtain the Editor world -----------------------------------------
-    // GEditor->GetEditorWorldContext() returns the active Edit-mode level context.
-    // During PIE this is the PIE world, not the EditorWorld transient — that is fine
-    // because we want the Actor in the level the player is actually editing/testing.
+    // -- Step 1: Obtain the world to spawn into ----------------------------------
+    // v0.4.0.1 fix (AS-28): MUST prefer GEditor->PlayWorld when PIE is active,
+    // mirroring RequestSolveAndVisualize at line ~445. The prior implementation
+    // unconditionally used GEditor->GetEditorWorldContext().World() — that always
+    // returns the editor world even during PIE (UE5.7 behaviour; the prior comment
+    // claiming "During PIE this is the PIE world" was incorrect). Spawning into
+    // the editor world while the Registry lives in the PIE GameInstance produced
+    // a silent cross-world bug: actors placed, but Registry never received them,
+    // so Solver saw "invalid model: no nodes" and HeatmapActor never spawned.
     if (!GEditor)
     {
         UE_LOG(LogArchSim, Warning,
@@ -190,7 +199,9 @@ AActor* UArchSimScenarioWidget::PlaceKSetMember(
         return nullptr;
     }
 
-    UWorld* World = GEditor->GetEditorWorldContext().World();
+    UWorld* World = GEditor->PlayWorld.Get()
+                    ? GEditor->PlayWorld.Get()
+                    : GEditor->GetEditorWorldContext().World();
     if (!World)
     {
         UE_LOG(LogArchSim, Warning,

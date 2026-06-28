@@ -486,3 +486,30 @@ Release-hardening skill invoked for minor bump. Per /work hub Phase 4 spec + v0.
 - Single release commit bundling: `docs/RELEASE_v0.4.0.md` + `docs/HANDOFF_v0.4.0.md` + `docs/ARCHITECTURE_INDEX.md` + `docs/logs/S-05/manager.md` (this file)
 - Annotated tag `v0.4.0` at the release commit (LOCAL only)
 - Publish commands printed for USER manual run (per project rule: no remote push / no `gh release create` without explicit user authorization at command time)
+
+---
+
+## 2026-06-28 — AS-28 v0.4.0.1 hotfix post-mortem
+
+**Trigger:** v0.4.0 USER-DRIVEN PIE 5min smoke (`u3_pie_smoke.md`) run live on integrator host; P3..P9 + P13 PASSed but P10/P11 (HeatmapActor spawn + colour) FAILed.
+
+**Root cause:** `UArchSimScenarioWidget::PlaceKSetMember` at L193 used `GEditor->GetEditorWorldContext().World()` unconditionally — prior in-code comment claiming "During PIE this is the PIE world" was incorrect for UE5.7. K-set actors spawned into the editor world; Registry lived in PIE GameInstance subsystem; cross-world mismatch → solver received empty model → "invalid model: no nodes" → HeatmapActor never spawned. 5-leg headless gate missed this because all ScenarioWidget* tests construct Registry directly via `NewObject<>(GetTransientPackage())`, bypassing GameInstanceSubsystem flow.
+
+**Secondary blocker (rebuild-stale-obj):** First fix attempt did not appear to take effect. Investigation revealed UE5.5+ IWYU first-header rule was being violated by the .cpp's include order — `FrameCoreUE/...` headers placed before `Editor/ArchSimScenarioWidget.h`. UBT reports `error: Expected ArchSimScenarioWidget.h to be first header included.` in the build log but the target still completes `Result: Succeeded` — the stale `.obj` from a prior build links into the new DLL. Fix: move `#include "Editor/ArchSimScenarioWidget.h"` to be the first `#include`. Once corrected, the obj truly rebuilt and the cross-world fix activated.
+
+**Tertiary issue (PIE-stop):** Even after both fixes landed, one smoke run still showed P10/P11 FAIL — log analysis revealed PIE was STOPped 6 seconds before the smoke runner was invoked (Esc / Stop button probably hit). User-facing instructions updated to emphasise: after Alt+P, switch to Output Log via mouse-click only, never keyboard, until smoke completes.
+
+**Quaternary issue (mechanism):** Final smoke run had all cross-world / PIE-state issues resolved, K1/K2/K4 registered correctly into PIE-world Registry (MemberIdx=0/1/2 confirmed), but solver returned `LDLT factorization failed: rank-deficient stiffness / mechanism`. K-members placed at default smoke coordinates share no nodes and have no boundary supports → 12-DOF-free mechanism → engine correctly rejects the model. This is a fixture-physics issue, NOT a widget bug. Filed AS-29 (Scenario valid-frame fixture + boundary support API) for v0.4.1 / S-06.
+
+**v0.4.0.1 ships:** widget .cpp (PlayWorld preference + include order fix) + Tools/run_pie_smoke.py (NEW) + Tools/setup_pie_smoke_widget.py (NEW) + docs/RELEASE_v0.4.0.1.md + docs/HANDOFF_v0.4.0.1.md + docs/ARCHITECTURE_INDEX.md (latest-tag bump). Config/DefaultEngine.ini UNCHANGED at tag time (temporary GameMode override used during smoke was reverted).
+
+**v0.4.0 disposition:** marked `gh release edit v0.4.0 --prerelease` — its PIE end-to-end demo flow was broken by the cross-world bug. `v0.4.0.1` is the true shippable Scenario MVP for the cross-world wire.
+
+**5-leg gate state at v0.4.0.1 tag time:** ALL PASS (standalone F1..F71 / UE 148 cuDSS / OpenSees / linear deep audit 104 / CLI roundtrip).
+
+**Durable lessons (in `RELEASE_v0.4.0.1.md` §7 + `HANDOFF_v0.4.0.1.md`):**
+1. UE5.5+ IWYU first-header rule is fatal-silent — grep build log, never trust `Result: Succeeded` alone
+2. PIE smoke labels must claim PIE-state explicitly (query EditorSubsystem) not infer from method return
+3. Iron rule #5 does NOT apply to `Content/` BP child assets (gitignored anyway) — fair game
+4. Headless 148-UE-test gate cannot catch cross-world bugs that involve GameInstanceSubsystem vs PlayWorld interaction — keep USER-DRIVEN smoke as a separate gate leg for every Scenario-facing change
+
