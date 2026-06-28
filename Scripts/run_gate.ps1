@@ -1,10 +1,11 @@
 # One-click verification gate for the FrameSolver engine (FrameCore-only, post-cleanup).
-#   [1/5] standalone FrameCore fixtures (analytic golden oracles)
-#   [2/5] UE headless automation (FrameCore.*)
-#   [3/5] OpenSees offline cross-validation (skipped if openseespy absent)
-#   [4/5] linear-analysis deep audit (post F17-F25 strengthening; prints its own
+#   [1/6] standalone FrameCore fixtures (analytic golden oracles)
+#   [2/6] UE headless automation (FrameCore.* + ArchSim.Persistence/Integration/Gameplay)
+#   [3/6] OpenSees offline cross-validation (skipped if openseespy absent)
+#   [4/6] linear-analysis deep audit (post F17-F25 strengthening; prints its own
 #         independent-check count -- the audit reports "checks=N", not a hardcoded number)
-#   [5/5] CLI round-trip (S6: frame_cli J1 text bridge end-to-end; VERSION/TONLY/SIZEOPT/DYNC)
+#   [5/6] CLI round-trip (S6: frame_cli J1 text bridge end-to-end; VERSION/TONLY/SIZEOPT/DYNC)
+#   [6/6] PIE auto-smoke (AS-35: render-thread test, no -nullrhi; separate from leg 2)
 # Prints a combined PASS/FAIL summary and sets the exit code (0 = all green).
 #
 # Usage from repo root:
@@ -44,6 +45,10 @@ param(
     #   S-05    +1  ArchSim.Gameplay.ScenarioSolveWire (SPIKE-Scenario-u2; RequestSolveAndVisualize reflection + graceful-fail)
     #   S-05    +1  ArchSim.Gameplay.ScenarioTutorial (SPIKE-Scenario-u3; K2/K4 UFunction + Tutorial state machine + Reset headless smoke)
     #   S-06    +1  ArchSim.Gameplay.ScenarioFixture (AS-30; RegisterFixedSupport + SpawnDefaultPortalFrame reflection + headless dedup oracle)
+    #   S-07    +0  ArchSim.PIE.PortalFrameSmoke (AS-35-u1) MOVED TO LEG 6 (render thread required,
+    #               no -nullrhi); leg 2 count unchanged (149 cuDSS / 147 non-cuDSS).
+    #               Leg 2 filter is now category-enumerated to explicitly exclude ArchSim.PIE.*
+    #               (see WHY comment at the ExecCmds line below).
     [string]$Root = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path,
     [string]$Engine = $env:UE_ENGINE_ROOT,
     [string]$UProject = ''
@@ -73,18 +78,36 @@ Write-Host '======================================================'
 Write-Host ' FrameSolver verification gate'
 Write-Host '======================================================'
 
-# ---- [1/5] standalone gate ----
+# ---- [1/6] standalone gate ----
 Write-Host ''
-Write-Host '[1/5] standalone FrameCore gate (build.bat)...'
+Write-Host '[1/6] standalone FrameCore gate (build.bat)...'
 & (Join-Path $Root 'Plugins\FrameSolver\Standalone\build.bat') | Tee-Object -Variable StandaloneOut | Out-Null
 $StandaloneRC = $LASTEXITCODE
 $StandaloneLine = ($StandaloneOut | Select-String -Pattern 'ALL PASS|FAILURES' | Select-Object -Last 1)
 Write-Host ("       standalone: {0} (exit {1})" -f $StandaloneLine, $StandaloneRC)
 
-# ---- [2/5] UE headless automation ----
+# ---- [2/6] UE headless automation ----
 Write-Host ''
-Write-Host '[2/5] UE headless automation...'
-$ExecCmds = 'Automation RunTests FrameCore+ArchSim; Quit'
+Write-Host '[2/6] UE headless automation...'
+# WHY category-enumerated filter (Option A, AS-35-u2):
+#   The test ArchSim.PIE.PortalFrameSmoke (AS-35-u1) requires EditorContext | ClientContext
+#   and uses FStartPIECommand, which needs a real render context. Under -nullrhi the test
+#   crashes (EXCEPTION_ACCESS_VIOLATION observed 2026-06-28 09:53:41). The previous wildcard
+#   filter 'FrameCore+ArchSim' would pick up ArchSim.PIE.* here and fail under -nullrhi.
+#   Solution: enumerate the categories that are safe under -nullrhi explicitly.
+#   MAINTENANCE NOTE: if a new ArchSim.<Category> is added (e.g. ArchSim.Network),
+#   and it is safe under -nullrhi, add +ArchSim.<Category> to this filter AND bump
+#   $ExpectedUeTests accordingly. If it requires render context, add a new leg instead.
+#
+#   Categories enumerated (all safe under -nullrhi as of S-07):
+#     FrameCore        — all F1..F71 standalone-mirrored UE tests
+#     ArchSim.Persistence — SaveLoadRoundTrip / MaxRankCeiling / RebaselineCeiling
+#     ArchSim.Integration — TickDriver / PieHarnessSmoke / PieDriverLoop / PieRebaseline
+#     ArchSim.Gameplay    — CharacterInput / PieInputRuntime / ScenarioWidget /
+#                           ScenarioSolveWire / ScenarioTutorial / ScenarioFixture
+#   EXCLUDED from this filter (intentionally):
+#     ArchSim.PIE.*    — requires render thread (no -nullrhi); handled by leg [6/6]
+$ExecCmds = 'Automation RunTests FrameCore+ArchSim.Persistence+ArchSim.Integration+ArchSim.Gameplay; Quit'
 & $UeCmd $UProj "-ExecCmds=$ExecCmds" -unattended -nullrhi -nopause -nosplash -log | Out-Null
 $UeRC = $LASTEXITCODE
 
@@ -119,9 +142,9 @@ if ($env:FRAMECORE_GPU_STRICT -eq '1' -and (Test-Path $Log)) {
     $UeStrictRC = 0   # not in strict mode
 }
 
-# ---- [3/5] OpenSees offline cross-validation (#14; skipped if openseespy absent) ----
+# ---- [3/6] OpenSees offline cross-validation (#14; skipped if openseespy absent) ----
 Write-Host ''
-Write-Host '[3/5] OpenSees offline cross-validation...'
+Write-Host '[3/6] OpenSees offline cross-validation...'
 $OsRC = 0; $OsState = 'skipped'
 & python (Join-Path $Root 'Tools\opensees_compare.py') | Tee-Object -Variable OsOut | Out-Null
 $OsRC = $LASTEXITCODE
@@ -130,21 +153,34 @@ elseif ($OsRC -eq 2) { $OsState = 'skipped (openseespy not installed)' }
 else                 { $OsState = 'FAIL' }
 Write-Host ("       OpenSees compare: {0} (exit {1})" -f $OsState, $OsRC)
 
-# ---- [4/5] linear-analysis deep audit (post F17-F25 strengthening) ----
+# ---- [4/6] linear-analysis deep audit (post F17-F25 strengthening) ----
 Write-Host ''
-Write-Host '[4/5] linear-analysis deep audit...'
+Write-Host '[4/6] linear-analysis deep audit...'
 & (Join-Path $Root 'Plugins\FrameSolver\Standalone\build_linear_audit.bat') | Tee-Object -Variable AuditOut | Out-Null
 $AuditRC = $LASTEXITCODE
 $AuditLine = ($AuditOut | Select-String -Pattern 'PASS failures=|FAIL failures=' | Select-Object -Last 1)
 Write-Host ("       linear deep audit: {0} (exit {1})" -f $AuditLine, $AuditRC)
 
-# ---- [5/5] CLI round-trip (S6 frame_cli J1 text bridge end-to-end) ----
+# ---- [5/6] CLI round-trip (S6 frame_cli J1 text bridge end-to-end) ----
 Write-Host ''
-Write-Host '[5/5] CLI round-trip (frame_cli J1 bridge)...'
+Write-Host '[5/6] CLI round-trip (frame_cli J1 bridge)...'
 & python (Join-Path $Root 'Tools\cli_roundtrip.py') | Tee-Object -Variable CliOut | Out-Null
 $CliRC = $LASTEXITCODE
 $CliLine = ($CliOut | Select-String -Pattern 'ALL PASS|FAILURES' | Select-Object -Last 1)
 Write-Host ("       CLI round-trip: {0} (exit {1})" -f $CliLine, $CliRC)
+
+# ---- [6/6] PIE auto-smoke (AS-35 — render thread required, no -nullrhi) ----
+# DESIGN NOTE: run_pie_gate.ps1 uses Write-Host (Information stream, not pipeline).
+# Capturing Write-Host across PowerShell script boundaries is unreliable — *>&1 causes
+# NativeCommandError wrapping (from UE's stderr) to set $? = false and corrupt $LASTEXITCODE.
+# Strategy: invoke the script with a dot-source-style call so its Write-Host goes directly
+# to the parent console, and trust only $LASTEXITCODE (0 = PASS, 1 = FAIL) for gate logic.
+# The PASS/FAIL summary is printed by run_pie_gate.ps1 itself; the gate verdict picks it up.
+Write-Host ''
+Write-Host '[6/6] PIE auto-smoke (ArchSim.PIE.PortalFrameSmoke)...'
+& (Join-Path $Root 'Scripts\run_pie_gate.ps1') -Root $Root -Engine $Engine -UProject $UProj
+$PieRC = $LASTEXITCODE
+Write-Host ("       PIE smoke overall: {0} (exit {1})" -f $(if ($PieRC -eq 0) { 'PASS' } else { 'FAIL' }), $PieRC)
 
 # ---- verdict ----
 Write-Host ''
@@ -157,11 +193,11 @@ if ($OsRC -eq 2) {
 }
 $OsOk = if ($RequireOpenSees) { $OsRC -eq 0 } else { $OsRC -ne 1 }
 $UeCountOk = ($Total -ge $ExpectedUeTests) -and ($UeStrictRC -eq 0)
-$GateOk = ($StandaloneRC -eq 0) -and ($UeExit -eq 0) -and $UeCountOk -and $OsOk -and ($AuditRC -eq 0) -and ($CliRC -eq 0)
+$GateOk = ($StandaloneRC -eq 0) -and ($UeExit -eq 0) -and $UeCountOk -and $OsOk -and ($AuditRC -eq 0) -and ($CliRC -eq 0) -and ($PieRC -eq 0)
 if ($GateOk) {
-    Write-Host (" GATE: PASS  (standalone OK, UE {0} tests green, OpenSees {1}, deep audit OK, CLI round-trip OK)" -f $Total, $OsState) -ForegroundColor Green
+    Write-Host (" GATE: PASS  (standalone OK, UE {0} tests green, OpenSees {1}, deep audit OK, CLI round-trip OK, PIE smoke OK)" -f $Total, $OsState) -ForegroundColor Green
     exit 0
 } else {
-    Write-Host (" GATE: FAIL  (standalone exit {0}, UE exit {1}, {2}/{3} UE tests, OpenSees {4}, audit exit {5}, CLI exit {6})" -f $StandaloneRC, $UeExit, $Total, $ExpectedUeTests, $OsState, $AuditRC, $CliRC) -ForegroundColor Red
+    Write-Host (" GATE: FAIL  (standalone exit {0}, UE exit {1}, {2}/{3} UE tests, OpenSees {4}, audit exit {5}, CLI exit {6}, PIE exit {7})" -f $StandaloneRC, $UeExit, $Total, $ExpectedUeTests, $OsState, $AuditRC, $CliRC, $PieRC) -ForegroundColor Red
     exit 1
 }
