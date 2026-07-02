@@ -213,13 +213,33 @@ AActor* UArchSimScenarioWidget::PlaceKSetMember(
     // -- Step 2: Spawn a plain AActor as the K-set placeholder -------------------
     // No mesh asset is required at u3 scope; the Blueprint child class can assign a
     // StaticMeshComponent asset in the Details panel (AS-05 art asset backlog).
+    //
+    // AS-36 fix (S-08): base AActor has no default RootComponent. UE known behaviour:
+    // SpawnActor<AActor>(AActor::StaticClass(), FTransform(loc,...)) SILENTLY DROPS the
+    // Location when no RootComponent exists — GetActorTransform() always returns Identity.
+    // This was first discovered in S-01 v0.1.1 (ArchSimSaveLoadTest.cpp L120-134 comment
+    // "SpawnActor(...,Location,...) on base AActor drops the location silently because
+    // AActor has no default RootComponent -- so we built our own."). PlaceKSetMember was
+    // written in S-05 and repeated the same pit.
+    //
+    // Consequence for SpawnDefaultPortalFrame: ColA and ColB are spawned at different
+    // world positions ((-100,0,100) vs (+100,0,100)), but both return Identity transform
+    // → RegisterMember computes the SAME world endpoints for both columns → FindOrAddNode
+    // deduplicates to the same node pair (e.g. Node 2/3) → LDLT rank-deficient
+    // → bSingular → OnSolveComplete singular guard fires → HeatmapActor never spawns.
+    // Commandlet PIE SC2b confirmed: "Member[0] I=2 J=3 / Member[1] I=2 J=3".
+    //
+    // Fix: spawn deferred (AlwaysSpawn at Identity), then graft a USceneComponent root
+    // and call SetActorLocation(LocationWorld). This is the identical S-01 pattern from
+    // ArchSimSaveLoadTest.cpp L128-134. Affects all K-set placement paths (K1/K2/K4 and
+    // any calls via SpawnDefaultPortalFrame), which is the intended scope of this fix.
     FActorSpawnParameters SpawnParams;
     SpawnParams.SpawnCollisionHandlingOverride =
         ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
 
     AActor* PlacedActor = World->SpawnActor<AActor>(
         AActor::StaticClass(),
-        FTransform(FRotator::ZeroRotator, LocationWorld, FVector::OneVector),
+        FTransform::Identity,    // AS-36: spawn at Identity first; SetActorLocation below
         SpawnParams);
 
     if (!PlacedActor)
@@ -229,6 +249,26 @@ AActor* UArchSimScenarioWidget::PlaceKSetMember(
                     "at location (%.1f, %.1f, %.1f)."),
                MemberTag, LocationWorld.X, LocationWorld.Y, LocationWorld.Z);
         return nullptr;
+    }
+
+    // AS-36: Graft a USceneComponent as RootComponent so SetActorLocation is honoured.
+    // WHY NewObject with outer=PlacedActor: component lifetime is tied to the actor.
+    // WHY RegisterComponent before SetRootComponent: UE requires the component to be
+    // registered before it can be set as RootComponent (otherwise
+    // SetActorLocation() silently becomes a no-op on the unregistered component).
+    // WHY named "Root": stable name avoids anonymous-component-collision in the Details panel.
+    {
+        USceneComponent* Root = NewObject<USceneComponent>(
+            PlacedActor, USceneComponent::StaticClass(), TEXT("Root"));
+        check(Root);  // NewObject failure here is catastrophic; always check
+        Root->RegisterComponent();
+        PlacedActor->SetRootComponent(Root);
+        PlacedActor->SetActorLocation(LocationWorld);
+
+        UE_LOG(LogArchSim, Verbose,
+               TEXT("UArchSimScenarioWidget::PlaceKSetMember[%s] — "
+                    "AS-36: USceneComponent root attached; SetActorLocation (%.1f,%.1f,%.1f) applied."),
+               MemberTag, LocationWorld.X, LocationWorld.Y, LocationWorld.Z);
     }
 
     // -- Step 3: Attach UArchSimMemberData with caller-supplied offsets ----------

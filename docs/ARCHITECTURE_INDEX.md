@@ -7,8 +7,8 @@
 > **Owner:** session-driver skill (manager thread). Subagents read only.
 > Updated at Phase 6 of every release-hardening cycle.
 >
-> **Latest tag:** v0.5.0 (Sprint S-06 close — v0.4 殘留 cleanup minor bump: AS-30 Scenario valid-frame fixture + boundary support API, U-ALS character runtime asset wiring + ALS plugin null-guard patch, U-IWYU pre-commit validator preventing v0.4.0.1-class silent stale-obj災難, U-LOW hook -cnotmatch + ARCH_INDEX cleanup) — see [`docs/RELEASE_v0.5.0.md`](RELEASE_v0.5.0.md) + [`docs/HANDOFF_v0.5.0.md`](HANDOFF_v0.5.0.md) + [`docs/logs/S-06/manager.md`](logs/S-06/manager.md) § SESSION CLOSE. **USER-DRIVEN PIE smoke per `docs/logs/S-05/u3_pie_smoke.md` P1..P15 仍 hard gate**;v0.5.0 stamped Latest but「ready for student trial」宣告等 PIE smoke PASS。
-> **Prior tags this minor:** v0.4.0.1 (S-05 patch — AS-28 Scenario widget cross-world hotfix + IWYU first-header rebuild fix) / v0.4.0 (Sprint S-05 close — Scenario MVP minor bump; marked prerelease because PIE end-to-end flow broken by cross-world bug pre-v0.4.0.1) / v0.3.1 (Sprint S-04 patch close — S-03 carryover AS-20 + AS-24 + 7 cosmetic NITs + outside-repo hook fix) / v0.3.0 (Sprint S-03 close — hardening + PIE-world test harness foundation) / v0.2.0 (Sprint S-02 close — ALS pawn end-to-end) / v0.1.5 / v0.1.4 (patch bundles)
+> **Latest tag:** v0.5.1 (Sprint S-07 close — AS-35 PIE auto-smoke 6-leg gate: NEW `ArchSim.PIE.PortalFrameSmoke` C++ Automation Test via UE Automation framework + LatentCommands, NEW `Scripts/run_pie_gate.ps1` 6th-leg wrapper, M `Scripts/run_gate.ps1` leg 2 filter Option A category enumeration + leg 6 invocation block) — see [`docs/RELEASE_v0.5.1.md`](RELEASE_v0.5.1.md) + [`docs/HANDOFF_v0.5.1.md`](HANDOFF_v0.5.1.md) + [`docs/logs/S-07/manager.md`](logs/S-07/manager.md) **§ SESSION CLOSE** for retrospective + durable lessons + S-08 candidate scope. **Auto leg 6 catches PortalFrame regression; USER-DRIVEN PIE smoke per `docs/logs/S-05/u3_pie_smoke.md` P1..P15 STILL canonical for「ready for student trial」judgement** (per `pie-auto-smoke-preference` memory: automate routine, keep gameplay-feel manual).
+> **Prior tags this minor:** v0.5.0 (Sprint S-06 close — AS-30 + U-ALS + U-IWYU + U-LOW) / v0.4.0.1 (S-05 patch — AS-28 Scenario widget cross-world hotfix + IWYU first-header rebuild fix) / v0.4.0 (Sprint S-05 close — Scenario MVP minor bump; marked prerelease because PIE end-to-end flow broken by cross-world bug pre-v0.4.0.1) / v0.3.1 (Sprint S-04 patch close — S-03 carryover AS-20 + AS-24 + 7 cosmetic NITs + outside-repo hook fix) / v0.3.0 (Sprint S-03 close — hardening + PIE-world test harness foundation) / v0.2.0 (Sprint S-02 close — ALS pawn end-to-end) / v0.1.5 / v0.1.4 (patch bundles)
 
 ---
 
@@ -224,14 +224,15 @@ cross-call between these two subsystems, or convert either to a
 
 ## 6. UE test inventory
 
-`IMPLEMENT_SIMPLE_AUTOMATION_TEST` count (as of v0.4.0):
+`IMPLEMENT_SIMPLE_AUTOMATION_TEST` count (as of v0.5.1):
 
 | Namespace | Count | Source |
 |---|---|---|
 | `FrameCore.*` (standalone) | 60 | `Plugins/FrameSolver/Source/FrameCore/Private/Tests/` |
 | `FrameCore.UE.*` (UE automation) | 76 | `Plugins/FrameSolver/Source/FrameCoreUE/Private/Tests/` |
-| `ArchSim.*` (game body) | 13 | `Source/ArchSim/Private/Tests/` |
-| **5-leg gate total** | **149** (cuDSS) / **147** (non-cuDSS) | run via `Scripts/run_gate.ps1 -RequireOpenSees` |
+| `ArchSim.*` (game body, headless legs 1-5) | 13 | `Source/ArchSim/Private/Tests/` |
+| `ArchSim.PIE.*` (game body, **render-thread leg 6 only**) | 1 | `Source/ArchSim/Private/Tests/ArchSimPortalFramePIESmokeTest.cpp` |
+| **6-leg gate total** | **149 leg 2 + 1 leg 6 = 150** (cuDSS) / **147 + 1 = 148** (non-cuDSS) | run via `Scripts/run_gate.ps1 -RequireOpenSees` (legs 1-5 from existing infra; leg 6 from `Scripts/run_pie_gate.ps1` since v0.5.1) |
 
 **Recent additions:**
 - v0.1.1: `ArchSim.Persistence.SaveLoadRoundTrip`
@@ -248,10 +249,16 @@ cross-call between these two subsystems, or convert either to a
 - v0.4.0: `ArchSim.Gameplay.ScenarioSolveWire` (SPIKE-Scenario-u2; `RequestSolveAndVisualize` BP-callable + `HeatmapActor` UPROPERTY reflection + graceful-fail without Registry + BeginDestroy lifecycle; 7 sub-checks; honest-defer of live PIE solve→delegate→heatmap chain)
 - v0.4.0: `ArchSim.Gameplay.ScenarioTutorial` (SPIKE-Scenario-u3; K2/K4 BP-callable + `EArchSimTutorialState` UENUM 6-state + `AdvanceTutorialStep` linear transition + FreeExplore terminal + `GetCurrentPromptText` + `ResetWidgetState` headless safety + `OnTutorialStateChanged`/`OnVoicePromptShouldPlay` BlueprintImplementableEvent reflection via canonical UE5.7 `FUNC_BlueprintEvent` flag; 8 sub-checks; full USER-DRIVEN PIE 5min smoke per `docs/logs/S-05/u3_pie_smoke.md`)
 - v0.5.0: `ArchSim.Gameplay.ScenarioFixture` (AS-30, S-06; `PlaceFixedSupport` + `SpawnDefaultPortalFrame` UFunction reflection SC1/SC2; Registry headless `RegisterFixedSupport` SC3; node-snap dedupe SC4; idempotent Fixed SC5; transient widget graceful-fail SC6; PIE oracle AddInfo SC7; 7 sub-checks; portal frame PIE fixture [NEW CODE, PIE required] per P10/P11 AS-30 update in `docs/logs/S-05/u3_pie_smoke.md`)
+- v0.5.1: `ArchSim.PIE.PortalFrameSmoke` (AS-35, S-07; first member of NEW `ArchSim.PIE.*` Category — render-thread leg-6-only; `IMPLEMENT_COMPLEX_AUTOMATION_TEST` + 8-stage LatentCommand chain: `FStartPIECommand(false)` real PIE → `FWaitForMapToLoadCommand` → `FEngineWaitLatentCommand(1.0f)` → custom `FDrivePortalFrameSmokeCommand` (widget instantiation + `SpawnDefaultPortalFrame` + Registry node/member count verify + `RequestSolveAndVisualize`) → `FEngineWaitLatentCommand(0.5f)` → custom `FVerifyHeatmapSpawnedCommand` (best-effort `AddWarning` on miss per AS-36 Bug C tolerance) → custom `FSafeEditorScreenshotCommand` (Slate-free alternative to canonical `FTakeActiveEditorScreenshotCommand` which asserts in commandlet mode) → `FEndPlayMapCommand`. Test-local `WorldSettings->DefaultGameMode = AGameModeBase::StaticClass()` override sidesteps AS-37 ALS commandlet crash; production unchanged. Run via `Scripts/run_pie_gate.ps1` (NEW PowerShell wrapper, locale-defensive parser using ASCII-only `TEST COMPLETE. EXIT CODE: 0` as primary PASS signal, no `Tee-Object` capture to avoid NativeCommandError pollution). Screenshot artifact `Saved/Screenshots/WindowsEditor/v0_5_x_pie_smoke*.png`.)
 
 **Namespace convention for new tests:**
 - ArchSim tests: `ArchSim.<Category>.<TestName>` where Category ∈
-  {`Persistence`, `Integration`, `Gameplay`, `UI`, `Multiplayer`}
+  {`Persistence`, `Integration`, `Gameplay`, `UI`, `Multiplayer`, **`PIE`**}
+- `PIE` category (added v0.5.1) is render-thread-only — runs in leg 6 of the
+  gate (`Scripts/run_pie_gate.ps1`), NOT in leg 2 (which uses `-nullrhi`).
+  Leg 2 filter explicitly enumerates `Persistence + Integration + Gameplay`
+  to exclude `PIE`. When adding a new `ArchSim.<NewCategory>.*` test,
+  decide leg-2 (headless) or leg-6 (PIE) and update the filter accordingly.
 - FrameCore tests stay in `FrameCore.*` / `FrameCore.UE.*` (engine FROZEN)
 
 ---
@@ -287,6 +294,9 @@ cross-call between these two subsystems, or convert either to a
 | AS-28 | Hook case-sensitivity + .bak header comment sync | ✅ closed S-06 U-LOW — `-notmatch` → `-cnotmatch` at `~/.claude/hooks/work-phase-guard.ps1` L114; WHY comment added L104-112; `.bak` regenerated (production == .bak, 0-line diff); 5-scenario stdin test PASS including new Scenario 3b lowercase fail-open behaviour. OUTSIDE repo — no ArchSim commit. | `~/.claude/hooks/work-phase-guard.ps1` L114 |
 | AS-29 | `run_gate.ps1` standalone leg PowerShell environment race diagnosis | 🟡 backlog (LOW) — AS-27-u1 subagent observed `[1/5] standalone: exit 1` under PowerShell session while direct `build.bat` ALL PASS; AS-26-u1 subagent on same host got `[1/5] standalone: ALL PASS` — likely shell-state / cwd / PATH race during parallel dispatches. Workaround: run `Plugins/FrameSolver/Standalone/build.bat` directly as fallback. | docs/logs/S-05/manager.md Round 1 AS-27-u1 review |
 | AS-30 | Scenario valid-frame fixture + boundary support API | ✅ closed S-06 (v0.5.0) — `Registry::RegisterFixedSupport(FVector PosMm)` + `Widget::PlaceFixedSupport(FVector WorldCm)` + `Widget::SpawnDefaultPortalFrame()` shipped. 7-sub-check headless test `ArchSim.Gameplay.ScenarioFixture`. Portal frame PIE solve + heatmap = [NEW CODE, PIE required]; covered by u3_pie_smoke P10/P11 AS-30 update (S-06). | `Source/ArchSim/Private/Tests/ArchSimScenarioFixtureTest.cpp` |
+| AS-35 | PIE auto-smoke via UE Automation Test framework + LatentCommands (C++) | ✅ closed S-07 (v0.5.1) — `Source/ArchSim/Private/Tests/ArchSimPortalFramePIESmokeTest.cpp` (NEW 443 LOC `IMPLEMENT_COMPLEX_AUTOMATION_TEST` + 8-stage LatentCommand chain) + `Scripts/run_pie_gate.ps1` (NEW 170 LOC PowerShell wrapper) + `Scripts/run_gate.ps1` (M +55/-19; leg 2 Option A category enumeration + new leg 6 block + [N/5]→[N/6] labels). 6-leg gate PASS exit 0 confirmed 2026-06-28. Engine source delta vs v0.5.0: 0 lines (FROZEN). Python `-ExecutePythonScript` path remains architecturally dead per v0.5.0 post-mortem memory. | `Source/ArchSim/Private/Tests/ArchSimPortalFramePIESmokeTest.cpp` + `Scripts/run_pie_gate.ps1` |
+| AS-36 | `PlaceKSetMember` two-K1-column-same-node-pair bug (Bug C from AS-35-u1 commandlet PIE) | 🟡 backlog (MEDIUM) — commandlet PIE log SC2b shows `Member[0] I=2 J=3 / Member[1] I=2 J=3` (両柱共用 node pair) → LDLT rank-deficient → solve silently fails → HeatmapActor never spawns. Verify in user-driven PIE first (may be commandlet-only); then debug `PlaceKSetMember` — likely `FindOrAddNode` 1mm dedup misbehaviour OR `EndIOffsetUE`/`EndJOffsetUE` calculation error for stacked columns. spawn_task `task_8cf96d94` superseded. | `docs/HANDOFF_v0.5.1.md` § 4 + `docs/logs/S-07/agent_AS-35-u1.md` § "Adversarial review" finding 4 |
+| AS-37 | ALS commandlet PIE crash audit | 🟡 backlog (MEDIUM) — `AArchSimCharacter` spawn in commandlet PIE → ALS `LoadObject<T>()` for plugin content (`SKM_Als`, `CS_Als_Default`, etc.) fails at PIE-pawn-spawn timing → `MovementSettings` null → `NotifyLocomotionModeChanged()` EXCEPTION_ACCESS_VIOLATION. User-driven PIE doesn't hit (Editor pre-mounts plugin content earlier). AS-35-u1 test sidesteps via test-local `WorldSettings->DefaultGameMode = AGameModeBase::StaticClass()` override; production behaviour unchanged. Decision: (a) document as known commandlet-only limitation, or (b) investigate ALS LoadObject timing fix. | `docs/HANDOFF_v0.5.1.md` § 4 + `Plugins/ALS/Source/ALS/Private/AlsCharacter.cpp:L138-146` |
 
 ---
 
@@ -298,16 +308,25 @@ cross-call between these two subsystems, or convert either to a
     ArchSimEditor Win64 Development `
     -project="$PWD\ArchSim.uproject" -waitmutex
 
-# 5-leg gate (default 149 expected; pass 147 on non-cuDSS host)
+# 6-leg gate (default 149 leg-2 + 1 leg-6 PIE = 150; pass -ExpectedUeTests 147 on non-cuDSS host)
+# Legs 1-5 headless; leg 6 is render-thread PIE auto-smoke (since v0.5.1)
 .\Scripts\run_gate.ps1 -RequireOpenSees
 
-# Single UE test (replace path)
+# Single UE headless test (replace path) — legs 2-5 pattern
 & "$env:UE_ENGINE_ROOT\Engine\Binaries\Win64\UnrealEditor-Cmd.exe" `
     "$PWD\ArchSim.uproject" `
     -ExecCmds="Automation RunTests <test.path>; Quit" `
     -unattended -nullrhi -log
 
-# Optional 6th leg: CUDA / cuDSS gate
+# Single PIE auto-smoke run (leg 6 only; NO -nullrhi — render thread needed)
+.\Scripts\run_pie_gate.ps1 -Root . -Engine $env:UE_ENGINE_ROOT -UProject .\ArchSim.uproject
+# OR raw commandlet:
+& "$env:UE_ENGINE_ROOT\Engine\Binaries\Win64\UnrealEditor-Cmd.exe" `
+    "$PWD\ArchSim.uproject" `
+    -ExecCmds="Automation RunTests ArchSim.PIE.PortalFrameSmoke; Quit" `
+    -unattended -log
+
+# Optional extra leg: CUDA / cuDSS gate
 .\Scripts\run_gpu_gate.ps1 -Strict
 
 # Exit-test suite (D1 property / D3 strict-mode oracle)

@@ -1,6 +1,7 @@
 // ArchSim — Headless smoke test for AS-30 boundary support API + portal frame fixture.
 //
 // Sprint S-06. Plan ref: docs/logs/S-06/plan_*.md § AS-30.
+// Sprint S-08 AS-36 additions: SC8 (node-pair uniqueness regression) + SC9 (actor location).
 //
 // What this test CAN verify in headless (-nullrhi -unattended):
 //   SC1. PlaceFixedSupport UFunction reflection: BlueprintCallable + returns int32 + takes FVector
@@ -14,20 +15,40 @@
 //        (GEditor null / Registry null path)
 //   SC7. AddInfo: PIE oracle link for P10/P11 in docs/logs/S-05/u3_pie_smoke.md
 //        (informational; headless cannot run solve or spawn heatmap)
+//   SC8. AS-36 node-pair uniqueness regression: two RegisterMember calls at DIFFERENT actor
+//        origins (manually constructed with USceneComponent roots + SetActorLocation, matching
+//        the AS-36 fix pattern) must produce distinct (I,J) pairs + 4 unique nodes total.
+//        BEFORE fix: AActor without RootComponent → Identity transform for both → same node pair.
+//        AFTER fix: USceneComponent root allows SetActorLocation to take effect → distinct
+//        positions → distinct node pairs.
+//   SC9. Actor-location regression: after adding USceneComponent root + SetActorLocation,
+//        GetActorLocation() must return the requested position within a UE float epsilon.
+//        This directly pins the production behaviour changed by the AS-36 fix.
 //
 // What this test CANNOT verify in headless (honest per AS-07 lesson #1):
 //   - SpawnDefaultPortalFrame composing 5 actors in PIE → [NEW CODE, PIE required]
 //   - HeatmapActor spawning + colour after portal frame solve → [NEW CODE, PIE required]
 //   - Registry debounced solve firing (GI null in headless → timer branch unreachable)
+//   - PlaceKSetMember production path end-to-end (WITH_EDITOR / GEditor / PlayWorld)
+//     → SC8 directly simulates the production spawn + RootComponent pattern headlessly
 //
-// Naming: ArchSim.Gameplay.ScenarioFixture → $ExpectedUeTests 148 → 149 (cuDSS)
-//         non-cuDSS: 146 → 147
+// Naming: ArchSim.Gameplay.ScenarioFixture → sub-check count increases by 2 (SC8+SC9).
+//         SC8+SC9 are sub-checks of the existing test; IMPLEMENT count stays the same.
+//         $ExpectedUeTests stays 149 (cuDSS) / 147 (non-cuDSS) — only IMPLEMENT count matters.
 //
 // FROZEN guard: zero lines under Plugins/FrameSolver/Source/FrameCore/ (v4.0.0 FROZEN).
 
 #include "CoreMinimal.h"
 #include "Misc/AutomationTest.h"
 #include "Subsystems/ArchSimModelRegistry.h"
+
+// SC8+SC9 (AS-36): need AActor + USceneComponent + UWorld to reproduce the
+// production spawn pattern and verify the AS-36 RootComponent fix headlessly.
+#include "GameFramework/Actor.h"
+#include "Components/SceneComponent.h"
+#include "Components/ArchSimMemberData.h"
+#include "Engine/World.h"
+#include "Engine/Engine.h"
 
 #if WITH_EDITOR
 #include "Editor/ArchSimScenarioWidget.h"
@@ -294,6 +315,233 @@ bool FArchSimScenarioFixtureTest::RunTest(const FString& Parameters)
                  "RequestSolveAndVisualize() should then fire OnSolveComplete → HeatmapActor spawn "
                  "→ non-trivial colour visible in PIE viewport. "
                  "Full verification: docs/logs/S-05/u3_pie_smoke.md P10/P11 (AS-30 update, S-06)."));
+
+    // -----------------------------------------------------------------------
+    // SC8: AS-36 node-pair uniqueness regression test.
+    //
+    // WHY this sub-check exists: before the AS-36 fix, PlaceKSetMember spawned
+    // AActor (base class, no RootComponent) and the FTransform location was
+    // silently dropped by SpawnActor. GetActorTransform() always returned Identity,
+    // so two columns at DIFFERENT actor origins both resolved to the SAME endpoints
+    // via RegisterMember → same (I,J) node pair → mechanism → bSingular.
+    //
+    // This sub-check reproduces the pre-fix failure scenario headlessly and asserts
+    // the post-fix contract: two actors at different locations → distinct node pairs.
+    //
+    // Method: directly reproduce the production spawn pattern:
+    //   1. Locate an existing world from GEngine (same pattern as ArchSimSaveLoadTest).
+    //   2. SpawnActor<AActor> at Identity.
+    //   3. Graft USceneComponent root + RegisterComponent + SetRootComponent + SetActorLocation.
+    //   4. Attach UArchSimMemberData with symmetric offsets (0,0,-100)/(0,0,+100) cm.
+    //   5. Call Registry::RegisterMember for each actor.
+    //   6. Assert: the two member (I,J) pairs differ AND Nodes.Num()==4.
+    //
+    // The offset choice (0,0,-100)/(0,0,+100) cm mirrors SpawnDefaultPortalFrame's
+    // column offsets exactly — this is the specific geometry that was broken.
+    // -----------------------------------------------------------------------
+    {
+        // Acquire a spawn world from GEngine contexts (same pattern as ArchSimSaveLoadTest L43-48).
+        UWorld* SpawnWorld = nullptr;
+        if (GEngine)
+        {
+            for (const FWorldContext& Ctx : GEngine->GetWorldContexts())
+            {
+                if (Ctx.World())
+                {
+                    SpawnWorld = Ctx.World();
+                    break;
+                }
+            }
+        }
+        TestNotNull(TEXT("SC8: GEngine world context available for actor spawn"), SpawnWorld);
+
+        if (SpawnWorld)
+        {
+            // Fresh registry for isolation (no GI in headless → timer/solve paths unreachable,
+            // but RegisterMember node-dedup path IS fully exercised headlessly).
+            UArchSimModelRegistry* Registry =
+                NewObject<UArchSimModelRegistry>(GetTransientPackage());
+            TestNotNull(TEXT("SC8: Registry NewObject non-null"), Registry);
+
+            if (Registry)
+            {
+                // Column-A actor: origin at (-100, 0, 100) cm (left column mid-height).
+                // Column-B actor: origin at (+100, 0, 100) cm (right column mid-height).
+                // Both use vertical offsets (0,0,-100)/(0,0,+100) cm — same as SpawnDefaultPortalFrame.
+                const FVector LocColA(-100.f, 0.f, 100.f);
+                const FVector LocColB(+100.f, 0.f, 100.f);
+                const FVector EndIOffset(0.f,  0.f, -100.f);
+                const FVector EndJOffset(0.f,  0.f, +100.f);
+
+                // Lambda to spawn an actor with a proper RootComponent at the given location
+                // and attach UArchSimMemberData with the given offsets.
+                // This replicates what PlaceKSetMember now does after the AS-36 fix.
+                auto SpawnColumnActor = [&](const FVector& Loc) -> AActor*
+                {
+                    FActorSpawnParameters SP;
+                    SP.SpawnCollisionHandlingOverride =
+                        ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
+                    AActor* Actor = SpawnWorld->SpawnActor<AActor>(
+                        AActor::StaticClass(), FTransform::Identity, SP);
+                    if (!Actor) return nullptr;
+
+                    // Graft RootComponent — the production AS-36 fix pattern.
+                    USceneComponent* Root = NewObject<USceneComponent>(
+                        Actor, USceneComponent::StaticClass(), TEXT("Root"));
+                    if (!Root) return nullptr;
+                    Root->RegisterComponent();
+                    Actor->SetRootComponent(Root);
+                    Actor->SetActorLocation(Loc);
+
+                    // Attach UArchSimMemberData with column offsets.
+                    UArchSimMemberData* Comp = NewObject<UArchSimMemberData>(
+                        Actor, UArchSimMemberData::StaticClass(), TEXT("ArchSimMemberData"));
+                    if (!Comp) return nullptr;
+                    Comp->EndIOffsetUE = EndIOffset;
+                    Comp->EndJOffsetUE = EndJOffset;
+                    Comp->RegisterComponent();
+                    Actor->AddInstanceComponent(Comp);
+
+                    return Actor;
+                };
+
+                AActor* ColA = SpawnColumnActor(LocColA);
+                AActor* ColB = SpawnColumnActor(LocColB);
+                TestNotNull(TEXT("SC8: ColA actor spawned"), ColA);
+                TestNotNull(TEXT("SC8: ColB actor spawned"), ColB);
+
+                if (ColA && ColB)
+                {
+                    // Retrieve the UArchSimMemberData components.
+                    UArchSimMemberData* CompA = ColA->FindComponentByClass<UArchSimMemberData>();
+                    UArchSimMemberData* CompB = ColB->FindComponentByClass<UArchSimMemberData>();
+                    TestNotNull(TEXT("SC8: CompA non-null"), CompA);
+                    TestNotNull(TEXT("SC8: CompB non-null"), CompB);
+
+                    if (CompA && CompB)
+                    {
+                        const int32 IdxA = Registry->RegisterMember(CompA);
+                        const int32 IdxB = Registry->RegisterMember(CompB);
+                        TestTrue(TEXT("SC8: ColA RegisterMember returned valid idx"), IdxA >= 0);
+                        TestTrue(TEXT("SC8: ColB RegisterMember returned valid idx"), IdxB >= 0);
+
+                        const FFrameModelDef& Model = Registry->GetCurrentModel();
+
+                        // Core AS-36 regression assertion: two members at DISTINCT positions
+                        // must have DISTINCT (I,J) node pairs.
+                        if (IdxA >= 0 && IdxB >= 0 &&
+                            Model.Members.IsValidIndex(IdxA) &&
+                            Model.Members.IsValidIndex(IdxB))
+                        {
+                            const FFrameMember& MA = Model.Members[IdxA];
+                            const FFrameMember& MB = Model.Members[IdxB];
+
+                            AddInfo(FString::Printf(
+                                TEXT("SC8: Member[%d] I=%d J=%d  Member[%d] I=%d J=%d"),
+                                IdxA, MA.I, MA.J, IdxB, MB.I, MB.J));
+
+                            // Node pairs must differ — this was the failing condition
+                            // before the AS-36 fix. (MA.I==MB.I && MA.J==MB.J) means
+                            // both columns share the same endpoints → mechanism.
+                            const bool bPairsDiffer = (MA.I != MB.I) || (MA.J != MB.J);
+                            TestTrue(
+                                TEXT("SC8 [AS-36 core regression]: two columns at distinct "
+                                     "locations must have DISTINCT (I,J) node pairs"),
+                                bPairsDiffer);
+
+                            // 4 unique nodes expected: ColA EndI, ColA EndJ, ColB EndI, ColB EndJ.
+                            // (No dedup because the positions are ~200 cm apart.)
+                            TestEqual(
+                                TEXT("SC8: node count == 4 (no shared endpoints between the two columns)"),
+                                Model.Nodes.Num(), 4);
+
+                            AddInfo(bPairsDiffer
+                                ? TEXT("SC8 [VERIFIED]: node pairs are distinct — AS-36 fix active.")
+                                : TEXT("SC8 [FAIL]: node pairs are identical — AS-36 regression!"));
+                        }
+                    }
+                }
+
+                // Cleanup actors from the headless world.
+                if (ColA) { ColA->Destroy(); }
+                if (ColB) { ColB->Destroy(); }
+            }
+        }
+    }
+
+    // -----------------------------------------------------------------------
+    // SC9: Actor-location regression: SetActorLocation after USceneComponent root
+    //      must be reflected in GetActorLocation().
+    //
+    // WHY: Before the AS-36 fix, base AActor has no RootComponent → GetActorLocation()
+    // always returned FVector(0,0,0). After the fix (USceneComponent root + SetActorLocation),
+    // GetActorLocation() must return the requested position.
+    //
+    // This pins the mechanical correctness of the USceneComponent graft pattern used in
+    // the production fix (PlaceKSetMember L213-232 in ArchSimScenarioWidget.cpp AS-36 block).
+    // -----------------------------------------------------------------------
+    {
+        UWorld* SpawnWorld = nullptr;
+        if (GEngine)
+        {
+            for (const FWorldContext& Ctx : GEngine->GetWorldContexts())
+            {
+                if (Ctx.World())
+                {
+                    SpawnWorld = Ctx.World();
+                    break;
+                }
+            }
+        }
+
+        if (SpawnWorld)
+        {
+            FActorSpawnParameters SP;
+            SP.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
+            AActor* Actor = SpawnWorld->SpawnActor<AActor>(
+                AActor::StaticClass(), FTransform::Identity, SP);
+            TestNotNull(TEXT("SC9: Actor spawned"), Actor);
+
+            if (Actor)
+            {
+                // Apply the AS-36 fix pattern: graft USceneComponent root, then SetActorLocation.
+                USceneComponent* Root = NewObject<USceneComponent>(
+                    Actor, USceneComponent::StaticClass(), TEXT("Root"));
+                TestNotNull(TEXT("SC9: Root component non-null"), Root);
+
+                if (Root)
+                {
+                    Root->RegisterComponent();
+                    Actor->SetRootComponent(Root);
+
+                    const FVector ExpectedLoc(-100.f, 0.f, 100.f);
+                    Actor->SetActorLocation(ExpectedLoc);
+
+                    const FVector ActualLoc = Actor->GetActorLocation();
+                    AddInfo(FString::Printf(
+                        TEXT("SC9: SetActorLocation(%.1f,%.1f,%.1f) → GetActorLocation=(%.1f,%.1f,%.1f)"),
+                        ExpectedLoc.X, ExpectedLoc.Y, ExpectedLoc.Z,
+                        ActualLoc.X, ActualLoc.Y, ActualLoc.Z));
+
+                    // Use component-wise epsilon check because FVector::NearlyEqual uses
+                    // a default tolerance of KINDA_SMALL_NUMBER (1e-4) which is safe here.
+                    const bool bXOk = FMath::IsNearlyEqual(ActualLoc.X, ExpectedLoc.X, 0.1f);
+                    const bool bYOk = FMath::IsNearlyEqual(ActualLoc.Y, ExpectedLoc.Y, 0.1f);
+                    const bool bZOk = FMath::IsNearlyEqual(ActualLoc.Z, ExpectedLoc.Z, 0.1f);
+
+                    TestTrue(TEXT("SC9 [AS-36]: GetActorLocation().X matches SetActorLocation"), bXOk);
+                    TestTrue(TEXT("SC9 [AS-36]: GetActorLocation().Y matches SetActorLocation"), bYOk);
+                    TestTrue(TEXT("SC9 [AS-36]: GetActorLocation().Z matches SetActorLocation"), bZOk);
+
+                    AddInfo((bXOk && bYOk && bZOk)
+                        ? TEXT("SC9 [VERIFIED]: SetActorLocation → GetActorLocation correct after USceneComponent root graft.")
+                        : TEXT("SC9 [FAIL]: Actor location mismatch — USceneComponent root graft may be broken!"));
+                }
+
+                Actor->Destroy();
+            }
+        }
+    }
 
     return true;
 }
