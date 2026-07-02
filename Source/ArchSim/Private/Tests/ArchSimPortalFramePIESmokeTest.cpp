@@ -195,53 +195,6 @@ bool FDrivePortalFrameSmokeCommand::Update()
 // Best-effort: AddWarning (not TestFalse) on null because the 500 ms wait in
 // Step 5 may not be sufficient on all hosts (solve is async-debounced).
 // ---------------------------------------------------------------------------
-// ---------------------------------------------------------------------------
-// Step 7 safe screenshot command: guards FSlateApplication::GetActiveTopLevelWindow()
-// against nullptr (null in UnrealEditor-Cmd commandlet mode — no Slate window exists).
-//
-// WHY this wrapper: FTakeActiveEditorScreenshotCommand::Update() calls
-//   FSlateApplication::Get().GetActiveTopLevelWindow().ToSharedRef()
-// without a null-pointer guard. In commandlet mode GetActiveTopLevelWindow()
-// returns a null TSharedPtr<SWindow>, and ToSharedRef() asserts on null
-// (SharedPointer.h:1046 "Assertion failed: IsValid()"), crashing with exit 3.
-//
-// This wrapper checks for a valid Slate window before delegating to the built-in
-// command, or logs a warning and skips silently in headless environments.
-// Observed crash: ArchSim.log 2026-06-28 10:04:57 (SharedPointer.h:1046).
-// ---------------------------------------------------------------------------
-DEFINE_LATENT_AUTOMATION_COMMAND_ONE_PARAMETER(
-    FSafeEditorScreenshotCommand,
-    FString, ScreenshotName);
-
-bool FSafeEditorScreenshotCommand::Update()
-{
-    // Strategy: prefer FScreenshotRequest::RequestScreenshot over the Slate-based
-    // FTakeActiveEditorScreenshotCommand. The latter calls
-    //   FSlateApplication::Get().GetActiveTopLevelWindow().ToSharedRef()
-    // without a null guard and crashes in UnrealEditor-Cmd commandlet mode
-    // (no Slate top-level window exists → SharedPointer.h:1046 assert).
-    // Root-cause observed: ArchSim.log 2026-06-28 10:04:57.
-    //
-    // FScreenshotRequest::RequestScreenshot queues a viewport-level capture flag
-    // consumed by the render thread. Does NOT touch Slate. In PIE with render
-    // thread alive (no -nullrhi) the frame buffer is captured on the next render
-    // cycle and written to Saved/Screenshots/. Safe in commandlet mode.
-
-    FScreenshotRequest::RequestScreenshot(ScreenshotName, /*bShowUI=*/false,
-                                          /*bAddSuffix=*/true);
-
-    if (FAutomationTestBase* CurrentTest = FAutomationTestFramework::Get().GetCurrentTest())
-    {
-        CurrentTest->AddWarning(FString::Printf(
-            TEXT("SC5 [PARTIAL]: Screenshot request queued as '%s' via FScreenshotRequest. "
-                 "Artifact written to Saved/Screenshots/ if render thread processes it. "
-                 "Full Slate-window screenshot skipped: FTakeActiveEditorScreenshotCommand "
-                 "crashes in UnrealEditor-Cmd (SharedPointer.h:1046 null SWindow)."),
-            *ScreenshotName));
-    }
-    return true;
-}
-
 DEFINE_LATENT_AUTOMATION_COMMAND(FVerifyHeatmapSpawnedCommand);
 
 bool FVerifyHeatmapSpawnedCommand::Update()
@@ -301,6 +254,53 @@ bool FVerifyHeatmapSpawnedCommand::Update()
         }
     }
 
+    return true;
+}
+
+// ---------------------------------------------------------------------------
+// Step 7 safe screenshot command: guards FSlateApplication::GetActiveTopLevelWindow()
+// against nullptr (null in UnrealEditor-Cmd commandlet mode — no Slate window exists).
+//
+// WHY this wrapper: FTakeActiveEditorScreenshotCommand::Update() calls
+//   FSlateApplication::Get().GetActiveTopLevelWindow().ToSharedRef()
+// without a null-pointer guard. In commandlet mode GetActiveTopLevelWindow()
+// returns a null TSharedPtr<SWindow>, and ToSharedRef() asserts on null
+// (SharedPointer.h:1046 "Assertion failed: IsValid()"), crashing with exit 3.
+//
+// This wrapper checks for a valid Slate window before delegating to the built-in
+// command, or logs a warning and skips silently in headless environments.
+// Observed crash: ArchSim.log 2026-06-28 10:04:57 (SharedPointer.h:1046).
+// ---------------------------------------------------------------------------
+DEFINE_LATENT_AUTOMATION_COMMAND_ONE_PARAMETER(
+    FSafeEditorScreenshotCommand,
+    FString, ScreenshotName);
+
+bool FSafeEditorScreenshotCommand::Update()
+{
+    // Strategy: prefer FScreenshotRequest::RequestScreenshot over the Slate-based
+    // FTakeActiveEditorScreenshotCommand. The latter calls
+    //   FSlateApplication::Get().GetActiveTopLevelWindow().ToSharedRef()
+    // without a null guard and crashes in UnrealEditor-Cmd commandlet mode
+    // (no Slate top-level window exists → SharedPointer.h:1046 assert).
+    // Root-cause observed: ArchSim.log 2026-06-28 10:04:57.
+    //
+    // FScreenshotRequest::RequestScreenshot queues a viewport-level capture flag
+    // consumed by the render thread. Does NOT touch Slate. In PIE with render
+    // thread alive (no -nullrhi) the frame buffer is captured on the next render
+    // cycle and written to Saved/Screenshots/. Safe in commandlet mode.
+
+    FScreenshotRequest::RequestScreenshot(ScreenshotName, /*bShowUI=*/false,
+                                          /*bAddSuffix=*/true);
+
+    if (FAutomationTestBase* CurrentTest = FAutomationTestFramework::Get().GetCurrentTest())
+    {
+        CurrentTest->AddWarning(FString::Printf(
+            TEXT("SC5 [PARTIAL]: Screenshot request queued as '%s' via FScreenshotRequest. "
+                 "Artifact written to Saved/Screenshots/ if render thread processes it. "
+                 "Full Slate-window screenshot skipped: FTakeActiveEditorScreenshotCommand "
+                 "crashes in UnrealEditor-Cmd (SharedPointer.h:1046 null SWindow)."),
+            *ScreenshotName));
+    }
     return true;
 }
 

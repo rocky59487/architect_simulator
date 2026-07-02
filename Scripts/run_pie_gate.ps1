@@ -78,10 +78,45 @@ if (-not (Test-Path $UProj)) {
 # requires a real PIE world with render context. Under -nullrhi the RHI thread is
 # absent and the test crashes (observed 2026-06-28). Leg 2 of run_gate.ps1 is
 # explicitly filtered to exclude ArchSim.PIE.* for this reason.
+
+# NIT 3: record log timestamp BEFORE launch so we can detect a stale log later.
+# WHY: if UnrealEditor-Cmd exits before writing the log (e.g. DLL load failure),
+# the parser reads the PREVIOUS session's log and may return a false PASS.
+# MinValue = sentinel for "log file did not exist before this run".
+$PreRunStampUtc = if (Test-Path -LiteralPath $Log) {
+    (Get-Item -LiteralPath $Log).LastWriteTimeUtc
+} else {
+    [DateTime]::MinValue
+}
+
 Write-Host "PIE gate: launching UnrealEditor-Cmd for ArchSim.PIE.PortalFrameSmoke..."
 & $UeCmd $UProj `
     '-ExecCmds=Automation RunTests ArchSim.PIE.PortalFrameSmoke; Quit' `
     -unattended -nopause -nosplash -log | Out-Null
+# WHY | Out-Null (NativeCommandError discipline — same pattern as run_gate.ps1 leg 2):
+#   PowerShell 5.1 pipelines native exe stdout/stderr through the PS object pipeline.
+#   Any stderr output gets wrapped as NativeCommandError objects, which (a) pollute
+#   $LASTEXITCODE / $?, and (b) can trigger Tee-Object / *>&1 redirect issues that
+#   set $? = $false even when the exe returned exit code 0 (observed with UE log
+#   warning lines going to stderr). Silencing stdout here is safe because ALL
+#   authoritative test signals are in Saved\Logs\ArchSim.log, not stdout.
+#   See also: LOCALE NOTE below (parse section) for the parallel CJK regex
+#   constraint that prevents inline stdout parsing anyway.
+
+# NIT 3: verify log was actually written by THIS run (not the previous session).
+if (Test-Path -LiteralPath $Log) {
+    $PostRunStampUtc = (Get-Item -LiteralPath $Log).LastWriteTimeUtc
+    if ($PostRunStampUtc -le $PreRunStampUtc) {
+        Write-Host ("PIE gate: STALE LOG detected -- log was not updated by this run. " +
+                    "pre=$($PreRunStampUtc.ToString('o')) post=$($PostRunStampUtc.ToString('o')). " +
+                    "UnrealEditor-Cmd may have crashed before writing. Treating as FAIL.") `
+            -ForegroundColor Red
+        exit 1
+    }
+} else {
+    Write-Host "PIE gate: log file missing after run: $Log" -ForegroundColor Red
+    exit 1
+}
 
 # ---- parse log for test result ----
 # PRIMARY signal: "TEST COMPLETE. EXIT CODE: N" (N=0 = all tests passed).

@@ -226,3 +226,30 @@ Reviewer 另列 missed edge cases:(a) 兩柱 <1mm 間距 dedup(FindOrAddNode 設
 - AS-38(new backlog, LOW):PlaceKSetMember `check(Root)` → shipping-safe null guard;SC8 comment 補 node-count 強保證說明;SC9 強化為走 PlaceKSetMember production path。
 
 **Decision:** Accept with backlog item opened。Advance to Phase 4(release-hardening)。S-07 遺留兩髒檔一併交 Phase 4 處理。
+
+---
+
+## Phase 4: Release-hardening 2026-07-02T0115Z
+
+**Target tag:** v0.5.2(annotated,local;publish 待 user)
+**Commit:** `2fb0f4e`
+**Files committed:** 10 files / +1180 / -13(widget fix + fixture test + S-07 遺留 docs ×2 + S-08 logs ×4 + RELEASE/HANDOFF_v0.5.2)
+
+### Release-hardening 摘要
+
+- Phase 1 七 agent 審計以 /work Phase 3 adversarial review 取代(per-unit 模式)。
+- Sanitize sweep:agent log 內 2 行 `C:\Users\<user>\...` username 洩漏 → 改 `~/.claude/...`;commit 全集合 grep(wmc02/AppData/tmp\claude/token patterns)0 hit。
+- Cross-doc 數字一致性:149 UE tests / 104 audit / F1..F71 / screenshot 33177 bytes 在 RELEASE / HANDOFF / agent log / run_gate.ps1 全一致。
+- FROZEN integrity:staged 集合無任何 FrameCore / LevelCore 路徑。
+- Gate:6-leg PASS(unit 完成時);post-gate delta docs-only,依此免重跑(揭露於 commit message)。
+- S-07 遺留 docs 收編 + housekeeping 揭露(RELEASE_v0.5.2.md § Housekeeping)。
+
+### Publish commands (user runs these)
+
+```powershell
+git push origin main
+git push origin v0.5.2
+gh release create v0.5.2 --title "v0.5.2 — PlaceKSetMember node-pair degeneration fix (AS-36)" --notes-file docs/RELEASE_v0.5.2.md
+```
+
+(本 section 寫於 release commit 之後,將隨下一輪 commit 收錄 — 專案既有 cadence,見 HANDOFF_v0.5.2 教訓 #2。)

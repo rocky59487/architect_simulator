@@ -15,3 +15,52 @@
 - **Budget 實耗:** 160,627/250K tokens;32/100 calls;15m23s/30min — 全在 budget 內(HANDOFF v0.5.1 教訓 #6 的 100-call 校準本輪未觸頂)
 - **關鍵成果:** root cause = 裸 AActor 無 RootComponent → SpawnActor Location 被吞(S-01 v0.1.1 同雷在 production 重演);fix = USceneComponent root graft;SC8/SC9 headless 回歸;commandlet PIE SC2b 相異 node pair + HeatmapActor spawn 證實;6-leg gate PASS(149 UE tests)
 - **誠實揭露 carry:** user-driven PIE 一直是壞的(production bug 非 commandlet-only);S-06 P10/P11 宣稱需人工 re-verify → 留待 human backlog
+
+---
+
+## 2026-07-02T0125Z — AS-36-u1 shipped as v0.5.2
+
+- **Commit:** `2fb0f4e`
+- **Tag:** v0.5.2(local annotated;publish pending user run)
+- **Files committed:** 10(widget fix + fixture test + S-07 遺留 docs ×2(揭露)+ S-08 logs ×4 + RELEASE/HANDOFF_v0.5.2)
+- **Phase 3 verdict:** NITS(6 findings;finding #3「未申報檔案」經主對話查證為 S-07 遺留,誤歸因裁定)
+- **NITS opened as new backlog:** AS-38(LOW)
+- **Release notes:** docs/RELEASE_v0.5.2.md;**Handoff:** docs/HANDOFF_v0.5.2.md
+- **Publish status:** awaiting user
+
+### Adversarial review summary
+
+Reviewer 逐 claim 對 log 檔與 git diff:149 tests / SC8-SC9 / SC2b / SC4 / screenshot 33177 bytes 全數 oracle CONFIRMED;FROZEN 0 行 + 越界禁令(NITS-u1/AS-08/AS-37 scope)遵守 CONFIRMED;6 findings 全 NITS 級。
+
+### Notable decisions this cycle
+
+- Release-hardening per-unit 模式:七 agent 審計由 /work Phase 3 取代;post-gate delta docs-only 免重跑 gate(揭露於 commit message)。
+- Sanitize sweep 抓到 agent log 內 2 行 username 洩漏(`C:\Users\<user>\...` → `~/.claude/...`),commit 前修正。
+- Phase 5 發現 SKILL_CONFIG `PROJECT_CLAUDE_MD=E:\project\ArchSim\CLAUDE.md` 指向不存在檔案(config drift);依專案實際慣例改 sync memory 檔(`frame-engine-next-plan.md` 補 game-body 錨點段,修正「v0.x 狀態只在 MEMORY.md index 行」的 drift)。
+
+### State at end of cycle
+
+- Remaining tasks in scope: AS-37(u1 查證 → user (a)/(b) gate → u2 條件)、NITS-u1、AS-08(u1 + u2)
+- Next dispatch target: **AS-37-u1**
+- Sprint logs updated: ✅ this entry + ✅ agent_AS-36-u1.md(含 Phase 4 section)
+
+---
+
+## 2026-07-02T0155Z — AS-37-u1 accepted with NITS(查證 unit,無 code 產出)
+
+- **Verdict:** NITS(4 精確度 findings:PluginManager 行號 2057→2007 / leg6 時戳 UTC / 第二 crash 為 WRITE violation / severity 補 Development `-game` caveat;更正直接記於 agent log,無新 backlog)
+- **查證結論:** crash 鏈 = commandlet AssetRegistry 未及索引 `/ALS/` content → `LoadObject` 四連敗(CDO + spawn 各一輪)→ `AlsCharacterMovementComponent.cpp:894/903` ensures → `AlsCharacter.cpp:526` null deref。**Severity: commandlet-only**(cooked/pak packaged 不受影響;Dev `-game` 無 pak 留 caveat)。文檔原記載「crash 在 NotifyLocomotionModeChanged」修正為「終崩點,首發 L894/L903」。
+- **Budget:** 150K/200K tokens;9m49s/25min;**67/60 calls(+12% 超標無 ESCALATE — process NIT,產出品質未受影響;連續第二個 unit 顯示 call 預算偏緊,傾向 investigation 類 unit 預算 →80)**
+- **Next:** user decision gate (a)/(b)
+- **User decision(2026-07-02T0200Z):選 (a)+(b-1)** — 文件化 commandlet-only limitation + test-harness 統一 sidestep helper(AS-08-u2 直接受惠)。AS-37-u2 觸發為縮小版(~1.5-2h:docs + helper + PortalFrame test 改用 helper);(b-2)/(b-3)/(b-4) 不採。Dispatch 順序維持 plan:NITS-u1 → AS-37-u2 → AS-08-u1 → AS-08-u2
+
+---
+
+## 2026-07-02T0250Z — NITS-u1 accepted with NITS,commit-only(tag 併入 v0.5.3)
+
+- **Verdict:** NITS(2 cosmetic:LOCALE NOTE cross-ref 位移 / STALE 字串 em-dash — integrator Phase 4 small-fix 直接修,無新 backlog)
+- **交付:** NIT1 DEFINE reorder(sorted-set diff = PURE MOVE CONFIRMED)/ NIT2 Out-Null 保留 + WHY 決策紀錄 / NIT3 stale-log 時戳防護(negative oracle fired exit 1;正常路徑 exit 0)
+- **Gate:** 6-leg PASS(subagent)+ leg 6 單跑 PASS(small-fix 後 drift-guard,02:07 fresh)
+- **⚠️ Process violation 記錄:** subagent tool calls **214/40(5.3×)**、wall 23.4/20min、tokens at cap,全程無 ESCALATE。裁定:工作品質達標(reviewer 機械驗證通過)→ 接受;違規記錄於此。**校準教訓(三點資料):32/100(AS-36)/ 67/60(AS-37-u1)/ 214/40(NITS-u1)— 凡 unit 收尾要跑全 gate,call 預算下限 ~80;「每次 gate ≈ 10-30 calls」係數必須計入;Phase 1 planning 的 cosmetic 40-call 預算是系統性低估**
+- **Tag 裁定:** 依 plan「隨後續 tag」授權,NITS-u1 commit-only;v0.5.3 於 AS-37-u2 收時一併 tag(兩 unit 同屬 PIE-infra 小項)
+- **Next:** AS-37-u2 dispatch
