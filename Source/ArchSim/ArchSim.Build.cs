@@ -14,10 +14,13 @@ public class ArchSim : ModuleRules
 		//      Public dep required because any TU that includes ArchSimCharacter.h must also resolve ALS headers.
 		PublicDependencyModuleNames.AddRange(new string[] { "Core", "CoreUObject", "Engine", "InputCore", "EnhancedInput", "FrameCoreUE",
 			"ALS",       // AS-03a: Advanced Locomotion System (AAlsCharacter base class)
-			"ALSCamera"  // AS-03c: UAlsCameraComponent (third-person ALS camera; header forward-decl'd in .h, full include in .cpp)
+			"ALSCamera", // AS-03c: UAlsCameraComponent (third-person ALS camera; header forward-decl'd in .h, full include in .cpp)
 		});
 
-		PrivateDependencyModuleNames.AddRange(new string[] {  });
+		// SPUD is Private: ArchSimPersistenceSubsystem.h exposes no SPUD types
+		// (SpudSubsystem.h is included only in the .cpp), so downstream TUs never
+		// need SPUD headers. (AS-08-u1 review finding #2.)
+		PrivateDependencyModuleNames.AddRange(new string[] { "SPUD" });
 
 		// AS-SPIKE-Scenario-u1: Editor Utility Widget deps for UArchSimScenarioWidget.
 		// Gated by Target.Type == TargetType.Editor so packaged (shipping/client/server)

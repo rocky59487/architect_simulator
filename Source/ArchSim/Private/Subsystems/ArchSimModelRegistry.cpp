@@ -80,6 +80,41 @@ void UArchSimModelRegistry::Deinitialize()
     Super::Deinitialize();
 }
 
+// ----- AS-08-u1: persistence reset -------------------------------------------
+
+void UArchSimModelRegistry::Reset()
+{
+    // End any live FrameCore session before wiping the model. The same teardown
+    // order as Deinitialize() so the engine session is cleanly closed.
+    if (bSessionStarted)
+    {
+        if (UFrameInteractiveSubsystem* Sub = GetFrameSubsystem())
+        {
+            Sub->EndSession();
+        }
+        bSessionStarted = false;
+    }
+
+    // Clear the debounce timer so no stale ExecuteSolve fires after Reset().
+    if (UGameInstance* GI = GetGameInstance())
+    {
+        if (UWorld* World = GI->GetWorld())
+        {
+            World->GetTimerManager().ClearTimer(DebounceTimer);
+        }
+    }
+
+    // Return all fields to Initialize()-equivalent blank state.
+    CurrentModel            = FFrameModelDef{};
+    IndexToComponent.Reset();
+    NextMemberIdx           = 0;
+    PendingPatch            = FFrameModelPatch{};
+    PendingRankAccumulation = 0;
+    bNeedsRebaseline        = false;
+
+    UE_LOG(LogArchSimRegistry, Display, TEXT("Reset(): Registry cleared; ready for replay."));
+}
+
 // ----- helpers ---------------------------------------------------------------
 
 void UArchSimModelRegistry::EnsureDefaultLibraries()

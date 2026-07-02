@@ -74,8 +74,7 @@
 #include "Editor.h"           // GEditor, GEditor->PlayWorld
 #include "UObject/UObjectGlobals.h"
 
-// Log category already declared in ArchSimGameInstance.h / .cpp
-DECLARE_LOG_CATEGORY_EXTERN(LogArchSim, Log, All);
+#include "ArchSimGameInstance.h"  // DECLARE_LOG_CATEGORY_EXTERN(LogArchSim, ...)
 
 // Forward-declare the file-scope static helper so OnSolveComplete can call it before
 // its definition (C++ requires declaration-before-use for file-scope functions).

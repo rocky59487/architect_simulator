@@ -97,6 +97,19 @@ public:
     // entry is left in place so SaveGame round-trips remain stable.
     void DeactivateMember(int32 MemberIdx);
 
+    // ---- AS-08-u1: persistence reset (called by UArchSimPersistenceSubsystem) ---
+    // Tear down any live FrameCore session and return the Registry to the same
+    // blank state as immediately after Initialize(). Called before replaying a
+    // loaded sidecar so stale member/node data does not accumulate.
+    //
+    // WHY here: UArchSimPersistenceSubsystem needs to clear the model without
+    // being a friend; a dedicated method with a single purpose is cleaner than
+    // adding full-access or duplicating teardown logic.
+    //
+    // Contract: after Reset() returns, GetCurrentModel().Members/Nodes are empty,
+    // GetRegisteredCount()==0, IsSessionStarted()==false.
+    void Reset();
+
     // ---- read-only accessors (tests / heatmap / HUD) ---------------------------
     [[nodiscard]] const FFrameModelDef& GetCurrentModel() const { return CurrentModel; }
     [[nodiscard]] int32 GetRegisteredCount() const { return IndexToComponent.Num(); }

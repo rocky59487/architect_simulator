@@ -80,3 +80,33 @@ Reviewer 逐 claim 對 log 檔與 git diff:149 tests / SC8-SC9 / SC2b / SC4 / sc
 - **Tag:** v0.5.3(NITS-u1 `a016486` + AS-37-u2 + integrator fixes)
 - **Publish status:** awaiting user
 - **Next:** AS-08-u1(SPUD save/load 生產接線)
+
+---
+
+## 2026-07-02T0355Z — PUBLISHED v0.5.2 + v0.5.3;user standing publish authorization;AS-08-u1 session-death 中斷
+
+- **User 授權(durable,已入 memory `publish-authorization`):**「紀錄之後可以直接發布不用給我發布」→ /work Phase 4/6 自此直接 push + `gh release create`;force-push / tag overwrite / release delete 仍需逐次明示授權。
+- **Published:** main `4567c40..03b6350` + tags v0.5.2 / v0.5.3 →
+  https://github.com/rocky59487/architect_simulator/releases/tag/v0.5.2
+  https://github.com/rocky59487/architect_simulator/releases/tag/v0.5.3
+- **AS-08-u1 中斷記錄:** 前一個 Claude Code process 在 agent 執行中退出,無 completion record。中斷前異常:subagent 違規 spawn 3 個平行子 agent(已矯正續跑 + 轉發 digest);死亡時 working tree 留有 partial work(Registry.h/.cpp / Build.cs / run_gate.ps1 / ScenarioWidget.cpp / 新 untracked 檔待盤點)。處置:盤點後 iteration 2 重派(fresh agent 收殘局續作)。
+
+---
+
+## 2026-07-02T0930Z — 背景執行病灶處置 + watchdog 規則(durable)
+
+- **事故:** v0.5.4 tag 前的 6-leg gate 以 `run_in_background` 執行,**hang 在 leg 2 之後 5 小時**(leg 2 UE 12:23 正常 EXIT 0;gate script 卡在 leg 3 前後;輸出檔全空因 tail 管線緩衝;`timeout` 參數對 background task 不強制)。與 NITS-u1 記錄的「background-invocation 下 UE/管線行為異常」同族。
+- **處置:** TaskStop 殺 wrapper;殘留 powershell PID 以 CommandLine 驗明 = user 自己的閒置 shell,**不殺**(教訓:殺孤兒前必查 CommandLine);重跑再度被 harness 自動轉背景 → 加 **Monitor watchdog**(盯 `GATE: PASS|FAIL` verdict 行,12 分鐘 timeout 喚醒介入)。
+- **Durable 規則(本 session 起):** ① 關鍵路徑長命令(gate/build)若落背景,必配 verdict-line watchdog,不裸等 notification;② background task 的 timeout 參數不可信,外部 watchdog 才是硬保障;③ 卡死判定三訊號:輸出檔 size + `ArchSim.log` mtime + process list;④ 殺程序前先 `Get-CimInstance Win32_Process` 查 CommandLine 防誤殺。
+
+---
+
+## 2026-07-02T0958Z — AS-08-u1 accepted with NITS(iteration 2)→ shipped as v0.5.4
+
+- **Verdict:** NITS(4 findings:SC6 名過其實 value-copy(補誠實標記)/ Build.cs SPUD Public→Private / test RF_Transient 語意小差(可接受)/ comment INFO 補行 — 全數 integrator Phase 4 small-fix 收)
+- **兩個 BLOCKER 排查點 CONFIRMED CORRECT:** GlobalObject store/restore 時序鏈(SpudSubsystem.cpp:579-587 / 963-971;restore 在 OpenLevel 前,GameInstance subsystem 跨 map 存活)+ Snapshot 六欄位資料源與重建鏈完整(AS-36 root-graft 教訓已套用)
+- **RF_Transient audit 收案:** SPUD gate = ISpudObject opt-in(SpudPropertyUtil.cpp:1342),非 RF_Transient(SpudState.cpp:1133 filter 不含);S-01 疑慮不成立但 sidecar 仍必要(EndI/J offsets 非 SaveGame + instance component 不在掃描面 + supports 無 actor)
+- **Budget:** iter2 60/100 calls、97K/300K、37.4/30min(wall +25% — 第 3 件超 wall,大 unit wall 預算同樣偏緊,教訓入 retrospective)
+- **Gate:** 6-leg GATE: PASS(UE **153**;17:27-17:57 冷快取慢跑,兩次「卡死」判定中第二次實為慢 — watchdog 誤報教訓:verdict-file 輪詢要配 process/log 進度訊號雙判)
+- **Tag:** v0.5.4;**publish:** 直接發布(standing auth)
+- **Next:** AS-08-u2(SPUD PIE smoke,最後一 unit)→ Phase 6 close v0.6.0
