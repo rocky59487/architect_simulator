@@ -576,11 +576,17 @@ METIS — the standalone gate now links the opt-in supernodal lane, and `build.b
 If conda is installed off `%USERPROFILE%\anaconda3`, set `SUPERNODAL_CONDA=<conda-root>\envs\framecore-direct\Library`
 before running so `build.bat` picks up the right OpenBLAS+METIS install.)
 
-**One-click five-leg gate** (standalone + UE automation + OpenSees + deep audit + CLI):
+**One-click six-leg gate** (standalone + UE automation + OpenSees + deep audit + CLI + PIE auto-smoke):
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File Scripts\run_gate.ps1 -RequireOpenSees
 ```
+
+> **Prerequisites (fresh clone):** four third-party plugins (ALS / SPUD / SUQS / Prefabricator)
+> must be installed and patched before the gate runs. `run_gate.ps1` checks for them and
+> fails fast with instructions. See [`docs/THIRD_PARTY.md`](docs/THIRD_PARTY.md) for the
+> pinned-SHA manifest, and run `Scripts\setup_third_party.ps1` for the guided setup (AS-39,
+> v0.6.1).
 
 **Unreal Engine** (the engine as a UE module): open `ArchSim.uproject`, or headless:
 
@@ -591,16 +597,15 @@ Engine\Binaries\Win64\UnrealEditor-Cmd.exe ...\ArchSim.uproject -ExecCmds="Autom
 
 > `run_gate.ps1` runs the UE automation but does **not** rebuild the UE module — rebuild
 > first (command above) after touching engine code, or the automation runs a stale binary.
-> The `$ExpectedUeTests = 120` guard catches a silently-missing test (v3.5 bumped 98→120 for the 22 new visual-surface tests; v3.4 bumped 72→98)
-> 72→98 with the 26 `FrameCore.UE.*` Phase 1-5 tests: 3 input USTRUCT + 5 output marshal
-> + 5 linear analysis library + 7 nonlinear analysis library + 6 shell opt-in plumbing;
-> v3.3.0 added 2 `FrameCoreUE.*` tests (ActorStressMeshTest + MarshalJsonTest);
-> v3.2.1 added 8 `FrameCore.UE.*` Phase 6 a-h tests; v3.2.0 bumped 60→62 with
-> `BlueprintSmokeTest` + `EditorSmokeTest`; v3.1.0 bumped 59→60 with
-> `FFrameCoreStressFieldTest`; v2.11.1-RC bumped 58→59 with
-> `FFrameCoreGpuBacksubStrictTest`; v2.11 Phase 7 bumped 57→58 for
-> `FFrameCoreGpuBacksubTest`). On a box without cuDSS the two GPU tests compile out
-> via `#if FRAMECORE_CUDA` — pass `-ExpectedUeTests 118` (v3.5 visual-surface tests are not CUDA-gated).
+> The `$ExpectedUeTests` guard catches a silently-missing test. As of v0.6.1 (S-09 close),
+> the leg-2 count is **165** (cuDSS build) / **163** (non-cuDSS; pass `-ExpectedUeTests 163`
+> on a box without cuDSS). The count covers FrameCore.* headless tests, FrameCore.UE.*
+> automation tests, and ArchSim.Persistence/Integration/Gameplay headless tests (29 total).
+> The two CUDA-gated tests (`FrameCore.Solver.GpuBacksub` + `FrameCore.Solver.GpuBacksubStrict`)
+> compile out via `#if FRAMECORE_CUDA` on non-cuDSS builds, accounting for the 2-test gap.
+> Leg 6 (PIE auto-smoke, `Scripts\run_pie_gate.ps1`) runs separately — 2 tests
+> (`ArchSim.PIE.PortalFrameSmoke` + `ArchSim.PIE.SaveLoadSmoke`) — and is not counted
+> in the leg-2 total (render-thread required, no `-nullrhi`).
 
 **Try the engine without writing C++** — the text bridge solves a model from stdin:
 
@@ -671,7 +676,7 @@ Plugins/FrameSolver/
                                         Total UE gate count: 135 w/ cuDSS, 133 without (FROZEN under v4.0.0 stable seal)
   Standalone/                           console gates + CLI/C-API drivers (see its README)
   Grasshopper/                          C# reference client for the text bridge
-Scripts/run_gate.ps1                    the one-click five-leg gate
+Scripts/run_gate.ps1                    the one-click six-leg gate (legs 1-5 headless + leg 6 PIE via run_pie_gate.ps1)
 Tools/                                  validation tools (drive frame_cli.exe): opensees_compare,
                                         pdelta_compare, cli_roundtrip, precision audits
 docs/                                   see docs/README.md — architecture, verification map,

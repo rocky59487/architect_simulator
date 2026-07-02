@@ -25,10 +25,13 @@
 #     the compile step with a clear "could not locate openblas / metis" diagnostic.
 #   * OpenSeesPy (leg 3) lives in its own Python env (Tools/opensees_compare.py). With
 #     `-RequireOpenSees`, missing OpenSeesPy is a gate failure rather than a soft skip.
+#   * Third-party plugins (ALS / SPUD / SUQS / Prefabricator) must be installed and patched
+#     before legs run. This script checks plugin dirs + patch fingerprints and fails fast
+#     with "run Scripts\setup_third_party.ps1" if any are missing. (AS-39-u1, v0.6.1)
 param(
     [switch]$RequireOpenSees,       # CI: fail (not skip) when openseespy is absent
-    [int]$ExpectedUeTests = 153,
-    #   cuDSS build: 153 | non-cuDSS (FRAMECORE_CUDA=0, F67/F67s compile out): pass -ExpectedUeTests 151
+    [int]$ExpectedUeTests = 165,
+    #   cuDSS build: 165 | non-cuDSS (FRAMECORE_CUDA=0, F67/F67s compile out): pass -ExpectedUeTests 163
     #
     #   Count history — major anchors only (intermediate counts omitted):
     #   v0.1.1  +1  ArchSim.Persistence.SaveLoadRoundTrip
@@ -52,11 +55,99 @@ param(
     #   S-08    +4  ArchSim.Persistence.SpudSidecarClearSemantics / SpudSidecarRoundtrip /
     #               SpudRfTransientAudit / SpudEmptyModelSave
     #               (AS-08-u1; RF_Transient audit + Registry::Reset + sidecar UPROPERTY scan contracts)
+    #   S-09    +4  ArchSim.Persistence.ResetClearsComponentFlags / RegisterMemberNonFinite /
+    #               ReplayOrphanGuard / SaveLoadGuards
+    #               (AS-40-u1; persistence edge-case contracts)
+    #   S-09    +8  ArchSim.Persistence.V2LibraryStructRoundtrip / V2RestoreLibraries /
+    #               V2InjectLoads / V2FixityApi / V2FormatVersion / V2DeactivatedSaveGuard /
+    #               V2V1CompatDefaults / N00TensionReleaseWire
+    #               (AS-41-u1; sidecar format v2 full model-state persistence; SC17 renamed
+    #               ReplayOrphanGuard -> ReplayOrphanDataInvariant, same test count)
     [string]$Root = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path,
     [string]$Engine = $env:UE_ENGINE_ROOT,
     [string]$UProject = ''
 )
 $ErrorActionPreference = 'Continue'
+
+# ---------------------------------------------------------------------------
+# Precondition check: third-party plugins (AS-39-u1, v0.6.1)
+# Verifies 4 plugin dirs exist + patch fingerprints are present before legs run.
+# WHY: fresh clones lack these dirs; stale setups may lack patches. Failing fast
+# here avoids mysterious compile errors in leg 1/2 that are hard to diagnose.
+# Output: ASCII-only (locale-defensive per v0.5.1 lesson).
+# ---------------------------------------------------------------------------
+function Test-ThirdPartyPreconditions {
+    param([string]$RepoRoot)
+
+    $ok = $true
+
+    # Helper: check fingerprint pattern in a file (safe if file absent -> returns false)
+    # WHY: Select-String throws on missing path; Test-Path guards against that.
+    $CheckFp = {
+        param($FilePath, $Pat)
+        if (-not (Test-Path -LiteralPath $FilePath)) { return $false }
+        return [bool](Select-String -Path $FilePath -Pattern $Pat -Quiet -ErrorAction SilentlyContinue)
+    }
+
+    # ---- Plugin 1: ALS ----
+    $alsDir  = Join-Path $RepoRoot 'Plugins\ALS'
+    $alsCpp  = Join-Path $alsDir   'Source\ALS\Private\AlsCharacter.cpp'
+    if (-not (Test-Path -LiteralPath $alsDir -PathType Container)) {
+        Write-Host "PRECONDITION FAIL: Plugins\ALS not found."
+        Write-Host "  Run: powershell -ExecutionPolicy Bypass -File Scripts\setup_third_party.ps1"
+        $ok = $false
+    } elseif (-not (& $CheckFp $alsCpp 'FIX\(v0\.5\.0 U-ALS')) {
+        Write-Host "PRECONDITION FAIL: ALS patch not applied (AnimationInstance guard missing)."
+        Write-Host "  Run: powershell -ExecutionPolicy Bypass -File Scripts\setup_third_party.ps1"
+        Write-Host "  Note: ALS patch requires manual apply -- see docs\THIRD_PARTY.md."
+        $ok = $false
+    }
+
+    # ---- Plugin 2: SPUD ----
+    $spudDir    = Join-Path $RepoRoot 'Plugins\SPUD'
+    $spudPlugin = Join-Path $spudDir  'SPUD.uplugin'
+    if (-not (Test-Path -LiteralPath $spudDir -PathType Container)) {
+        Write-Host "PRECONDITION FAIL: Plugins\SPUD not found."
+        Write-Host "  Run: powershell -ExecutionPolicy Bypass -File Scripts\setup_third_party.ps1"
+        $ok = $false
+    } elseif (-not (& $CheckFp $spudPlugin '"EngineVersion".*5\.7')) {
+        # WHY include version: prevents false-positive if upstream adds "EngineVersion"
+        # for a different UE version in a future pinned-SHA update (Fix B, AS-39-u1 iter2)
+        Write-Host "PRECONDITION FAIL: SPUD uplugin patch not applied (EngineVersion 5.7 missing)."
+        Write-Host "  Run: powershell -ExecutionPolicy Bypass -File Scripts\setup_third_party.ps1"
+        $ok = $false
+    }
+
+    # ---- Plugin 3: SUQS ----
+    $suqsDir    = Join-Path $RepoRoot 'Plugins\SUQS'
+    $suqsPlugin = Join-Path $suqsDir  'SUQS.uplugin'
+    if (-not (Test-Path -LiteralPath $suqsDir -PathType Container)) {
+        Write-Host "PRECONDITION FAIL: Plugins\SUQS not found."
+        Write-Host "  Run: powershell -ExecutionPolicy Bypass -File Scripts\setup_third_party.ps1"
+        $ok = $false
+    } elseif (-not (& $CheckFp $suqsPlugin '"EngineVersion".*5\.7')) {
+        # WHY include version: same reasoning as SPUD above (Fix B, AS-39-u1 iter2)
+        Write-Host "PRECONDITION FAIL: SUQS uplugin patch not applied (EngineVersion 5.7 missing)."
+        Write-Host "  Run: powershell -ExecutionPolicy Bypass -File Scripts\setup_third_party.ps1"
+        $ok = $false
+    }
+
+    # ---- Plugin 4: Prefabricator ----
+    $prefDir    = Join-Path $RepoRoot 'Plugins\Prefabricator'
+    $prefPlugin = Join-Path $prefDir  'Prefabricator.uplugin'
+    if (-not (Test-Path -LiteralPath $prefDir -PathType Container)) {
+        Write-Host "PRECONDITION FAIL: Plugins\Prefabricator not found."
+        Write-Host "  Run: powershell -ExecutionPolicy Bypass -File Scripts\setup_third_party.ps1"
+        $ok = $false
+    } elseif (-not (& $CheckFp $prefPlugin '"EngineVersion".*5\.7')) {
+        # WHY include version: same reasoning as SPUD above (Fix B, AS-39-u1 iter2)
+        Write-Host "PRECONDITION FAIL: Prefabricator uplugin patch not applied (EngineVersion 5.7 missing)."
+        Write-Host "  Run: powershell -ExecutionPolicy Bypass -File Scripts\setup_third_party.ps1"
+        $ok = $false
+    }
+
+    return $ok
+}
 
 $RootPath = Resolve-Path -LiteralPath $Root -ErrorAction SilentlyContinue
 if (-not $RootPath) { Write-Host "Repo root not found: $Root" -ForegroundColor Red; exit 1 }
@@ -76,6 +167,15 @@ $Engine = $EnginePath.Path
 $UProj  = if ([string]::IsNullOrWhiteSpace($UProject)) { Join-Path $Root 'ArchSim.uproject' } else { $UProject }
 $UeCmd  = Join-Path $Engine 'Engine\Binaries\Win64\UnrealEditor-Cmd.exe'
 $Log    = Join-Path $Root 'Saved\Logs\ArchSim.log'
+
+# ---- Third-party precondition check (AS-39-u1) ----
+$PreconOk = Test-ThirdPartyPreconditions -RepoRoot $Root
+if (-not $PreconOk) {
+    Write-Host ""
+    Write-Host "GATE ABORTED: third-party preconditions not met (see above)."
+    Write-Host "Run: powershell -ExecutionPolicy Bypass -File Scripts\setup_third_party.ps1"
+    exit 1
+}
 
 Write-Host '======================================================'
 Write-Host ' FrameSolver verification gate'

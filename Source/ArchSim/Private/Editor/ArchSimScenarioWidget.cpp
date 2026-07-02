@@ -259,7 +259,25 @@ AActor* UArchSimScenarioWidget::PlaceKSetMember(
     {
         USceneComponent* Root = NewObject<USceneComponent>(
             PlacedActor, USceneComponent::StaticClass(), TEXT("Root"));
-        check(Root);  // NewObject failure here is catastrophic; always check
+
+        // AS-38(a) shipping-safe guard: replace check(Root) with an if-guard + log +
+        // destroy. WHY: check() strips in shipping builds (SHIPPING=1 → check() becomes
+        // a no-op expression), so a NewObject failure in shipping would leave PlacedActor
+        // as a rootless actor and then fall through to SetActorLocation which silently
+        // drops the position (the same AS-36 bug all over again). Worse, RegisterMember
+        // would compute endpoint at Origin → degenerate members / bad solve results.
+        // NewObject failure for USceneComponent is extreme but not impossible under very
+        // low memory; the shipping path MUST degrade cleanly.
+        if (!Root)
+        {
+            UE_LOG(LogArchSim, Error,
+                   TEXT("UArchSimScenarioWidget::PlaceKSetMember[%s] — "
+                        "NewObject<USceneComponent> failed; actor destroyed to prevent "
+                        "rootless-actor / degenerate-member corruption."), MemberTag);
+            PlacedActor->Destroy();
+            return nullptr;
+        }
+
         Root->RegisterComponent();
         PlacedActor->SetRootComponent(Root);
         PlacedActor->SetActorLocation(LocationWorld);

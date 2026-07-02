@@ -1,0 +1,12 @@
+diff --git a/SPUD.uplugin b/SPUD.uplugin
+index 65e3e41..e39d2df 100644
+--- a/SPUD.uplugin
++++ b/SPUD.uplugin
+@@ -10,6 +10,7 @@
+ 	"DocsURL" : "",
+ 	"MarketplaceURL" : "",
+ 	"SupportURL" : "https://github.com/sinbad/SPUD",
++	"EngineVersion" : "5.7.0",
+ 	"EnabledByDefault" : true,
+ 	"CanContainContent" : false,
+ 	"IsBetaVersion" : true,

@@ -1,5 +1,7 @@
 // ArchSim - UArchSimModelRegistry : GameInstance-scope structural model owner.
-// Sprint S-01 deliverable A1-02..A1-05 (A1-06 stub for soft delete).
+// Sprint S-01 deliverable A1-02..A1-05 (A1-06 stub for soft delete);
+// S-09 AS-41-u1 added the additive v2-persistence API (RestoreLibraries /
+// ApplyFixityAt / Inject* / SetMemberFlags / FindOrAddNodePublic) — see below.
 //
 // Responsibilities:
 //   * Own the FFrameModelDef that mirrors all placed UArchSimMemberData in the world.
@@ -109,6 +111,73 @@ public:
     // Contract: after Reset() returns, GetCurrentModel().Members/Nodes are empty,
     // GetRegisteredCount()==0, IsSessionStarted()==false.
     void Reset();
+
+    // ---- AS-41-u1: v2 persistence additive API (called by UArchSimPersistenceSubsystem) ---
+
+    // Restore a material library array directly into CurrentModel.Materials.
+    // MUST be called before RegisterMember so MatIdx 0..N-1 are valid.
+    // Precondition: CurrentModel.Materials is empty (i.e., called after Reset()).
+    // WHY additive not setter: callers should only call once per replay; using
+    // this instead of touching CurrentModel directly keeps the Registry as the
+    // single owner of CurrentModel mutations.
+    // [[nodiscard]]: returns false if Materials is already non-empty (caller error).
+    [[nodiscard]] bool RestoreLibraries(const TArray<FFrameMaterial>& Materials,
+                                        const TArray<FFrameSection>& Sections);
+
+    // Apply per-node fixity to a node identified by world position (mm).
+    // Finds the node via the same 1mm tolerance linear scan as FindOrAddNode.
+    // Does NOT create a new node — only patches fixity on an existing node.
+    // Called after members/supports are replayed (nodes must already exist).
+    // Returns true if the node was found and patched; false if not found (logged).
+    [[nodiscard]] bool ApplyFixityAt(const FVector& NodePosMm,
+                                     const TArray<bool>& Fixed,
+                                     const TArray<float>& Prescribed);
+
+    // Inject model state (loads, shells) directly into CurrentModel from an
+    // authoritative FFrameModelDef snapshot. Used by v2 replay to set loads/UDLs/
+    // shells after member/node reconstruction without triggering a solve.
+    // WHY not expose CurrentModel mutably: selective injection keeps the contract
+    // surface minimal; replay code populates exactly what was snapshotted.
+    //
+    // InjectNodalLoads: appends NodalLoads entries (node Id matched by index 0..N-1
+    // where N = CurrentModel.Nodes.Num() at inject time). Caller is responsible for
+    // ensuring node-id alignment (replay order builds nodes in the same order).
+    void InjectNodalLoads(const TArray<FFrameNodalLoad>& Loads);
+
+    // InjectMemberUDLs: appends MemberUDL entries. Member field is the FrameCore
+    // user id (== MemberIdx in our scheme; caller maps record index to member id).
+    void InjectMemberUDLs(const TArray<FFrameMemberUDL>& UDLs);
+
+    // InjectShells: appends FFrameShellQuad entries. Caller builds node arrays
+    // using FindOrAddNodePublic for position-based node lookup.
+    void InjectShells(const TArray<FFrameShellQuad>& ShellQuads);
+
+    // InjectShellPressures: appends pressure entries. Shell field is user id.
+    void InjectShellPressures(const TArray<FFrameShellPressure>& Pressures);
+
+    // SetMemberFlags: write bTensionOnly and Release onto a specific member row.
+    // WHY separate from RegisterMember: RegisterMember only accepts a component
+    // (actor-bound geometry); it has no parameter for bTensionOnly / Release.
+    // These are post-placement flags that are applied after RegisterMember assigns
+    // the member row. The sidecar replay path records non-default values (audit
+    // finding #5) and calls this immediately after RegisterMember to restore them.
+    // WHY MemberIdx not member-id: the two are equal in our scheme (RegisterMember
+    // keeps Id == MemberIdx), but MemberIdx is the internal array index and is
+    // what ReplayLoadedSidecar obtains from RegisterMember's return value.
+    // Preconditions: MemberIdx must be a valid index into CurrentModel.Members
+    // (i.e., RegisterMember returned it successfully). Release must be either
+    // empty (leaves the row's existing 12-false array untouched) or length 12.
+    // Returns false + logs if preconditions are not met.
+    [[nodiscard]] bool SetMemberFlags(int32 MemberIdx,
+                                      bool bTensionOnly,
+                                      const TArray<bool>& Release);
+
+    // FindOrAddNodePublic: expose FindOrAddNode for replay callers that need to
+    // convert world positions to node ids for load/shell injection.
+    // Same 1mm tolerance as the private overload; EnsureDefaultLibraries not called.
+    // WHY public for v2 replay: shell-node building must happen outside RegisterMember
+    // (shells have no actor component; ReplayShells drives this).
+    [[nodiscard]] int32 FindOrAddNodePublic(const FVector& PosMm);
 
     // ---- read-only accessors (tests / heatmap / HUD) ---------------------------
     [[nodiscard]] const FFrameModelDef& GetCurrentModel() const { return CurrentModel; }

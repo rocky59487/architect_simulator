@@ -104,6 +104,27 @@ void UArchSimModelRegistry::Reset()
         }
     }
 
+    // Clear the bRegistered / MemberIdx flags on every still-valid component before
+    // wiping IndexToComponent. WHY: the BeginPlay idempotency guard in RegisterMember
+    // checks bRegistered first (ArchSimModelRegistry.cpp:RegisterMember L219-228). If
+    // Reset() wipes the map without clearing those flags, the SAME component object
+    // that was previously registered cannot be re-registered on the rebuilt model (the
+    // guard short-circuits and returns the old stale MemberIdx). This breaks replay and
+    // any scenario where the same actor survives across a Reset() → re-register cycle.
+    for (auto& Pair : IndexToComponent)
+    {
+        if (UArchSimMemberData* Comp = Pair.Value.Get())
+        {
+            // WHY set MemberIdx = -1 before bRegistered = false: if some other thread
+            // or callback reads bRegistered after we flip it to false but before we
+            // update MemberIdx, it will see an unregistered component with a valid
+            // (but now invalid) idx. Writing MemberIdx first keeps the pair consistent.
+            Comp->MemberIdx   = -1;
+            Comp->bRegistered = false;
+        }
+        // Stale (null) weak-ptrs are also cleared implicitly when the map is Reset() below.
+    }
+
     // Return all fields to Initialize()-equivalent blank state.
     CurrentModel            = FFrameModelDef{};
     IndexToComponent.Reset();
@@ -205,11 +226,174 @@ int32 UArchSimModelRegistry::RegisterFixedSupport(const FVector& PosMm)
     TArray<bool>& FixedDofs = CurrentModel.Nodes[NodeIdx].Fixed;
     FixedDofs.Init(true, 6);   // length-6 enforced by FrameCore marshal layer
 
+    // A topology change (fixity of an existing node changed, or a new fixed node added)
+    // invalidates any open FrameCore session. WHY: the session's factored system was
+    // built from the model BEFORE this fixity change; continuing to use it would produce
+    // incorrect results because the boundary conditions in the stiffness matrix do not
+    // match the new Fixed flags. We must force a full re-baseline on the next ExecuteSolve.
+    //
+    // Mechanism: end the session now (same path as RegisterMember L281-290) so that the
+    // next ExecuteSolve calls FlushAndStartSession on the updated model. This is correct
+    // and safe:
+    //   1. EndSession is idempotent (FrameInteractiveSubsystem.cpp: `if (Session) { ... }`).
+    //   2. The debounce timer still fires ExecuteSolve normally; we are NOT kicking a solve
+    //      here (see header note: "Does NOT trigger a solve").
+    //   3. The bSessionStarted=false + PendingPatch/Rank reset mirrors RegisterMember's
+    //      session-restart path, ensuring the next solve rebuilds from scratch.
+    //
+    // WHY NOT just MarkNeedsRebaseline(): Rebaseline keeps the existing factor and
+    // only re-solves from the current state. It does NOT re-assemble K or update DOF
+    // boundary conditions. Changing Fixed flags requires a full FlushAndStartSession
+    // (re-assembly from the updated FFrameModelDef).
+    if (bSessionStarted)
+    {
+        if (UFrameInteractiveSubsystem* Sub = GetFrameSubsystem())
+        {
+            Sub->EndSession();
+        }
+        bSessionStarted = false;
+        PendingPatch            = FFrameModelPatch{};
+        PendingRankAccumulation = 0;
+
+        UE_LOG(LogArchSimRegistry, Display,
+               TEXT("RegisterFixedSupport: ended stale session (fixity change invalidates K matrix)."));
+    }
+
     UE_LOG(LogArchSimRegistry, Display,
            TEXT("RegisterFixedSupport: NodeIdx=%d at (%.1f,%.1f,%.1f) mm → Fixed=[T,T,T,T,T,T]."),
            NodeIdx, PosMm.X, PosMm.Y, PosMm.Z);
 
     return NodeIdx;
+}
+
+// ----- AS-41-u1: v2 persistence additive API ---------------------------------
+
+bool UArchSimModelRegistry::RestoreLibraries(const TArray<FFrameMaterial>& Materials,
+                                              const TArray<FFrameSection>& Sections)
+{
+    if (CurrentModel.Materials.Num() > 0 || CurrentModel.Sections.Num() > 0)
+    {
+        UE_LOG(LogArchSimRegistry, Warning,
+               TEXT("RestoreLibraries: CurrentModel already has %d materials / %d sections. "
+                    "Must be called after Reset() on an empty model. Skipping."),
+               CurrentModel.Materials.Num(), CurrentModel.Sections.Num());
+        return false;
+    }
+    CurrentModel.Materials = Materials;
+    CurrentModel.Sections  = Sections;
+
+    UE_LOG(LogArchSimRegistry, Display,
+           TEXT("RestoreLibraries: installed %d materials, %d sections."),
+           CurrentModel.Materials.Num(), CurrentModel.Sections.Num());
+    return true;
+}
+
+bool UArchSimModelRegistry::ApplyFixityAt(const FVector& NodePosMm,
+                                           const TArray<bool>& Fixed,
+                                           const TArray<float>& Prescribed)
+{
+    if (NodePosMm.ContainsNaN())
+    {
+        UE_LOG(LogArchSimRegistry, Warning,
+               TEXT("ApplyFixityAt: NodePosMm contains NaN; skipped."));
+        return false;
+    }
+    if (Fixed.Num() != 6 || Prescribed.Num() != 6)
+    {
+        UE_LOG(LogArchSimRegistry, Warning,
+               TEXT("ApplyFixityAt: Fixed.Num()=%d / Prescribed.Num()=%d; both must be 6. Skipped."),
+               Fixed.Num(), Prescribed.Num());
+        return false;
+    }
+
+    // Linear scan (same tolerance as FindOrAddNode).
+    for (int32 i = 0; i < CurrentModel.Nodes.Num(); ++i)
+    {
+        if (FVector::Dist(CurrentModel.Nodes[i].Pos, NodePosMm) < kNodeMergeTolMm)
+        {
+            CurrentModel.Nodes[i].Fixed      = Fixed;
+            CurrentModel.Nodes[i].Prescribed = Prescribed;
+            return true;
+        }
+    }
+
+    UE_LOG(LogArchSimRegistry, Warning,
+           TEXT("ApplyFixityAt: no node found within 1 mm of (%.1f,%.1f,%.1f) mm; skipped."),
+           NodePosMm.X, NodePosMm.Y, NodePosMm.Z);
+    return false;
+}
+
+void UArchSimModelRegistry::InjectNodalLoads(const TArray<FFrameNodalLoad>& Loads)
+{
+    CurrentModel.NodalLoads.Append(Loads);
+    UE_LOG(LogArchSimRegistry, Display,
+           TEXT("InjectNodalLoads: appended %d loads (total now %d)."),
+           Loads.Num(), CurrentModel.NodalLoads.Num());
+}
+
+void UArchSimModelRegistry::InjectMemberUDLs(const TArray<FFrameMemberUDL>& UDLs)
+{
+    CurrentModel.MemberUDLs.Append(UDLs);
+    UE_LOG(LogArchSimRegistry, Display,
+           TEXT("InjectMemberUDLs: appended %d UDLs (total now %d)."),
+           UDLs.Num(), CurrentModel.MemberUDLs.Num());
+}
+
+void UArchSimModelRegistry::InjectShells(const TArray<FFrameShellQuad>& ShellQuads)
+{
+    CurrentModel.Shells.Append(ShellQuads);
+    UE_LOG(LogArchSimRegistry, Display,
+           TEXT("InjectShells: appended %d shells (total now %d)."),
+           ShellQuads.Num(), CurrentModel.Shells.Num());
+}
+
+void UArchSimModelRegistry::InjectShellPressures(const TArray<FFrameShellPressure>& Pressures)
+{
+    CurrentModel.ShellPressures.Append(Pressures);
+    UE_LOG(LogArchSimRegistry, Display,
+           TEXT("InjectShellPressures: appended %d pressures (total now %d)."),
+           Pressures.Num(), CurrentModel.ShellPressures.Num());
+}
+
+int32 UArchSimModelRegistry::FindOrAddNodePublic(const FVector& PosMm)
+{
+    return FindOrAddNode(PosMm);
+}
+
+bool UArchSimModelRegistry::SetMemberFlags(int32 MemberIdx,
+                                            bool bInTensionOnly,
+                                            const TArray<bool>& InRelease)
+{
+    // Validate index — caller must have a valid RegisterMember return value.
+    if (!CurrentModel.Members.IsValidIndex(MemberIdx))
+    {
+        UE_LOG(LogArchSimRegistry, Warning,
+               TEXT("SetMemberFlags: MemberIdx=%d out of range (%d members); ignored."),
+               MemberIdx, CurrentModel.Members.Num());
+        return false;
+    }
+
+    // Release must be empty (leave existing) or exactly 12 elements.
+    // WHY 12: FFrameMember::Release is a 12-bool DOF release array [node-i 6][node-j 6].
+    // The marshal layer enforces length-12; we apply the same constraint here so
+    // the stored values are always engine-compatible.
+    if (!InRelease.IsEmpty() && InRelease.Num() != 12)
+    {
+        UE_LOG(LogArchSimRegistry, Warning,
+               TEXT("SetMemberFlags: MemberIdx=%d Release has %d elements (expected 0 or 12); ignored."),
+               MemberIdx, InRelease.Num());
+        return false;
+    }
+
+    FFrameMember& M = CurrentModel.Members[MemberIdx];
+    M.bTensionOnly = bInTensionOnly;
+    if (!InRelease.IsEmpty())
+    {
+        M.Release = InRelease;
+    }
+    // No solve kicked here — these flags only affect the next Solve; caller
+    // batches all flag writes and then RequestSolve once at replay end.
+    return true;
 }
 
 // ----- A1-03: registration ---------------------------------------------------
@@ -237,6 +421,28 @@ int32 UArchSimModelRegistry::RegisterMember(UArchSimMemberData* Comp)
     // returns dimensionally-wrong but numerically-plausible displacements.
     const FVector PosIMm = WorldIUE * kCmToMm;
     const FVector PosJMm = WorldJUE * kCmToMm;
+
+    // Reject non-finite endpoints early. A NaN or Inf in the node position array
+    // silently corrupts the stiffness matrix with no actionable FrameCore diagnostic.
+    // Sources of non-finite values: NaN actor transform (freshly-spawned actor before
+    // SetActorTransform fires, or a transform with degenerate scale), or
+    // non-finite EndIOffsetUE/EndJOffsetUE fields (deserialized from a corrupt save).
+    // WHY align with RegisterFixedSupport NaN check (ArchSimModelRegistry.cpp:L168-176):
+    //   Consistent rejection style across both node-insertion paths.
+    // WHY ContainsNaN() covers both NaN and Inf: UE::Math::TVector::ContainsNaN()
+    // is implemented as !FMath::IsFinite(X) || !FMath::IsFinite(Y) || !FMath::IsFinite(Z)
+    // (Vector.h:2298-2300). FMath::IsFinite returns false for both NaN and Inf.
+    // There is no separate FVector::IsFinite() method in UE5.7 TVector<double>.
+    if (PosIMm.ContainsNaN() || PosJMm.ContainsNaN())
+    {
+        UE_LOG(LogArchSimRegistry, Warning,
+               TEXT("RegisterMember: actor %s has non-finite endpoint positions "
+                    "(PosIMm=(%.2f,%.2f,%.2f) PosJMm=(%.2f,%.2f,%.2f)); rejected."),
+               *Comp->GetOwner()->GetName(),
+               PosIMm.X, PosIMm.Y, PosIMm.Z,
+               PosJMm.X, PosJMm.Y, PosJMm.Z);
+        return -1;
+    }
 
     // Reject degenerate (zero-length) members early; FrameCore would refuse them
     // later with a less actionable diagnostic.

@@ -1,19 +1,28 @@
 #!/usr/bin/env pwsh
 <#
 .SYNOPSIS
-    AS-35-u2: Leg 6 PIE auto-smoke gate — runs ArchSim.PIE.PortalFrameSmoke WITHOUT -nullrhi.
+    AS-35-u2 / AS-42-u1: Leg 6 PIE auto-smoke gate — runs the whole ArchSim.PIE category
+    WITHOUT -nullrhi.
 
 .DESCRIPTION
-    Invokes UnrealEditor-Cmd to run the PIE smoke test (ArchSim.PIE.PortalFrameSmoke) in a
-    real render context (no -nullrhi), then parses the automation result from the UE log.
+    Invokes UnrealEditor-Cmd to run all ArchSim.PIE.* tests in a real render context
+    (no -nullrhi), then parses automation results to verify EACH expected test by name.
 
     WHY a separate script (not folded into run_gate.ps1 leg 2):
-      The PIE smoke test uses EditorContext + ClientContext and requires FStartPIECommand,
-      which starts a real Play-In-Editor session. Under -nullrhi the RHI thread is absent,
-      causing FStartPIECommand to fail or produce a crash (observed in Saved/Logs/ArchSim.log
-      at 2026-06-28 09:53:41 EXCEPTION_ACCESS_VIOLATION under headless nullrhi run).
-      Leg 2 runs all other ArchSim/FrameCore tests under -nullrhi; this leg runs only the
-      PIE test with the full render stack.
+      PIE tests use EditorContext + ClientContext and require FStartPIECommand, which starts
+      a real Play-In-Editor session. Under -nullrhi the RHI thread is absent, causing
+      FStartPIECommand to fail or produce a crash (observed 2026-06-28). Leg 2 runs all
+      other ArchSim/FrameCore tests under -nullrhi; this leg runs only the PIE tests with
+      the full render stack.
+
+    AS-42-u1 hardening (#6):
+      (a) Per-test verdict: each name in $ExpectedPieTests must have a success-verdict entry
+          in the log. Missing or failed tests are reported by name → FAIL.
+      (b) Screenshot freshness: screenshot LastWriteTime must be >= $RunStartTime (captures
+          only this run's artifact; rejects stale files from prior runs).
+      (c) Expected-test-names array at top: adding a new ArchSim.PIE.* test requires
+          updating this array. Found-but-unexpected tests emit a warning; expected-but-
+          missing tests emit FAIL. This keeps the gate intentionally loud as the category grows.
 
     This script is invoked by run_gate.ps1 as leg [6/6]. It can also be run standalone
     for isolation testing.
@@ -28,11 +37,11 @@
     Absolute path to ArchSim.uproject. Default: $Root\ArchSim.uproject.
 
 .EXAMPLE
-    & "E:\project\ArchSim\Scripts\run_pie_gate.ps1" -Root "E:\project\ArchSim" -Engine "E:\project\UE_5.7" -UProject "E:\project\ArchSim\ArchSim.uproject"
+    & "<repo-root>\Scripts\run_pie_gate.ps1" -Root "<repo-root>" -Engine "$env:UE_ENGINE_ROOT" -UProject "<repo-root>\ArchSim.uproject"
 
 .NOTES
-    Exit 0 = PIE test PASS + screenshot artifact >= 1024 bytes.
-    Exit 1 = PIE test FAIL, log parse error, or missing/tiny screenshot.
+    Exit 0 = all expected PIE tests PASS + screenshot artifact fresh + size >= 1024 bytes.
+    Exit 1 = any expected test missing/failed, stale/missing screenshot, or log parse error.
     Called by run_gate.ps1 leg [6/6]; do NOT pass -nullrhi to the UE commandlet here.
 #>
 
@@ -43,6 +52,21 @@ param(
 )
 
 $ErrorActionPreference = 'Continue'
+
+# ============================================================================
+# AS-42-u1 (#6c): Expected PIE test names array.
+#
+# MAINTENANCE: When adding a new ArchSim.PIE.* test, add its full dotted name
+# here. The gate verifies that EVERY name in this array ran AND passed.
+# Found-but-unexpected tests emit a warning (won't FAIL gate; may indicate a
+# rename). Expected-but-missing tests FAIL the gate with a clear message.
+#
+# Current expected tests (as of v0.6.1: 2 — PortalFrameSmoke + SaveLoadSmoke):
+# ============================================================================
+$ExpectedPieTests = @(
+    'ArchSim.PIE.PortalFrameSmoke',
+    'ArchSim.PIE.SaveLoadSmoke'
+)
 
 # ---- resolve paths ----
 $RootPath = Resolve-Path -LiteralPath $Root -ErrorAction SilentlyContinue
@@ -78,6 +102,11 @@ if (-not (Test-Path $UProj)) {
 # requires a real PIE world with render context. Under -nullrhi the RHI thread is
 # absent and the test crashes (observed 2026-06-28). Leg 2 of run_gate.ps1 is
 # explicitly filtered to exclude ArchSim.PIE.* for this reason.
+
+# AS-42-u1 (#6b): Record wall-clock time BEFORE launch so screenshot freshness can
+# be verified. Screenshot files written BEFORE this time are stale artifacts from
+# prior runs and must NOT satisfy the gate. Using UTC to be timezone-agnostic.
+$RunStartTime = [DateTime]::UtcNow
 
 # NIT 3: record log timestamp + length BEFORE launch so we can detect a stale log later.
 # WHY: if UnrealEditor-Cmd exits before writing the log (e.g. DLL load failure),
@@ -187,7 +216,7 @@ if (Test-Path -LiteralPath $Log) {
 
 # ---- parse log for test result ----
 # PRIMARY signal: "TEST COMPLETE. EXIT CODE: N" (N=0 = all tests passed).
-# SECONDARY signal: "Test Completed. Result={X}" — captures the result string.
+# SECONDARY signal: per-test "Test Completed. Result={X}" lines — verified by name.
 #
 # LOCALE NOTE — why we do NOT use -match with Chinese characters in .ps1 source:
 #   Windows PowerShell 5.1 reads .ps1 files as ANSI by default. Embedding Chinese
@@ -197,9 +226,17 @@ if (Test-Path -LiteralPath $Log) {
 #   Workaround: capture the raw result string with an ASCII-only regex, then use
 #   string -eq comparisons for known English values, and fall back to the EXIT CODE
 #   line (which is ASCII-only and unambiguous) for other locales.
-$PieTestResultFound = $false
 $PieExitCode        = 1   # pessimistic default
-$PieResultLine      = ''
+$PieResultLine      = ''  # last result line seen (diagnostic)
+
+# AS-42-u1 (#6a): per-test verdict tracking.
+# Key = full test name (e.g. 'ArchSim.PIE.PortalFrameSmoke')
+# Value = $true (success verdict seen) / $false (failed or not seen)
+$TestVerdicts = @{}
+foreach ($Name in $ExpectedPieTests) { $TestVerdicts[$Name] = $false }
+
+# Tracks all test names seen in the log (for found-but-unexpected warning).
+$SeenTestNames = [System.Collections.Generic.HashSet[string]]::new()
 
 if (Test-Path $Log) {
     # 1) EXIT CODE line — authoritative PASS/FAIL signal (ASCII-only, locale-agnostic)
@@ -211,64 +248,161 @@ if (Test-Path $Log) {
         $PieExitCode = [int]$ExitMatch.Matches[0].Groups[1].Value
     }
 
-    # 2) Test Completed line — secondary; captured for diagnostic output only
-    #    Regex captures the result value with an ASCII-only pattern; the captured
-    #    $ResultValue may be a CJK string (e.g. Chinese "成功") on this host.
-    #    We do NOT embed CJK in a regex literal (see LOCALE NOTE above).
-    $ResultMatch = Select-String -Path $Log `
-        -Pattern 'Test Completed\. Result=\{([^}]+)\}' |
-        Select-Object -Last 1
-    if ($ResultMatch) {
-        $PieTestResultFound = $true
-        $PieResultLine      = $ResultMatch.Line.Trim()
-        # For English-locale hosts: detect explicit failure strings via -eq (not regex)
-        $ResultValue = $ResultMatch.Matches[0].Groups[1].Value
-        $KnownFailValues = @('Failed', 'Failure')
-        if ($KnownFailValues -contains $ResultValue) {
-            # Override EXIT CODE if result is explicitly "Failed" — belt-and-suspenders
-            $PieExitCode = [Math]::Max($PieExitCode, 1)
+    # 2) Per-test "Test Completed" lines — verify each expected test by name.
+    #
+    # UE 5.7 automation log format (observed on CJK locale):
+    #   "Test Completed. Result={成功} Name={PortalFrameSmoke} Path={ArchSim.PIE.PortalFrameSmoke}"
+    # Older UE format (English locale, pre-UE5.7):
+    #   "ArchSim.PIE.PortalFrameSmoke Test Completed. Result={Passed}"
+    # CJK locale may produce a different Result value (e.g. Chinese "成功" / "失败").
+    # Strategy: match the Path={} tag for the test name (locale-agnostic), and
+    # capture the Result value with an ASCII-only regex. If the line contains
+    # a known-failure token we count it as FAIL; otherwise PASS.
+    # EXIT CODE remains the authoritative overall verdict.
+    #
+    # WHY match on "Test Completed" not "Test Started": a test that starts but is
+    # killed mid-run will have a "Started" line but no "Completed" → correctly stays $false.
+    #
+    # LOCALE-DEFENSIVE: ASCII-only regex captures both Result and Path values;
+    # comparison uses -eq / -contains on known ASCII strings; CJK result values
+    # (e.g. "成功", "失败") fall through to the EXIT CODE authority which is always ASCII.
+    # KNOWN FAIL values: CJK locale uses "失败" but we can't embed CJK in this .ps1
+    # (ANSI parse corruption — see LOCALE NOTE above). So we use the EXIT CODE as
+    # the authoritative fail signal; KnownFailValues only catches the English case.
+    $KnownFailValues = @('Failed', 'Failure')
+
+    # Match both formats by looking for "Test Completed" on the line, then extracting
+    # Result and Path via separate named-group captures.
+    $AllResultLines = Select-String -Path $Log `
+        -Pattern 'Test Completed\. Result=\{([^}]+)\}' -ErrorAction SilentlyContinue
+    foreach ($Match in $AllResultLines) {
+        $Line        = $Match.Line.Trim()
+        $ResultValue = $Match.Matches[0].Groups[1].Value
+
+        # Try new UE5.7 format first: "... Path={ArchSim.PIE.X}"
+        $TestName = $null
+        if ($Line -match 'Path=\{(ArchSim\.PIE\.[^}]+)\}') {
+            $TestName = $Matches[1]
         }
-        # For Chinese locale ("成功" / "失敗"): defer to EXIT CODE (already set above)
+        # Fall back to old format: "ArchSim.PIE.X Test Completed."
+        elseif ($Line -match 'ArchSim\.PIE\.(\S+)\s+Test Completed') {
+            $TestName = 'ArchSim.PIE.' + $Matches[1]
+        }
+
+        if ($TestName) {
+            [void]$SeenTestNames.Add($TestName)
+            $PieResultLine = $Line  # remember last line for diagnostics
+
+            $bFailed = ($KnownFailValues -contains $ResultValue)
+            if ($TestVerdicts.ContainsKey($TestName)) {
+                # Mark success only if result is not a known failure.
+                # CJK "成功" is not in KnownFailValues so bFailed=$false → TestVerdicts=$true.
+                # CJK "失败" is also not in KnownFailValues, BUT: UE will have returned
+                # EXIT CODE != 0, and the belt-and-suspenders block below will override $PerTestPass.
+                $TestVerdicts[$TestName] = (-not $bFailed)
+            }
+        }
     }
 } else {
     Write-Host "PIE gate: log file not found: $Log" -ForegroundColor Red
 }
 
+# --- AS-42-u1 (#6a): per-test verdict report ---
+$PerTestPass = $true
+foreach ($Name in $ExpectedPieTests) {
+    if ($TestVerdicts[$Name]) {
+        Write-Host ("PIE gate: [PASS] $Name") -ForegroundColor Green
+    } else {
+        Write-Host ("PIE gate: [FAIL] $Name — no success verdict in log. " +
+                    "Check that the test ran and completed without error.") -ForegroundColor Red
+        $PerTestPass = $false
+    }
+}
+
+# Warn about unexpected tests found in the log (not in $ExpectedPieTests).
+# This is informational only — a new test added to the category but not yet
+# in the array will produce a warning, not a gate failure.
+# UPDATE $ExpectedPieTests above to silence the warning and make it a gate check.
+foreach ($SeenName in $SeenTestNames) {
+    if (-not ($ExpectedPieTests -contains $SeenName)) {
+        Write-Host ("PIE gate: [WARN] Unexpected PIE test found in log: $SeenName. " +
+                    "Add to `$ExpectedPieTests in run_pie_gate.ps1 to gate it.") `
+            -ForegroundColor Yellow
+    }
+}
+
+# Belt-and-suspenders: if EXIT CODE is non-zero, override any per-test verdicts
+# that were marked success (shouldn't happen in practice, but guards log-parse bugs).
+if ($PieExitCode -ne 0) {
+    Write-Host ("PIE gate: EXIT CODE $PieExitCode indicates overall failure. " +
+                "Overriding per-test verdicts to FAIL.") -ForegroundColor Red
+    $PerTestPass = $false
+}
+
 # ---- screenshot verification ----
 # Screenshot path written by the test: Saved/Screenshots/WindowsEditor/v0_5_x_pie_smoke*.png
 # Accept any file >= 1024 bytes (a zero-byte or tiny file means screenshot call failed).
-$ScreenshotPattern = Join-Path $Root 'Saved\Screenshots\WindowsEditor\v0_5_x_pie_smoke*.png'
-$LatestScreenshot  = Get-ChildItem $ScreenshotPattern -ErrorAction SilentlyContinue |
-    Sort-Object LastWriteTime -Descending |
-    Select-Object -First 1
+#
 # MAINTENANCE NOTE (AS-08-u2 review #3): the screenshot is produced ONLY by
 # ArchSim.PIE.PortalFrameSmoke (FSafeEditorScreenshotCommand). SaveLoadSmoke does
 # not screenshot. If PortalFrameSmoke is ever removed or its screenshot path
 # changes, this check must move/adapt or leg 6 will false-FAIL.
-$ScreenshotOk = $LatestScreenshot -and ($LatestScreenshot.Length -ge 1024)
+#
+# AS-42-u1 (#6b): Screenshot FRESHNESS check.
+# We require the screenshot LastWriteTimeUtc >= $RunStartTime (recorded before launch).
+# This prevents a stale artifact from a prior run satisfying the gate:
+#   Adversarial scenario: previous run wrote v0_5_x_pie_smoke_2026...png; current run
+#   crashes before the screenshot stage. Old file still exists, passes size check → false PASS.
+#   With freshness: old file LastWriteTimeUtc < $RunStartTime → ScreenshotFresh = $false → FAIL.
+$ScreenshotPattern = Join-Path $Root 'Saved\Screenshots\WindowsEditor\v0_5_x_pie_smoke*.png'
+$LatestScreenshot  = Get-ChildItem $ScreenshotPattern -ErrorAction SilentlyContinue |
+    Sort-Object LastWriteTimeUtc -Descending |
+    Select-Object -First 1
+
+$ScreenshotSizeOk  = $LatestScreenshot -and ($LatestScreenshot.Length -ge 1024)
+$ScreenshotFresh   = $LatestScreenshot -and
+                     ($LatestScreenshot.LastWriteTimeUtc -ge $RunStartTime)
+$ScreenshotOk      = $ScreenshotSizeOk -and $ScreenshotFresh
+
+if ($LatestScreenshot -and $ScreenshotSizeOk -and (-not $ScreenshotFresh)) {
+    Write-Host ("PIE gate: STALE SCREENSHOT detected — file LastWriteTimeUtc={0} is before " +
+                "RunStartTime={1}. File: {2}. This artifact is from a prior run. " +
+                "PortalFrameSmoke must have crashed before the screenshot stage. " +
+                "Treating as FAIL.") -f `
+        $LatestScreenshot.LastWriteTimeUtc.ToString('o'), `
+        $RunStartTime.ToString('o'), `
+        $LatestScreenshot.FullName `
+        -ForegroundColor Red
+}
 
 # ---- verdict ----
-# PRIMARY pass condition: EXIT CODE = 0 (authoritative, locale-agnostic)
-# SECONDARY pass condition: screenshot artifact >= 1024 bytes (visual render evidence)
-# "Test Completed. Result={X}" line must be present (confirms test actually ran, not skipped)
-$GatePassed = ($PieExitCode -eq 0) -and $PieTestResultFound -and $ScreenshotOk
+# PRIMARY pass conditions (ALL must be true):
+#   (a) EXIT CODE = 0 (authoritative, locale-agnostic overall verdict)
+#   (b) Every expected test in $ExpectedPieTests has a success verdict in the log
+#       ($PerTestPass; AS-42-u1 #6a)
+#   (c) Screenshot artifact is fresh (LastWriteTimeUtc >= $RunStartTime) AND >= 1024 bytes
+#       ($ScreenshotOk; AS-42-u1 #6b + pre-existing size check)
+#
+# NOTE: $PerTestPass already incorporates EXIT CODE override (see above).
+$GatePassed = ($PieExitCode -eq 0) -and $PerTestPass -and $ScreenshotOk
 
 if ($GatePassed) {
-    Write-Host ("PIE smoke: PASS (exit {0}; screenshot={1} bytes)" -f `
-        $PieExitCode, `
-        $LatestScreenshot.Length) -ForegroundColor Green
+    $SsInfo = if ($LatestScreenshot) { ("{0} bytes, written {1}" -f $LatestScreenshot.Length, $LatestScreenshot.LastWriteTimeUtc.ToString('o')) } else { "N/A" }
+    Write-Host ("PIE smoke: PASS (exit {0}; all {1} expected tests passed; screenshot={2})" -f `
+        $PieExitCode, $ExpectedPieTests.Count, $SsInfo) -ForegroundColor Green
     if ($PieResultLine) {
-        Write-Host ("       Result line: $PieResultLine")
+        Write-Host ("       Last result line: $PieResultLine")
     }
     exit 0
 } else {
     $ScreenshotInfo = if ($LatestScreenshot) {
-        ("{0} bytes at {1}" -f $LatestScreenshot.Length, $LatestScreenshot.FullName)
+        ("{0} bytes; fresh={1}; path={2}" -f `
+            $LatestScreenshot.Length, $ScreenshotFresh, $LatestScreenshot.FullName)
     } else {
         "MISSING (pattern: $ScreenshotPattern)"
     }
-    Write-Host ("PIE smoke: FAIL (exit_code={0}, result_found={1}, screenshot_ok={2}; ss={3})" -f `
-        $PieExitCode, $PieTestResultFound, $ScreenshotOk, $ScreenshotInfo) -ForegroundColor Red
+    Write-Host ("PIE smoke: FAIL (exit_code={0}, per_test_pass={1}, screenshot_ok={2}; ss={3})" -f `
+        $PieExitCode, $PerTestPass, $ScreenshotOk, $ScreenshotInfo) -ForegroundColor Red
     if ($PieResultLine) {
         Write-Host ("       Last result line: $PieResultLine")
     }

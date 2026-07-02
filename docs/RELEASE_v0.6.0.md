@@ -63,3 +63,37 @@ None。
 git push origin main && git push origin v0.6.0
 gh release create v0.6.0 --title "v0.6.0 — Persistence chain complete (S-08 close)" --notes-file docs/RELEASE_v0.6.0.md
 ```
+
+---
+
+## [ERRATA 2026-07-02, S-09]
+
+以下為 S-09 audit(AS-43)發現後的事實補充說明。原文無刪改,本節純追加。
+
+### (a) PIE-2 replay 等效路徑 vs `LoadFromSlot` 全鏈邊界
+
+原文「save → `.sav` → replay rebuild → solve」的描述成立,但 v0.6.0 當時未足夠強調:
+`ArchSim.PIE.SaveLoadSmoke` 走的是 `ReplayLoadedSidecar` 直驅路徑(PIE-2 [PARTIAL]),
+**等效驗證**了 SPUD sidecar 序列化與重建流程,而非 production `LoadFromSlot` 全鏈。
+後者需跨 OpenLevel 的 latent-chain,在 PIE commandlet 模式下會在
+`SpudSubsystem.cpp:977` 斷鏈,是已知的自動化邊界,需人工觸發 LoadFromSlot 流程驗證。
+原文 PIE-2 [PARTIAL] 標注已如實存在,本 ERRATA 將技術邊界講白。
+
+### (b) v0.6.0 sidecar 格式說明
+
+v0.6.0 時的 sidecar 為 **v1 格式**,欄位覆蓋範圍:member 幾何 transform / EndI-J offset /
+StructureGroupId / mat/sec index + 全固定支點 SupportPositions。**不含** loads / UDLs /
+member active 旗標 / releases / tension-only flag / shells / materials 與 sections
+library 定義值。
+
+「persistence chain 完整收口」指 SPUD 接線與 PIE smoke 鏈完整落地,**非** model-state
+欄位的完整覆蓋。v0.6.1 sidecar v2 補齊上述欄位(含 NodeFixities 通用 per-DOF fixity,
+SupportPositions 留空為 v1 相容);詳見 [`docs/RELEASE_v0.6.1.md`](RELEASE_v0.6.1.md)。
+
+### (c) S-09 修復項摘要
+
+S-09(v0.6.1)亦修復了 v0.6.0 隨附的若干邊界問題:SaveToSlot 空/partial 快照覆寫
+風險、LoadFromSlot pre-check 缺失、replay orphan DestroyActor 漏洞、Registry Reset 未
+清 component flags、RegisterFixedSupport session invalidation、RegisterMember 非有限數
+guard、PlaceKSetMember shipping build `check()` 去除。詳見
+[`docs/RELEASE_v0.6.1.md`](RELEASE_v0.6.1.md)。

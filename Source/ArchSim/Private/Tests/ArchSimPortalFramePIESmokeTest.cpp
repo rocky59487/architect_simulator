@@ -19,7 +19,8 @@
 //   Step 4. FDrivePortalFrameSmokeCommand — instantiate Widget, call
 //            SpawnDefaultPortalFrame(), verify 4-node model, call RequestSolveAndVisualize()
 //   Step 5. FEngineWaitLatentCommand(0.5) — allow 150 ms Registry debounce + solve
-//   Step 6. FVerifyHeatmapSpawnedCommand — check HeatmapActor spawned (best-effort warning)
+//   Step 6. FVerifyHeatmapSpawnedCommand(180) — hard assert HeatmapActor spawned;
+//              bounded poll up to 180 ticks (~3s) then AddError (AS-42-u1 #7a upgrade)
 //   Step 7. FSafeEditorScreenshotCommand — capture viewport via FScreenshotRequest
 //              (replaces FTakeActiveEditorScreenshotCommand which crashes in
 //              UnrealEditor-Cmd: GetActiveTopLevelWindow() → null → SharedPointer.h:1046)
@@ -193,10 +194,36 @@ bool FDrivePortalFrameSmokeCommand::Update()
 // ---------------------------------------------------------------------------
 // Step 6 latent command: verify HeatmapActor spawned after solve debounce.
 //
-// Best-effort: AddWarning (not TestFalse) on null because the 500 ms wait in
-// Step 5 may not be sufficient on all hosts (solve is async-debounced).
+// AS-42-u1 (#7a): Upgraded from AddWarning (soft) to bounded-poll hard assert.
+//
+// Design rationale — why hard assert is safe here (no flake risk):
+//   The portal frame smoke uses a fixed deterministic fixture (SpawnDefaultPortalFrame:
+//   2 fixed supports + 3 members). The solve chain is:
+//     RequestSolveAndVisualize() → 150 ms debounce → OnSolveComplete delegate →
+//     UArchSimScenarioWidget lazy-spawn of AFrameUtilizationHeatmapActor.
+//   The 500 ms FEngineWaitLatentCommand in Step 5 provides 3.3x margin over the
+//   150 ms debounce on a dev box. On pathologically slow CI (e.g. 1 VCPU), we add
+//   a bounded poll: Update() returns false (retry) for up to PollMaxTicks additional
+//   ticks until the actor appears. With UE's default ~60 fps tick rate this gives
+//   ~3 more seconds of grace before the hard assert fires.
+//
+// WHY 180 additional ticks (~3 s at 60 fps):
+//   Debounce = 150 ms. Worst-case solve on a fast portal frame = ~10 ms.
+//   Total expected latency (debounce + solve + delegate) < 200 ms.
+//   180 ticks = ~3 s = 15x worst-case expected latency. More than enough.
+//   If 3 s is still insufficient, the problem is a genuine failure (LDLT reject,
+//   delegate not firing, etc.), not timing — hard assert is correct in that case.
+//
+// Flake-back plan (per AS-42-u1 dispatch):
+//   If two consecutive runs flake despite the poll, set bHardAssert = false to
+//   revert to AddWarning, and file a separate issue. As of AS-42-u1 we have not
+//   observed flakes on this host (the original soft guard was a conservative precaution
+//   from the AS-36 Bug C debounce-timing era, which is now closed and the fixture is
+//   deterministic).
 // ---------------------------------------------------------------------------
-DEFINE_LATENT_AUTOMATION_COMMAND(FVerifyHeatmapSpawnedCommand);
+DEFINE_LATENT_AUTOMATION_COMMAND_ONE_PARAMETER(
+    FVerifyHeatmapSpawnedCommand,
+    int32, PollMaxTicks);
 
 bool FVerifyHeatmapSpawnedCommand::Update()
 {
@@ -230,32 +257,42 @@ bool FVerifyHeatmapSpawnedCommand::Update()
 
     if (bHeatmapFound)
     {
-        // Use GCurrentAutomationTestBase to record the result.
-        // GetCurrentTest() is the standard pattern for latent commands
-        // that need to assert without holding a Test* parameter.
+        // Hard assert: TestNotNull equivalent via AddInfo (actor IS found = success).
+        // The FAutomationTestFramework pattern gives us the current test for assertions.
         if (FAutomationTestBase* CurrentTest = FAutomationTestFramework::Get().GetCurrentTest())
         {
             CurrentTest->AddInfo(
-                TEXT("SC4 [VERIFIED]: AFrameUtilizationHeatmapActor found in PIE world after solve."));
+                TEXT("SC4 [VERIFIED]: AFrameUtilizationHeatmapActor found in PIE world after solve. "
+                     "Hard assert passed (AS-42-u1 #7a bounded-poll upgrade)."));
         }
-    }
-    else
-    {
-        // Best-effort warning — not a hard test failure.
-        // The 500 ms wait may be insufficient on a slow host. The important
-        // signal is that Steps 1-3 completed cleanly (PIE up, widget spawned,
-        // solve dispatched).
-        if (FAutomationTestBase* CurrentTest = FAutomationTestFramework::Get().GetCurrentTest())
-        {
-            CurrentTest->AddWarning(
-                TEXT("SC4 [NEW CODE, PIE required]: AFrameUtilizationHeatmapActor not found "
-                     "after 500 ms wait. Possible causes: (a) solve debounce > 500 ms on this host, "
-                     "(b) HeatmapActor spawn failed silently, (c) PIE teardown already began. "
-                     "Not a hard failure — smoke completion (screenshot) is the primary gate."));
-        }
+        return true;  // done — poll succeeded
     }
 
-    return true;
+    // Actor not found yet. If we still have poll ticks remaining, yield (return false)
+    // so the automation framework calls us again next tick.
+    if (PollMaxTicks > 0)
+    {
+        --PollMaxTicks;  // decrement (the parameter is a copy per DEFINE_LATENT_*_ONE_PARAMETER)
+        return false;    // retry next tick
+    }
+
+    // Poll budget exhausted. Hard assert: actor MUST be present after this many ticks.
+    // AS-42-u1 (#7a): upgraded from AddWarning to AddError (hard failure).
+    // If this flakes on a slow host, see "Flake-back plan" in the comment above.
+    if (FAutomationTestBase* CurrentTest = FAutomationTestFramework::Get().GetCurrentTest())
+    {
+        CurrentTest->AddError(
+            TEXT("SC4 [HARD FAIL]: AFrameUtilizationHeatmapActor NOT found after "
+                 "500ms Step-5 wait + ~3s bounded poll. "
+                 "Possible causes: (a) solve debounce > 3.5s (pathological), "
+                 "(b) HeatmapActor spawn threw silently (check LogArchSim), "
+                 "(c) OnSolveComplete delegate not firing (LDLT singular / mechanism), "
+                 "(d) RequestSolveAndVisualize returned false in SC3. "
+                 "AS-42-u1 #7a: this is now a hard gate failure. "
+                 "If you see this on a slow CI host, check ArchSim.log for "
+                 "LogArchSim Solve + HeatmapActor spawn entries."));
+    }
+    return true;  // done — poll budget exhausted, error recorded
 }
 
 // ---------------------------------------------------------------------------
@@ -384,8 +421,11 @@ bool FArchSimPortalFramePIESmokeTest::RunTest(const FString& Parameters)
     // in the OnSolveComplete delegate. 500 ms is generous margin.
     ADD_LATENT_AUTOMATION_COMMAND(FEngineWaitLatentCommand(0.5f));
 
-    // Step 6: Verify HeatmapActor spawned (best-effort; AddWarning not TestFalse on miss).
-    ADD_LATENT_AUTOMATION_COMMAND(FVerifyHeatmapSpawnedCommand());
+    // Step 6: Verify HeatmapActor spawned — bounded-poll hard assert (AS-42-u1 #7a).
+    // PollMaxTicks=180: allows ~3s of additional grace after the 500ms Step-5 wait
+    // (at 60 fps each tick is ~16.7ms → 180 ticks ≈ 3s). Hard AddError on exhaustion.
+    // See FVerifyHeatmapSpawnedCommand comment for flake-back plan.
+    ADD_LATENT_AUTOMATION_COMMAND(FVerifyHeatmapSpawnedCommand(180));
 
     // Step 7: Capture screenshot of the PIE viewport.
     // Screenshot saved to Saved/Screenshots/ with name prefix "v0_5_x_pie_smoke".

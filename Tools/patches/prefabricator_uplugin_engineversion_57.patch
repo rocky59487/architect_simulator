@@ -1,0 +1,12 @@
+diff --git a/Prefabricator.uplugin b/Prefabricator.uplugin
+index 2d37163..2f39016 100644
+--- a/Prefabricator.uplugin
++++ b/Prefabricator.uplugin
+@@ -10,6 +10,7 @@
+ 	"DocsURL": "http://docs.prefabricator.dev",
+ 	"MarketplaceURL": "com.epicgames.launcher://ue/marketplace/content/39ccbbf668e84847890992df9922e355",
+ 	"SupportURL": "",
++	"EngineVersion": "5.7.0",
+ 	"CanContainContent": true,
+ 	"Installed": true,
+ 	"Modules": [

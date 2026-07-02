@@ -11,35 +11,33 @@ then apply the patches below.
 
 ---
 
-## Apply all patches (one-shot)
+## Apply mechanism
 
-From the repo root:
+All 4 patches in this directory use `git apply --directory=<PluginDir>`:
 
-```bash
-for p in Tools/patches/*.patch; do
-    echo "Applying $p"
-    git apply "$p" || { echo "FAILED on $p"; exit 1; }
-done
-```
+| Patch | Apply method |
+|---|---|
+| `als_l400_animinstance_guard.patch` | `git apply --directory=Plugins/ALS <patch>` |
+| `spud_uplugin_engineversion_57.patch` | `git apply --directory=Plugins/SPUD <patch>` |
+| `suqs_uplugin_engineversion_57.patch` | `git apply --directory=Plugins/SUQS <patch>` |
+| `prefabricator_uplugin_engineversion_57.patch` | `git apply --directory=Plugins/Prefabricator <patch>` |
 
-Or on POSIX without git:
+**Automated setup (recommended):** `Scripts/setup_third_party.ps1` handles all 4 plugins
+including SHA verification, patch apply, and fingerprint verification. See `docs/THIRD_PARTY.md`
+for the full manifest.
 
-```bash
-for p in Tools/patches/*.patch; do
-    echo "Applying $p"
-    patch -p1 < "$p" || { echo "FAILED on $p"; exit 1; }
-done
-```
-
-PowerShell equivalent:
+**Manual apply for all 4 patches (from repo root):**
 
 ```powershell
-Get-ChildItem Tools/patches/*.patch | ForEach-Object {
-    Write-Host "Applying $_"
-    & git apply $_.FullName
-    if ($LASTEXITCODE -ne 0) { throw "FAILED on $_" }
-}
+git apply --directory=Plugins/ALS          Tools/patches/als_l400_animinstance_guard.patch
+git apply --directory=Plugins/SPUD         Tools/patches/spud_uplugin_engineversion_57.patch
+git apply --directory=Plugins/SUQS         Tools/patches/suqs_uplugin_engineversion_57.patch
+git apply --directory=Plugins/Prefabricator Tools/patches/prefabricator_uplugin_engineversion_57.patch
 ```
+
+Note: the ALS patch applies as a working-tree change in the nested ALS git repo (not a
+commit). This is intentional — the ALS plugin is untracked by convention and patching
+its working tree keeps the upstream git history clean.
 
 ---
 
@@ -66,14 +64,23 @@ at runtime-late timing (after ALS plugin content is mounted). The L400 guard
 is a defensive second line of safety for headless / fixture builds where
 plugin content may not be loaded.
 
-**Apply:**
+**Apply (from repo root):**
 
-```bash
-cd <ArchSim repo root>
-git apply Tools/patches/als_l400_animinstance_guard.patch
+```powershell
+git apply --directory=Plugins/ALS Tools/patches/als_l400_animinstance_guard.patch
 ```
 
-**Verify after apply:** Read `Plugins/ALS/Source/ALS/Private/AlsCharacter.cpp` L411 — should now read `if (AnimationInstance.IsValid()) { AnimationInstance->MarkPendingUpdate(); }` wrapped in 11-line WHY comment block above.
+The patch applies as a working-tree change in the nested ALS git repo (not a commit).
+`Scripts/setup_third_party.ps1` handles this automatically on fresh clone.
+`run_gate.ps1` precondition check verifies the fingerprint before legs run.
+
+*(Note: an earlier version of this patch file (pre-v0.6.1 iter2) had a corrupt blank
+context line and required manual apply. The file was regenerated in AS-39-u1 iteration 2
+and is now a clean `git diff` output that applies without issues.)*
+
+**Verify after apply:** Read `Plugins/ALS/Source/ALS/Private/AlsCharacter.cpp`
+in the `!bMeshIsTicking` block — should contain `if (AnimationInstance.IsValid())`
+and a `// FIX(v0.5.0 U-ALS` WHY comment block above.
 
 **Verify with build:**
 
@@ -88,6 +95,62 @@ Then in UE Editor:
 2. Press Play (PIE)
 3. Observe Output Log — should see `AArchSimCharacter [ALS] (...): Settings loaded: 0x...` lines
 4. Character should spawn (ALS Manny mesh) without crash and be movable
+
+---
+
+### `spud_uplugin_engineversion_57.patch` (v0.6.1 — AS-39-u1)
+
+**Target:** `Plugins/SPUD/SPUD.uplugin`
+**Plugin version assumed:** SPUD at SHA `a7a63863` (sinbad/SPUD)
+
+**Why required:** Upstream SPUD at pinned SHA does not declare `"EngineVersion"` in
+its `.uplugin`. UE 5.7 emits a compatibility warning at plugin load time when this
+field is absent. Adding `"EngineVersion": "5.7.0"` suppresses the warning and
+confirms UE 5.7 compatibility.
+
+**Apply (from repo root):**
+```powershell
+git apply --directory=Plugins/SPUD Tools/patches/spud_uplugin_engineversion_57.patch
+```
+
+**Verify after apply:** `Plugins/SPUD/SPUD.uplugin` should contain `"EngineVersion" : "5.7.0"`
+between `"SupportURL"` and `"EnabledByDefault"`.
+
+---
+
+### `suqs_uplugin_engineversion_57.patch` (v0.6.1 — AS-39-u1)
+
+**Target:** `Plugins/SUQS/SUQS.uplugin`
+**Plugin version assumed:** SUQS at SHA `284b85d3` (sinbad/SUQS)
+
+**Why required:** Same as SPUD — upstream SUQS at pinned SHA lacks `"EngineVersion"`.
+Adding `"EngineVersion": "5.7.0"` suppresses UE 5.7 load-time warning.
+
+**Apply (from repo root):**
+```powershell
+git apply --directory=Plugins/SUQS Tools/patches/suqs_uplugin_engineversion_57.patch
+```
+
+**Verify after apply:** `Plugins/SUQS/SUQS.uplugin` should contain `"EngineVersion" : "5.7.0"`
+between `"SupportURL"` and `"EnabledByDefault"`.
+
+---
+
+### `prefabricator_uplugin_engineversion_57.patch` (v0.6.1 — AS-39-u1)
+
+**Target:** `Plugins/Prefabricator/Prefabricator.uplugin`
+**Plugin version assumed:** Prefabricator at SHA `b7ef0a73` (unknownworlds/prefabricator-ue5)
+
+**Why required:** Same family as SPUD/SUQS — upstream Prefabricator at pinned SHA
+lacks `"EngineVersion"`. Adding `"EngineVersion": "5.7.0"` suppresses UE 5.7 warning.
+
+**Apply (from repo root):**
+```powershell
+git apply --directory=Plugins/Prefabricator Tools/patches/prefabricator_uplugin_engineversion_57.patch
+```
+
+**Verify after apply:** `Plugins/Prefabricator/Prefabricator.uplugin` should contain
+`"EngineVersion": "5.7.0"` between `"SupportURL"` and `"CanContainContent"`.
 
 ---
 
@@ -113,9 +176,11 @@ When a new patch is required:
 ## Why this directory exists
 
 The `Plugins/<X>/` directories for third-party UE plugins (ALS-Refactored,
-SPUD, SUQS, Prefabricator, etc.) are large (200 MB – 1 GB each) and never
-tracked in this repo by convention (see `.gitignore` and `docs/ARCHITECTURE_INDEX.md`
-§ 4). They're installed manually per project setup instructions. When ArchSim
+SPUD, SUQS, Prefabricator, etc.) are large (200 MB – 1 GB each) and
+**untracked by convention** in this repo (from never being `git add`-ed; they
+are NOT excluded by `.gitignore` — `git check-ignore -v Plugins/ALS` exits 1).
+See `docs/ARCHITECTURE_INDEX.md` § 4 and `docs/THIRD_PARTY.md` for the full
+manifest. They're installed manually per project setup instructions. When ArchSim
 needs to patch upstream code (e.g. to fix a plugin bug or work around a
 behavior expected by ArchSim), the patch is committed here so:
 
