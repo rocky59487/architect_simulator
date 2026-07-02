@@ -79,14 +79,20 @@ if (-not (Test-Path $UProj)) {
 # absent and the test crashes (observed 2026-06-28). Leg 2 of run_gate.ps1 is
 # explicitly filtered to exclude ArchSim.PIE.* for this reason.
 
-# NIT 3: record log timestamp BEFORE launch so we can detect a stale log later.
+# NIT 3: record log timestamp + length BEFORE launch so we can detect a stale log later.
 # WHY: if UnrealEditor-Cmd exits before writing the log (e.g. DLL load failure),
 # the parser reads the PREVIOUS session's log and may return a false PASS.
-# MinValue = sentinel for "log file did not exist before this run".
-$PreRunStampUtc = if (Test-Path -LiteralPath $Log) {
-    (Get-Item -LiteralPath $Log).LastWriteTimeUtc
-} else {
-    [DateTime]::MinValue
+# MinValue / -1 = sentinels for "log file did not exist before this run".
+# WHY length too (v0.5.3): timestamp-only comparison produced a same-timestamp
+# false FAIL on a real run (NTFS write-time granularity/caching; predicted by the
+# NITS-u1 review, observed same day during AS-37-u2). A genuinely stale log has
+# BOTH unchanged time AND unchanged length; a real UE run always changes length.
+$PreRunStampUtc = [DateTime]::MinValue
+$PreRunLength   = -1
+if (Test-Path -LiteralPath $Log) {
+    $PreRunItem     = Get-Item -LiteralPath $Log
+    $PreRunStampUtc = $PreRunItem.LastWriteTimeUtc
+    $PreRunLength   = $PreRunItem.Length
 }
 
 Write-Host "PIE gate: launching UnrealEditor-Cmd for ArchSim.PIE.PortalFrameSmoke..."
@@ -104,11 +110,16 @@ Write-Host "PIE gate: launching UnrealEditor-Cmd for ArchSim.PIE.PortalFrameSmok
 #   constraint that prevents inline stdout parsing anyway.
 
 # NIT 3: verify log was actually written by THIS run (not the previous session).
+# Stale = time did NOT advance AND length did NOT change (see WHY above the
+# pre-run capture). Either signal moving means UE really wrote this log.
 if (Test-Path -LiteralPath $Log) {
-    $PostRunStampUtc = (Get-Item -LiteralPath $Log).LastWriteTimeUtc
-    if ($PostRunStampUtc -le $PreRunStampUtc) {
+    $PostRunItem     = Get-Item -LiteralPath $Log
+    $PostRunStampUtc = $PostRunItem.LastWriteTimeUtc
+    $PostRunLength   = $PostRunItem.Length
+    if (($PostRunStampUtc -le $PreRunStampUtc) -and ($PostRunLength -eq $PreRunLength)) {
         Write-Host ("PIE gate: STALE LOG detected -- log was not updated by this run. " +
-                    "pre=$($PreRunStampUtc.ToString('o')) post=$($PostRunStampUtc.ToString('o')). " +
+                    "pre=$($PreRunStampUtc.ToString('o'))/len=$PreRunLength " +
+                    "post=$($PostRunStampUtc.ToString('o'))/len=$PostRunLength. " +
                     "UnrealEditor-Cmd may have crashed before writing. Treating as FAIL.") `
             -ForegroundColor Red
         exit 1

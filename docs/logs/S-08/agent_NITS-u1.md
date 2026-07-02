@@ -96,6 +96,6 @@ None
 
 ## Phase 4: Release-hardening 2026-07-02T0250Z(commit-only checkpoint)
 
-**Commit:** (見下)— feature commit,無 tag(v0.5.3 於 AS-37-u2 收時補)
+**Commit:** `a016486`(feature commit,無 tag;v0.5.3 tag 於 AS-37-u2 收後補於後續 release commit)
 **Integrator small-fixes:** 上述 2 項 comment/string 修正
 **Gate 狀態:** 6-leg gate PASS(subagent 收尾跑)+ leg 6 單跑 PASS(small-fix 後 drift-guard)

@@ -46,6 +46,10 @@
 class UArchSimModelRegistry;
 class AArchSimCharacter;
 
+#if WITH_DEV_AUTOMATION_TESTS && WITH_EDITOR
+class FAutomationTestBase;  // forward-decl; caller passes Test* for AddInfo/AddWarning
+#endif
+
 namespace ArchSimPieHarness
 {
     // Returns the first valid UWorld from GEngine's contexts.
@@ -88,5 +92,41 @@ namespace ArchSimPieHarness
             ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
         return World->SpawnActor<T>(T::StaticClass(), FTransform::Identity, Params);
     }
+
+#if WITH_DEV_AUTOMATION_TESTS && WITH_EDITOR
+    // OverrideGameModeForSafePIE — sidestep the ALS commandlet-PIE crash.
+    //
+    // WHY this helper exists (AS-37-u1 crash chain):
+    //   GlobalDefaultGameMode=ArchSimGameMode spawns AArchSimCharacter (ALS subclass)
+    //   on PIE start. In UnrealEditor-Cmd commandlet mode, AssetRegistry finishes
+    //   mounting `/ALS/` plugin content AFTER the pawn-spawn timing window, so all
+    //   four LoadObject<T>() calls in AArchSimCharacter::LoadAlsAssetsLate() fail
+    //   (CDO and spawn rounds). ALS then fires without null-guarding:
+    //     AlsCharacterMovementComponent.cpp:L894 (SetMovementSettings) — FIRST ensure hit
+    //     AlsCharacterMovementComponent.cpp:L903 (RefreshGaitSettings)
+    //     AlsCharacter.cpp:L526 (NotifyLocomotionModeChanged) — EXCEPTION_ACCESS_VIOLATION
+    //   Crash log: Saved/Crashes/UECC-Windows-7ECCED384D44B2CCD56A45B7F390734D_0002
+    //   Severity: commandlet-only (cooked/pak packaging not affected;
+    //             Dev -game without pak — unverified caveat).
+    //
+    // WHY AGameModeBase (not nullptr):
+    //   WorldSettings.DefaultGameMode = nullptr falls back to GlobalDefaultGameMode
+    //   (Config/DefaultEngine.ini). An explicit non-ArchSim class is required.
+    //   AGameModeBase is always linked (part of Engine), spawns no Pawn, has no ALS dep.
+    //
+    // WHY CreateNewMap() is called before the override:
+    //   The test runner may start on a map that already has ALS actors placed in it.
+    //   A blank map + explicit GameMode override gives a clean slate.
+    //
+    // FUTURE RULE:
+    //   All commandlet PIE tests (including AS-08-u2 SPUD smoke) MUST call this
+    //   helper in their RunTest() pre-step, unless the test goal is specifically to
+    //   exercise ALS character behaviour.
+    //
+    // Returns true if the blank map + override succeeded; false otherwise.
+    // On failure the caller should AddError and return false from RunTest().
+    // Test* is accepted for AddInfo/AddWarning diagnostics (may be nullptr, guarded).
+    bool OverrideGameModeForSafePIE(FAutomationTestBase* Test = nullptr);
+#endif // WITH_DEV_AUTOMATION_TESTS && WITH_EDITOR
 
 } // namespace ArchSimPieHarness

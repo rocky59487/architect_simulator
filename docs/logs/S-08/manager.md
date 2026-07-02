@@ -64,3 +64,19 @@ Reviewer 逐 claim 對 log 檔與 git diff:149 tests / SC8-SC9 / SC2b / SC4 / sc
 - **⚠️ Process violation 記錄:** subagent tool calls **214/40(5.3×)**、wall 23.4/20min、tokens at cap,全程無 ESCALATE。裁定:工作品質達標(reviewer 機械驗證通過)→ 接受;違規記錄於此。**校準教訓(三點資料):32/100(AS-36)/ 67/60(AS-37-u1)/ 214/40(NITS-u1)— 凡 unit 收尾要跑全 gate,call 預算下限 ~80;「每次 gate ≈ 10-30 calls」係數必須計入;Phase 1 planning 的 cosmetic 40-call 預算是系統性低估**
 - **Tag 裁定:** 依 plan「隨後續 tag」授權,NITS-u1 commit-only;v0.5.3 於 AS-37-u2 收時一併 tag(兩 unit 同屬 PIE-infra 小項)
 - **Next:** AS-37-u2 dispatch
+
+---
+
+## 2026-07-02T0400Z — AS-37-u2 accepted with NITS → shipped as v0.5.3(與 NITS-u1 合併 tag)
+
+- **Verdict:** NITS(3 findings + 2 missed edges,無 BLOCKER;行為近恆等 — 唯 TestNotNull structured record 消失)
+- **Integrator small-fixes(Phase 4,全數 oracle-backed):**
+  1. helper 補 `Test->TestNotNull(...)` 恢復 inline 完整 parity + 修 misleading comment(AS-37-u2 review #1/#2)
+  2. ARCH_INDEX L252 AS-35 row sidestep 描述 → helper 指標(review missed edge)
+  3. **run_pie_gate.ps1 stale guard 加 length 條件**(same-timestamp 偽陽性當天應驗 NITS-u1 reviewer 預言;stale = time 未進 AND length 未變);scratch oracle 4/4 分支 PASS
+- **Gate:** 6-leg GATE: PASS(2026-07-02 03:02 UTC fresh,含修訂版 guard live 驗證)
+- **Budget:** AS-37-u2 subagent 37/90 calls、22.3/25 min、108K/200K — **校準後首個全額度內 unit**
+- **AS-37 正式 closed:** (a)+(b-1) 落地;commandlet-only + Dev `-game` caveat 記錄;未來 PIE test 規約(必用 `OverrideGameModeForSafePIE`)入 ARCH_INDEX
+- **Tag:** v0.5.3(NITS-u1 `a016486` + AS-37-u2 + integrator fixes)
+- **Publish status:** awaiting user
+- **Next:** AS-08-u1(SPUD save/load 生產接線)

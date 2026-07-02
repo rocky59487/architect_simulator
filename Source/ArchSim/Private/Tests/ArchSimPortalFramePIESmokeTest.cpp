@@ -56,6 +56,7 @@
 #include "UnrealClient.h"                              // FScreenshotRequest::RequestScreenshot
 #include "Editor/ArchSimScenarioWidget.h"
 #include "Subsystems/ArchSimModelRegistry.h"
+#include "Tests/ArchSimPieHarness.h"                  // OverrideGameModeForSafePIE
 
 // ---------------------------------------------------------------------------
 // Step 4 latent command: drive the portal frame smoke flow.
@@ -348,47 +349,15 @@ bool FArchSimPortalFramePIESmokeTest::RunTest(const FString& Parameters)
     // Pre-step: switch to a blank Editor map and override WorldSettings.DefaultGameMode
     // so PIE uses AGameModeBase (no Pawn spawn) instead of ArchSimGameMode (ALS pawn).
     //
-    // WHY override GameMode:
-    //   GlobalDefaultGameMode=ArchSimGameMode spawns AArchSimCharacter (ALS subclass)
-    //   on PIE start. In UnrealEditor-Cmd commandlet mode, ALS plugin content
-    //   (SKM_Als / CS_Als_Default / MS_Als_Normal / AB_Als_C) fails to mount via
-    //   LoadObject<T>() during PostInitProperties/BeginPlay timing, leaving
-    //   MovementSettings null. ALS::NotifyLocomotionModeChanged then crashes with
-    //   EXCEPTION_ACCESS_VIOLATION (observed in ArchSim.log, 2026-06-28 09:53:41).
+    // WHY: see ArchSimPieHarness::OverrideGameModeForSafePIE() for full crash chain
+    //   (AS-37-u1: AlsCharacterMovementComponent.cpp:L894/L903 + AlsCharacter.cpp:L526,
+    //    commandlet-only EXCEPTION_ACCESS_VIOLATION).
     //
-    // WHY AGameModeBase (not nullptr):
-    //   WorldSettings.DefaultGameMode = nullptr still falls back to GlobalDefaultGameMode
-    //   (Config/DefaultEngine.ini). We need an explicit non-ArchSim class. AGameModeBase
-    //   is always linked (part of Engine), spawns no Pawn, and has no ALS dependency.
-    //
-    // WHY CreateNewMap() first:
-    //   The test runner may start on a map that already has ALS actors placed in it.
-    //   A blank map + explicit GameMode override gives us a clean slate.
-    //
-    // SCOPE: This is contained inside the new test .cpp file (§5 deliverable scope).
+    // SCOPE: This is contained inside the test .cpp file (test-side only).
     //   No production files, Config, or FROZEN paths are touched.
+    if (!ArchSimPieHarness::OverrideGameModeForSafePIE(this))
     {
-        UWorld* NewWorld = FAutomationEditorCommonUtils::CreateNewMap();
-        if (!TestNotNull(TEXT("Pre-step: CreateNewMap() returned non-null Editor world"), NewWorld))
-        {
-            AddError(TEXT("Pre-step: Cannot proceed — no blank Editor world created."));
-            return false;
-        }
-
-        // Override WorldSettings.DefaultGameMode on the new blank world.
-        // This makes PIE use AGameModeBase, which spawns no Pawn and has no ALS dep.
-        AWorldSettings* WS = NewWorld->GetWorldSettings();
-        if (WS)
-        {
-            WS->DefaultGameMode = AGameModeBase::StaticClass();
-            AddInfo(TEXT("Pre-step [VERIFIED]: WorldSettings.DefaultGameMode → AGameModeBase. "
-                         "PIE will not spawn ALS character, avoiding commandlet-mode ALS content crash."));
-        }
-        else
-        {
-            AddWarning(TEXT("Pre-step: WorldSettings null on new map — "
-                            "PIE may still spawn ALS character and crash."));
-        }
+        return false;  // AddError already emitted by helper
     }
 
     // Step 1: Start real PIE (false = NOT Simulate; ALS pawn needs PlayerController).
