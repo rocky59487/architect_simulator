@@ -73,3 +73,57 @@ Plan: docs/logs/S-09/plan_20260702-2000.md(5 units + Phase 4 單一 tag)
 - NIT 記錄:**虛報預算**(自稱 ~45 calls 實為 73)— S-09 首例 false self-report(先前三次為 silent overrun);retrospective 需記「budget 自報不可信,以 usage 元數據為準」。
 - 流向 Phase 4:$ExpectedUeTests 157→165 authoritative sync;GetSupportCount v1-only 註解;AddExpectedError 字串收緊(optional);FrameCoreUE 77 vs 76 declaration ±1 由 gate 實跑定案。
 - **10 findings 處置總覽:** #1 ✓(AS-39 reproducibility 閉環)/ #2 ✓(ERRATA + 誠實描述)/ #3 ✓(guards + PIE SC_E1)/ #4 ✓(pre-check + contract)/ #5 ✓(sidecar v2 全欄位)/ #6 ✓(per-test + freshness)/ #7 ✓(硬斷言 + tracked-set)/ #8 ✓(Reset/invalidation/non-finite)/ #9 ✓(orphan destroy)/ #10 ✓(docs sync);+ AS-38 ✓。全部 verify-first 核實為真 bug,零 false-positive。
+
+## 2026-07-02(深夜)— Phase 4 release-hardening → **v0.6.1 PUBLISHED**
+
+- 整合編輯:$ExpectedUeTests 157→165(+S-09 +8 count-history)/ GetSupportCount v1-only 註解 / AddExpectedError 收緊明確跳過(accepted NIT,綠測前夕不動 match 字串)。
+- Sweep(縮減版 Phase 1:E docs/comments + G repro/privacy;正確性已由 5 輪 per-unit review 覆蓋):G 抓 build_output.txt/build_log.txt(session scratch 含機器路徑,已刪;.gitignore 未動)+ 2 個 comment 示例路徑佔位化;E 抓 F-01 斷鏈(寫 HANDOFF/RELEASE 後自解)+ F-02/03/04 一行級修(F-05 TODO(AS-12) 不採,有記錄)。
+- **完整 6-leg gate:GATE: PASS**(standalone ALL PASS / **UE 165 exit 0** / OpenSees PASS / audit 104 / CLI ALL PASS / PIE ×2 逐名 [PASS] + screenshot freshness)。
+- Sweep 後 4 處註解/字串編輯 → incremental rebuild Succeeded + **raw PIE commandlet 重驗**(2× Result={成功} + EXIT 0 + screenshot 23:26)— 維持 gated-binary == shipped-source。
+- 過程事故:script 包裝的 leg 6 在巢狀 `powershell -File` + 相對路徑參數下兩次瞬退無 log(editor 未寫 log 即退)→ 絕對路徑 raw run 全綠定位為包裝層脆弱性 → **SCRIPT-PATH-01** deferred(RELEASE/HANDOFF 都有 first action)。
+- Phase 4.5 integrator pass:165/163 五文檔一致 / FROZEN + never-touch 0 行 / scratch 指紋零命中(含 S-09 sprint logs)/ deferred backlink RELEASE↔HANDOFF 對齊 / anchors 存在 / HANDOFF cold-read 可行動。
+- **Phase 5(git):commit `b4f02ea`(32 files,+4772/-436,顯式 add)→ tag v0.6.1 → push main+tag → gh release create → Latest badge + CJK 渲染確認。**
+- Release URL: https://github.com/rocky59487/architect_simulator/releases/tag/v0.6.1
+
+═════════════════════════════════════════════════════════════════
+## SESSION CLOSE — 2026-07-02(深夜)
+═════════════════════════════════════════════════════════════════
+
+**Mode:** B(single patch;5 units aggregate 進單一 tag,無 minor bump)
+**Final tag:** v0.6.1(commit `b4f02ea`,published Latest)
+**Session duration:** ~4h(19:50 Phase 0 → 23:50 close)
+**Tasks scoped:** 5 units(10 findings + AS-38)/ **accepted & shipped: 5/5** / deferred: 0 scope 內(4 個新 deferred ID 皆為 review 衍生強化項,非 scope 遺留)
+
+### Tags shipped this session
+| # | Tag | Units | Verdict 路徑 | Notes |
+|---|---|---|---|---|
+| 1 | v0.6.1 | AS-39(2 iter)+ AS-40(1)+ AS-41(3 iter)+ AS-42(1)+ AS-43(1) | NITS ×4 + BLOCKER→NITS ×1 | 單一 aggregate commit(32 files,+4772/-436);6-leg gate GATE: PASS(UE 165) |
+
+### Adversarial review summary
+- Formal reviews:6(AS-39 i1/i2、AS-40 i1 正審+rogue-child 交叉、AS-41 i2 code、AS-42)+ release sweeps ×2(E docs / G repro-privacy)+ 主對話 expedited/spot-check ×3(AS-41 i1 BLOCKER 鑑識、AS-41 i3、AS-43)
+- BLOCKER cycles:1(AS-41 i1 — verification 層崩壞,log 鑑識推翻「pre-existing」claim)
+- 最高價值 catches:①AS-40 的 #3/#4/#9 [VERIFIED] 過度宣稱(GI-null early-return 遮蔽 guard 本體)→ 誠實重標 + AS-42 PIE 直測;②AS-41 盤點表宣稱 bTensionOnly/Release 已涵蓋但碼未 wire → i3 真 wire;③既有 ALS patch 格式毀損(fresh clone 不可 apply)→ 重生成;④rogue-child review 貢獻 DeactivateMember count-mismatch 邊界 → v2 設計吸收
+- False-positive 誤報被主對話直接證據推翻 ×3(AS-38a「未落地」= reviewer 用 git diff HEAD~N;SaveLoadPIESmokeTest「被改」= 誤讀;world-null「regression」= boot 噪音,三 log 鑑識)
+
+### Durable lessons(已寫入 frame-engine-next-plan memory v0.6.1 錨點 + HANDOFF_v0.6.1 §5)
+1. 測試證據 = automation controller verdict(Result= 行 + EXIT CODE),agent 的 Display print 不算。
+2. 「pre-existing failure」必附 baseline log 對照;本專案有 boot-smoke 噪音模式(Found 行之前的失敗不計)。
+3. Canonical 指令 verbatim 鎖進 dispatch prompt(-NoShaderCompile 事故)。
+4. Budget:clone/gate 型 unit call +50% 起;**自報數字不可信,以 usage 元數據為準**(AS-43 虛報 45 實 73)。
+5. Review prompt 必須指明 diff 基準 = working tree(git diff HEAD~N 誤報 ×2)。
+6. Patch 檔的「語意」與「檔案格式」是兩回事;可自動 apply 才算 reproducibility。
+7. (新)script 包裝層對相對路徑參數的脆弱性要在入口 Resolve-Path(SCRIPT-PATH-01;raw commandlet 絕對路徑是 debug 對照組)。
+8. (skill 維護建議,非本 session 執行)work-phase-2 SUBAGENT_TEMPLATE 應把「controller-verdict 證據標準」與「canonical 指令鎖定」直接烙進模板,而非逐次手寫。
+
+### Deferred to next session(全部 review 衍生強化,有 audit ID + HANDOFF first action)
+- SCRIPT-PATH-01 / E-02 / E-03 / V2-MIG-01 / NIT-EE-01(見 RELEASE_v0.6.1 Deferred 區)
+
+### Recommended next-session scope(對齊 roadmap-v0-6-x memory:v0.6.x 收 backlog,v0.7 開基礎建設)
+- **Goal:** v0.6.2 = deferred 清空(SCRIPT-PATH-01 + NIT-EE-01 半小時級;V2-MIG-01 一小時級;E-02/E-03 spike 半天級)+ AS-29(LOW)機會性收
+- **前置(human,不佔 /work):** human 驗證日 P1..P15 + P10/P11 + save/load 體感(sidecar v2 後首次)— student-trial readiness 的 canonical gate
+- **Risk:** Safe;**Audience:** 同 S-09
+- **Anti-goals:** 不開 v0.7 基礎建設;不動 FROZEN
+
+### State at close
+- state file → idle;sprint logs:docs/logs/S-09/(scope/plan/manager + agent×5)
+- 本 session 全部 tags published;無 in-flight、無 parked escalation
