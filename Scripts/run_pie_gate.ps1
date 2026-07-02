@@ -89,15 +89,40 @@ if (-not (Test-Path $UProj)) {
 # BOTH unchanged time AND unchanged length; a real UE run always changes length.
 $PreRunStampUtc = [DateTime]::MinValue
 $PreRunLength   = -1
+
+# AS-08-u2: Pre-run log cleanup to guarantee UE writes to ArchSim.log (not ArchSim_2.log etc).
+# WHY: UE 5.7 appends _2, _3 suffix when it finds an existing ArchSim.log at startup.
+# run_pie_gate.ps1 hardcodes reading Saved\Logs\ArchSim.log. If a previous UE session left
+# ArchSim.log and ArchSim_2.log on disk, the new run may write to ArchSim_2.log while we
+# parse ArchSim.log (wrong file) → false FAIL. Fix: remove the live logs before launch so UE
+# always starts fresh with ArchSim.log. Backup logs (ArchSim-backup-*.log) are not affected.
+$LogDir = Split-Path $Log -Parent
+Get-ChildItem -Path $LogDir -Filter "ArchSim*.log" -ErrorAction SilentlyContinue |
+    Where-Object { $_.Name -notmatch '-backup-' } |
+    ForEach-Object {
+        Write-Host ("PIE gate: removing pre-existing log: {0}" -f $_.Name)
+        Remove-Item -LiteralPath $_.FullName -Force -ErrorAction SilentlyContinue
+    }
+
 if (Test-Path -LiteralPath $Log) {
     $PreRunItem     = Get-Item -LiteralPath $Log
     $PreRunStampUtc = $PreRunItem.LastWriteTimeUtc
     $PreRunLength   = $PreRunItem.Length
 }
+# NOTE (AS-08-u2 review #2): after the cleanup above the live log usually does NOT
+# exist, so $PreRunStampUtc stays MinValue / $PreRunLength stays -1 — that is the
+# expected "fresh" sentinel, and the post-run Test-Path guard below covers the
+# "UE died before writing anything" case. Not a stale-guard hole.
 
-Write-Host "PIE gate: launching UnrealEditor-Cmd for ArchSim.PIE.PortalFrameSmoke..."
+Write-Host "PIE gate: launching UnrealEditor-Cmd for ArchSim.PIE (all PIE tests)..."
+# AS-08-u2: changed from single test to whole ArchSim.PIE category.
+# RunTests accepts '+'-delimited names OR a single category prefix that matches all
+# tests in the category. "ArchSim.PIE" matches ArchSim.PIE.PortalFrameSmoke AND
+# ArchSim.PIE.SaveLoadSmoke (and any future ArchSim.PIE.* additions).
+# WHY not '+'-join: category prefix is cleaner for an open-ended test namespace.
+# The authoritative PASS signal is still EXIT CODE: 0 (all tests passed).
 & $UeCmd $UProj `
-    '-ExecCmds=Automation RunTests ArchSim.PIE.PortalFrameSmoke; Quit' `
+    '-ExecCmds=Automation RunTests ArchSim.PIE; Quit' `
     -unattended -nopause -nosplash -log | Out-Null
 # WHY | Out-Null (NativeCommandError discipline — same pattern as run_gate.ps1 leg 2):
 #   PowerShell 5.1 pipelines native exe stdout/stderr through the PS object pipeline.
@@ -109,9 +134,40 @@ Write-Host "PIE gate: launching UnrealEditor-Cmd for ArchSim.PIE.PortalFrameSmok
 #   See also: LOCALE NOTE below (parse section) for the parallel CJK regex
 #   constraint that prevents inline stdout parsing anyway.
 
-# NIT 3: verify log was actually written by THIS run (not the previous session).
-# Stale = time did NOT advance AND length did NOT change (see WHY above the
-# pre-run capture). Either signal moving means UE really wrote this log.
+# NIT 3 (AS-08-u2 extended): verify log was actually written by THIS run.
+# When multiple UE sessions run in parallel or back-to-back, UE may write to
+# ArchSim_2.log, ArchSim_3.log, etc. instead of ArchSim.log (suffix appended
+# when the base name already exists on disk). Scan ALL non-backup ArchSim*.log
+# files written AFTER the pre-run cleanup, pick the one containing THIS run's
+# ExecCmds line (or fall back to the newest file by mtime).
+$LogDir = Split-Path $Log -Parent
+$CandidateLogs = Get-ChildItem -Path $LogDir -Filter "ArchSim*.log" -ErrorAction SilentlyContinue |
+    Where-Object { $_.Name -notmatch '-backup-' } |
+    Sort-Object LastWriteTimeUtc -Descending
+
+# Find the best candidate: prefer a file that contains the test result or the ExecCmds marker.
+$ActiveLog = $null
+foreach ($Candidate in $CandidateLogs) {
+    $HasResult = (Select-String -Path $Candidate.FullName `
+        -Pattern 'TEST COMPLETE\. EXIT CODE:' -ErrorAction SilentlyContinue |
+        Select-Object -First 1)
+    if ($HasResult) {
+        $ActiveLog = $Candidate.FullName
+        Write-Host ("PIE gate: selected result log: {0}" -f $Candidate.Name)
+        break
+    }
+}
+if (-not $ActiveLog) {
+    # Fallback: newest log file (most recently written by UE).
+    if ($CandidateLogs) {
+        $ActiveLog = $CandidateLogs[0].FullName
+        Write-Host ("PIE gate: no result-bearing log found; using newest: {0}" -f $CandidateLogs[0].Name)
+    }
+}
+
+# Override $Log for all subsequent parse/stale-guard steps.
+if ($ActiveLog) { $Log = $ActiveLog }
+
 if (Test-Path -LiteralPath $Log) {
     $PostRunItem     = Get-Item -LiteralPath $Log
     $PostRunStampUtc = $PostRunItem.LastWriteTimeUtc
@@ -185,6 +241,10 @@ $ScreenshotPattern = Join-Path $Root 'Saved\Screenshots\WindowsEditor\v0_5_x_pie
 $LatestScreenshot  = Get-ChildItem $ScreenshotPattern -ErrorAction SilentlyContinue |
     Sort-Object LastWriteTime -Descending |
     Select-Object -First 1
+# MAINTENANCE NOTE (AS-08-u2 review #3): the screenshot is produced ONLY by
+# ArchSim.PIE.PortalFrameSmoke (FSafeEditorScreenshotCommand). SaveLoadSmoke does
+# not screenshot. If PortalFrameSmoke is ever removed or its screenshot path
+# changes, this check must move/adapt or leg 6 will false-FAIL.
 $ScreenshotOk = $LatestScreenshot -and ($LatestScreenshot.Length -ge 1024)
 
 # ---- verdict ----

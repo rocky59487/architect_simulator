@@ -180,7 +180,9 @@ Write-Host ("       CLI round-trip: {0} (exit {1})" -f $CliLine, $CliRC)
 # to the parent console, and trust only $LASTEXITCODE (0 = PASS, 1 = FAIL) for gate logic.
 # The PASS/FAIL summary is printed by run_pie_gate.ps1 itself; the gate verdict picks it up.
 Write-Host ''
-Write-Host '[6/6] PIE auto-smoke (ArchSim.PIE.PortalFrameSmoke)...'
+# AS-08-u2: run_pie_gate.ps1 now selects the whole ArchSim.PIE category
+# (PortalFrameSmoke + SaveLoadSmoke). Display header updated accordingly.
+Write-Host '[6/6] PIE auto-smoke (ArchSim.PIE.* — PortalFrameSmoke + SaveLoadSmoke)...'
 & (Join-Path $Root 'Scripts\run_pie_gate.ps1') -Root $Root -Engine $Engine -UProject $UProj
 $PieRC = $LASTEXITCODE
 Write-Host ("       PIE smoke overall: {0} (exit {1})" -f $(if ($PieRC -eq 0) { 'PASS' } else { 'FAIL' }), $PieRC)

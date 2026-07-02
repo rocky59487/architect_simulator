@@ -110,3 +110,33 @@ Reviewer 逐 claim 對 log 檔與 git diff:149 tests / SC8-SC9 / SC2b / SC4 / sc
 - **Gate:** 6-leg GATE: PASS(UE **153**;17:27-17:57 冷快取慢跑,兩次「卡死」判定中第二次實為慢 — watchdog 誤報教訓:verdict-file 輪詢要配 process/log 進度訊號雙判)
 - **Tag:** v0.5.4;**publish:** 直接發布(standing auth)
 - **Next:** AS-08-u2(SPUD PIE smoke,最後一 unit)→ Phase 6 close v0.6.0
+
+---
+
+## 2026-07-02T1200Z — SESSION CLOSE(S-08 → v0.6.0,Mode A)
+
+### Sprint 總結
+
+- **Scope 達成:4/4 任務全關**(AS-36 / AS-37(a)+(b-1) / v0.5.1 NITs ×3 / AS-08 u1+u2),7 個 dispatch(6 unit + 1 takeover 收尾),4 tags 全 published:v0.5.2 → v0.5.3 → v0.5.4 → **v0.6.0**。
+- **Engine FROZEN 0 行全程維持**;production 品質事故 0(所有 BLOCKER 級風險都在 review/takeover 攔下)。
+- **Review 統計**:6 輪 adversarial review 全 NITS(0 CLEAN、0 BLOCKER)— findings 全數 integrator small-fix 或 backlog 化;reviewer 兩度預言成真(stale-guard 偽陽性、誤歸因需查證)。
+
+### Durable lessons(全 sprint)
+
+1. **Budget 校準三點資料**:32/100 → 67/60 → 214/40;結論 = gate-running unit call 下限 80、wall 40min;已在後續 dispatch 生效(AS-37-u2 起全額度內)。
+2. **背景執行三律**(timeout 不強制 / tail 管線扣輸出 / 慢卡雙判)— 5 小時懸案 + 兩次誤判「卡死」換來的。
+3. **Subagent 違規兩模式**(偷 spawn ×2、停等監控 ×2)→ dispatch prompt 明文禁止 + 第三次主對話接管原則。
+4. **ExecCmds 引號蒸發簽名**(idle + 只有 init log + 無 automation 行)。
+5. **PIE latent 鏈不跨 OpenLevel** → replay-only 等效驗證模式。
+6. **殺程序前查 CommandLine**;**reviewer 誤歸因先查證再定罪**(S-07 遺留檔案案)。
+7. **收殘局模式**:iteration 2 fresh agent + 所有權轉移 KEEP/FIX/REWRITE(AS-08-u1 全 KEEP 成功案例)。
+
+### 下一 session(S-09)建議 scope
+
+Human 驗證日(P1..P15 + P10/P11 + save/load 體感)為主;AS-38 順手;PIE 深水區 spike 可選。詳見 HANDOFF_v0.6.0.md § 2。
+
+### Final state
+
+- Tag:v0.6.0(本 entry 之後 commit+tag+publish)
+- State file → idle
+- 無 in-flight、無 parked escalation
